@@ -102,6 +102,30 @@ export const api = {
     const { res, data } = await authReq('GET', '/auth/me');
     return res.ok ? data : null;
   },
+  async updateProfile(updates) {
+    const { res, data } = await authReq('PUT', '/auth/profile', updates);
+    if (!res.ok) throw new AuthError(data.error || res.statusText, data.code);
+    return data.user;
+  },
+  async uploadProfilePhoto(file) {
+    const token = getStoredToken();
+    if (!token) throw new AuthError('Not authenticated', 'NO_TOKEN');
+    
+    const formData = new FormData();
+    formData.append('photo', file);
+    
+    const res = await fetch('/api/auth/upload-photo', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+    
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new AuthError(data.error || res.statusText, data.code);
+    return data;
+  },
   icpProfiles: {
     list: () => req('GET', '/icp-profiles'),
     create: (data) => req('POST', '/icp-profiles', data),

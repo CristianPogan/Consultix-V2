@@ -4,6 +4,7 @@
  * Run: node scripts/seed-signup-token.js
  * Or on Heroku: heroku run node scripts/seed-signup-token.js
  */
+import 'dotenv/config';
 import { query } from '../api/db.js';
 
 const DEFAULT_SIGNUP_TOKEN = process.env.DEFAULT_SIGNUP_TOKEN || 'KLNY9NIhBFNPGFjw';

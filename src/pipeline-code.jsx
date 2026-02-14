@@ -8444,11 +8444,101 @@ function ContentPlaceholder({ title, accent, icon, description, features }) {
 
 function AccountView() {
   const [activeTab, setActiveTab] = useState("profile");
-  const [profile, setProfile] = useState({ firstName: "Andrew", lastName: "", email: "andrew@vibeconsulting.io", company: "Vibe Consulting", timezone: "Europe/London" });
+  const [profile, setProfile] = useState({ firstName: "", lastName: "", email: "", company: "", timezone: "Europe/London", photoUrl: "" });
+  const [originalProfile, setOriginalProfile] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
   const [currentPlan] = useState("growth");
   const [creditsUsed] = useState(1247);
   const [creditsTotal] = useState(2000);
   const [notifications, setNotifications] = useState({ weeklyDigest: true, creditAlert80: true, creditAlert100: true, campaignComplete: true, surveyResponses: false });
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    async function loadProfile() {
+      try {
+        const result = await api.me();
+        if (result && result.user) {
+          const user = result.user;
+          const nameParts = (user.name || "").split(" ");
+          const profileData = {
+            firstName: nameParts[0] || "",
+            lastName: nameParts.slice(1).join(" ") || "",
+            email: user.email || "",
+            company: user.company || "",
+            timezone: user.timezone || "Europe/London",
+            photoUrl: user.profile_photo_url || "",
+          };
+          setProfile(profileData);
+          setOriginalProfile(profileData);
+        }
+      } catch (err) {
+        console.error("Failed to load profile:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadProfile();
+  }, []);
+
+  async function handleSaveProfile() {
+    setSaving(true);
+    setSaveMessage("");
+    try {
+      const name = `${profile.firstName} ${profile.lastName}`.trim();
+      await api.updateProfile({
+        name,
+        company: profile.company,
+        timezone: profile.timezone,
+      });
+      setOriginalProfile(profile);
+      setSaveMessage("Profile updated successfully!");
+      setTimeout(() => setSaveMessage(""), 3000);
+    } catch (err) {
+      console.error("Failed to save profile:", err);
+      setSaveMessage("Failed to save profile. Please try again.");
+      setTimeout(() => setSaveMessage(""), 3000);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handlePhotoUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setSaveMessage("Please select an image file");
+      setTimeout(() => setSaveMessage(""), 3000);
+      return;
+    }
+    
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setSaveMessage("Image size must be less than 5MB");
+      setTimeout(() => setSaveMessage(""), 3000);
+      return;
+    }
+    
+    setUploadingPhoto(true);
+    setSaveMessage("");
+    try {
+      const result = await api.uploadProfilePhoto(file);
+      setProfile({ ...profile, photoUrl: result.photoUrl });
+      setSaveMessage("Profile photo uploaded successfully!");
+      setTimeout(() => setSaveMessage(""), 3000);
+    } catch (err) {
+      console.error("Failed to upload photo:", err);
+      setSaveMessage("Failed to upload photo. Please try again.");
+      setTimeout(() => setSaveMessage(""), 3000);
+    } finally {
+      setUploadingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
   const labelStyle = { display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 6 };
@@ -8502,27 +8592,119 @@ function AccountView() {
       {/* PROFILE TAB */}
       {activeTab === "profile" && (
         <div style={{ maxWidth: 560 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28, padding: "20px 24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
-            <div style={{ width: 64, height: 64, borderRadius: 12, background: COLORS.accent + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0 }}>👤</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: 16 }}>{profile.firstName || "Your Name"}</div>
-              <div style={{ fontSize: 12, color: COLORS.textDim }}>{profile.email}</div>
-              <div style={{ fontSize: 11, color: COLORS.accent, marginTop: 2 }}>{PLANS.find(p => p.key === currentPlan)?.name} Plan</div>
-            </div>
-            <button style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Upload Photo</button>
-          </div>
+          {loading ? (
+            <div style={{ padding: "40px", textAlign: "center", color: COLORS.textMuted }}>Loading profile...</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28, padding: "20px 24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
+                <div style={{ 
+                  width: 64, 
+                  height: 64, 
+                  borderRadius: 12, 
+                  background: profile.photoUrl ? `url(${profile.photoUrl})` : COLORS.accent + "15", 
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  display: "flex", 
+                  alignItems: "center", 
+                  justifyContent: "center", 
+                  fontSize: 28, 
+                  flexShrink: 0,
+                  position: "relative",
+                  overflow: "hidden"
+                }}>
+                  {!profile.photoUrl && "👤"}
+                  {uploadingPhoto && (
+                    <div style={{ 
+                      position: "absolute", 
+                      inset: 0, 
+                      background: "rgba(0,0,0,0.6)", 
+                      display: "flex", 
+                      alignItems: "center", 
+                      justifyContent: "center",
+                      color: "white",
+                      fontSize: 12
+                    }}>...</div>
+                  )}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 16 }}>{profile.firstName || "Your Name"}</div>
+                  <div style={{ fontSize: 12, color: COLORS.textDim }}>{profile.email}</div>
+                  <div style={{ fontSize: 11, color: COLORS.accent, marginTop: 2 }}>{PLANS.find(p => p.key === currentPlan)?.name} Plan</div>
+                </div>
+                <input 
+                  ref={fileInputRef}
+                  type="file" 
+                  accept="image/*" 
+                  onChange={handlePhotoUpload}
+                  style={{ display: "none" }}
+                />
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingPhoto}
+                  style={{ 
+                    padding: "6px 14px", 
+                    background: "transparent", 
+                    border: `1px solid ${COLORS.border}`, 
+                    borderRadius: 6, 
+                    color: COLORS.textMuted, 
+                    fontFamily: FONT, 
+                    fontSize: 10, 
+                    fontWeight: 600, 
+                    cursor: uploadingPhoto ? "not-allowed" : "pointer",
+                    opacity: uploadingPhoto ? 0.6 : 1
+                  }}
+                >
+                  {uploadingPhoto ? "Uploading..." : "Upload Photo"}
+                </button>
+              </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <div><label style={labelStyle}>FIRST NAME</label><input value={profile.firstName} onChange={e => setProfile({ ...profile, firstName: e.target.value })} style={inputStyle} /></div>
-              <div><label style={labelStyle}>LAST NAME</label><input value={profile.lastName} onChange={e => setProfile({ ...profile, lastName: e.target.value })} placeholder="Enter last name" style={inputStyle} /></div>
-            </div>
-            <div><label style={labelStyle}>EMAIL ADDRESS</label><div style={{ display: "flex", gap: 8 }}><input value={profile.email} onChange={e => setProfile({ ...profile, email: e.target.value })} style={{ ...inputStyle, flex: 1 }} /><button style={{ padding: "10px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>Change Email</button></div></div>
-            <div><label style={labelStyle}>COMPANY NAME</label><input value={profile.company} onChange={e => setProfile({ ...profile, company: e.target.value })} style={inputStyle} /></div>
-            <div><label style={labelStyle}>TIMEZONE</label><select value={profile.timezone} onChange={e => setProfile({ ...profile, timezone: e.target.value })} style={{ ...inputStyle, cursor: "pointer" }}><option value="Europe/London">Europe/London (GMT)</option><option value="America/New_York">America/New_York (EST)</option><option value="America/Los_Angeles">America/Los_Angeles (PST)</option><option value="Asia/Dubai">Asia/Dubai (GST)</option></select></div>
-            <div><label style={labelStyle}>PASSWORD</label><button style={{ padding: "10px 20px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>🔒 Send Password Reset Link</button></div>
-          </div>
-          <button style={{ marginTop: 24, padding: "12px 28px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Save Changes</button>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                  <div><label style={labelStyle}>FIRST NAME</label><input value={profile.firstName} onChange={e => setProfile({ ...profile, firstName: e.target.value })} style={inputStyle} /></div>
+                  <div><label style={labelStyle}>LAST NAME</label><input value={profile.lastName} onChange={e => setProfile({ ...profile, lastName: e.target.value })} placeholder="Enter last name" style={inputStyle} /></div>
+                </div>
+                <div><label style={labelStyle}>EMAIL ADDRESS</label><div style={{ display: "flex", gap: 8 }}><input value={profile.email} disabled style={{ ...inputStyle, flex: 1, opacity: 0.6 }} /><button disabled style={{ padding: "10px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "not-allowed", whiteSpace: "nowrap", opacity: 0.5 }}>Change Email</button></div></div>
+                <div><label style={labelStyle}>COMPANY NAME</label><input value={profile.company} onChange={e => setProfile({ ...profile, company: e.target.value })} placeholder="Enter company name" style={inputStyle} /></div>
+                <div><label style={labelStyle}>TIMEZONE</label><select value={profile.timezone} onChange={e => setProfile({ ...profile, timezone: e.target.value })} style={{ ...inputStyle, cursor: "pointer" }}><option value="Europe/London">Europe/London (GMT)</option><option value="America/New_York">America/New_York (EST)</option><option value="America/Los_Angeles">America/Los_Angeles (PST)</option><option value="Asia/Dubai">Asia/Dubai (GST)</option></select></div>
+                <div><label style={labelStyle}>PASSWORD</label><button style={{ padding: "10px 20px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>🔒 Send Password Reset Link</button></div>
+              </div>
+              
+              {saveMessage && (
+                <div style={{ 
+                  marginTop: 16, 
+                  padding: "12px 16px", 
+                  background: saveMessage.includes("success") ? COLORS.accent + "15" : COLORS.danger + "15",
+                  border: `1px solid ${saveMessage.includes("success") ? COLORS.accent + "33" : COLORS.danger + "33"}`,
+                  borderRadius: 8,
+                  color: saveMessage.includes("success") ? COLORS.accent : COLORS.danger,
+                  fontSize: 13,
+                  fontFamily: FONT_BODY
+                }}>
+                  {saveMessage}
+                </div>
+              )}
+              
+              <button 
+                onClick={handleSaveProfile} 
+                disabled={saving}
+                style={{ 
+                  marginTop: 24, 
+                  padding: "12px 28px", 
+                  background: saving ? COLORS.textMuted : COLORS.accent, 
+                  color: COLORS.bg, 
+                  border: "none", 
+                  borderRadius: 8, 
+                  fontFamily: FONT, 
+                  fontSize: 12, 
+                  fontWeight: 600, 
+                  cursor: saving ? "not-allowed" : "pointer",
+                  opacity: saving ? 0.6 : 1
+                }}
+              >
+                {saving ? "Saving..." : "Save Changes"}
+              </button>
+            </>
+          )}
         </div>
       )}
 

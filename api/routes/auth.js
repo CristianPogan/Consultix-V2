@@ -1,9 +1,26 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import multer from 'multer';
 import { signToken, verifyToken } from '../auth.js';
-import { getOrgId, findUserByEmail, createUser, validateSignupToken } from '../db.js';
+import { getOrgId, findUserByEmail, findUserById, createUser, updateUserProfile, validateSignupToken } from '../db.js';
+import { uploadImage } from '../cloudinary.js';
 
 const router = Router();
+
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  },
+});
 
 // POST /api/auth/token — exchange API key for JWT (legacy / API access)
 router.post('/token', async (req, res) => {
@@ -127,10 +144,95 @@ router.get('/me', async (req, res) => {
     if (!payload.orgId) {
       return res.status(401).json({ error: 'Invalid session' });
     }
+    
+    // If userId is present, fetch full user data
+    if (payload.userId) {
+      const user = await findUserById(payload.userId);
+      if (user) {
+        const { password_hash, ...userData } = user;
+        return res.json({ user: userData, valid: true });
+      }
+    }
+    
     res.json({ user: { orgId: payload.orgId, userId: payload.userId }, valid: true });
   } catch (err) {
     console.error('auth me', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/auth/profile — update user profile (requires authentication)
+router.put('/profile', async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const token = auth.slice(7);
+    const payload = verifyToken(token);
+    if (!payload || !payload.userId) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+    
+    const { name, company, timezone } = req.body || {};
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (company !== undefined) updates.company = company;
+    if (timezone !== undefined) updates.timezone = timezone;
+    
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+    
+    const updatedUser = await updateUserProfile(payload.userId, updates);
+    if (!updatedUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({ user: updatedUser });
+  } catch (err) {
+    console.error('auth profile update', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/upload-photo — upload profile photo (requires authentication)
+router.post('/upload-photo', upload.single('photo'), async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const token = auth.slice(7);
+    const payload = verifyToken(token);
+    if (!payload || !payload.userId) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
+    }
+    
+    // Upload to Cloudinary
+    const photoUrl = await uploadImage(req.file.buffer, 'profile-photos');
+    
+    // Update user profile with new photo URL
+    const updatedUser = await updateUserProfile(payload.userId, { 
+      profile_photo_url: photoUrl 
+    });
+    
+    if (!updatedUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({ 
+      user: updatedUser,
+      photoUrl: photoUrl,
+      message: 'Profile photo uploaded successfully' 
+    });
+  } catch (err) {
+    console.error('auth upload photo', err);
+    res.status(500).json({ error: err.message || 'Failed to upload photo' });
   }
 });
 

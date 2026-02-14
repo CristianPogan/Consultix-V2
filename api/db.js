@@ -43,11 +43,18 @@ async function ensureAppUsersTable() {
       password_hash TEXT NOT NULL,
       name TEXT NOT NULL,
       org_id TEXT NOT NULL,
+      company TEXT,
+      timezone TEXT DEFAULT 'Europe/London',
+      profile_photo_url TEXT,
       created_at TIMESTAMPTZ DEFAULT now(),
       updated_at TIMESTAMPTZ DEFAULT now()
     )
   `);
   await query('CREATE INDEX IF NOT EXISTS idx_app_users_email ON app_users(email)').catch(() => {});
+  // Add new columns to existing tables
+  await query('ALTER TABLE app_users ADD COLUMN IF NOT EXISTS company TEXT').catch(() => {});
+  await query('ALTER TABLE app_users ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT \'Europe/London\'').catch(() => {});
+  await query('ALTER TABLE app_users ADD COLUMN IF NOT EXISTS profile_photo_url TEXT').catch(() => {});
 }
 
 let _usersTableReady = false;
@@ -59,7 +66,48 @@ async function ensureUsersTableReady() {
 
 export async function findUserByEmail(email) {
   await ensureUsersTableReady();
-  const res = await query('SELECT id, email, password_hash, name, org_id FROM app_users WHERE LOWER(email) = LOWER($1)', [email]);
+  const res = await query('SELECT id, email, password_hash, name, org_id, company, timezone, profile_photo_url FROM app_users WHERE LOWER(email) = LOWER($1)', [email]);
+  return res.rows[0] || null;
+}
+
+export async function findUserById(userId) {
+  await ensureUsersTableReady();
+  const res = await query('SELECT id, email, name, org_id, company, timezone, profile_photo_url, created_at FROM app_users WHERE id = $1', [userId]);
+  return res.rows[0] || null;
+}
+
+export async function updateUserProfile(userId, updates) {
+  await ensureUsersTableReady();
+  const fields = [];
+  const values = [];
+  let paramCount = 1;
+  
+  if (updates.name !== undefined) {
+    fields.push(`name = $${paramCount++}`);
+    values.push(updates.name);
+  }
+  if (updates.company !== undefined) {
+    fields.push(`company = $${paramCount++}`);
+    values.push(updates.company);
+  }
+  if (updates.timezone !== undefined) {
+    fields.push(`timezone = $${paramCount++}`);
+    values.push(updates.timezone);
+  }
+  if (updates.profile_photo_url !== undefined) {
+    fields.push(`profile_photo_url = $${paramCount++}`);
+    values.push(updates.profile_photo_url);
+  }
+  
+  if (fields.length === 0) return null;
+  
+  fields.push(`updated_at = now()`);
+  values.push(userId);
+  
+  const res = await query(
+    `UPDATE app_users SET ${fields.join(', ')} WHERE id = $${paramCount} RETURNING id, email, name, org_id, company, timezone, profile_photo_url`,
+    values
+  );
   return res.rows[0] || null;
 }
 
