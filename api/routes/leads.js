@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query, getOrgId } from '../db.js';
+import { query, getOrgId, ensureOrgExists } from '../db.js';
 
 const router = Router();
 
@@ -54,6 +54,10 @@ router.post('/', async (req, res) => {
   try {
     const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    
+    // Ensure organisation exists
+    await ensureOrgExists(orgId);
+    
     const { list_id, company_id, first_name, last_name, email, title, company, company_domain, linkedin_url, email_bounce_risk, linkedinData, personalisation_json } = req.body || {};
     if (!list_id) return res.status(400).json({ error: 'list_id required' });
     const company_data = linkedinData ? { linkedinData, linkedin_data: linkedinData } : {};

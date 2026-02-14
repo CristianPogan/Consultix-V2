@@ -35,6 +35,31 @@ export async function getOrgId() {
   return res.rows[0]?.id || null;
 }
 
+export async function ensureOrgExists(orgId) {
+  if (!orgId) return false;
+  
+  try {
+    // Check if org exists
+    const checkResult = await query('SELECT id FROM organisations WHERE id = $1', [orgId]);
+    if (checkResult.rows.length > 0) return true;
+    
+    // Create org if it doesn't exist - generate slug from orgId
+    const slug = `org-${orgId.substring(0, 8)}`;
+    
+    await query(
+      `INSERT INTO organisations (id, name, slug) 
+       VALUES ($1, $2, $3) 
+       ON CONFLICT (id) DO NOTHING`,
+      [orgId, 'Default Organisation', slug]
+    );
+    
+    return true;
+  } catch (err) {
+    console.error('Failed to ensure org exists:', err);
+    return false;
+  }
+}
+
 async function ensureAppUsersTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS app_users (

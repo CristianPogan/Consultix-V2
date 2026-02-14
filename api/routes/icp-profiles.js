@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query, getOrgId } from '../db.js';
+import { query, getOrgId, ensureOrgExists } from '../db.js';
 
 const router = Router();
 
@@ -37,6 +37,10 @@ router.post('/', async (req, res) => {
   try {
     const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    
+    // Ensure organisation exists
+    await ensureOrgExists(orgId);
+    
     const { name, industry, keywords, employeeRanges, regions, roles, lookalikeDomains, maxLeads } = req.body || {};
     const kw = Array.isArray(keywords) ? keywords : (keywords ? [String(keywords)] : []);
     const er = Array.isArray(employeeRanges) ? employeeRanges : [];

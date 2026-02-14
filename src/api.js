@@ -153,4 +153,30 @@ export const api = {
     create: (data) => req('POST', '/prompts', data),
     getDefaults: () => req('GET', '/prompts/defaults'),
   },
+  leadGeneration: {
+    // Discovery
+    discoverApollo: (params) => req('POST', '/lead-generation/discover/apollo', params),
+    discoverGoogleMaps: (params) => req('POST', '/lead-generation/discover/google-maps', params),
+    discoverIcyPeas: (params) => req('POST', '/lead-generation/discover/icypeas', params),
+    
+    // Enrichment
+    enrichEmail: (person) => req('POST', '/lead-generation/enrich/email', person),
+    verifyEmail: (email) => req('POST', '/lead-generation/verify/email', { email }),
+    scrapeWebsite: (url) => req('POST', '/lead-generation/scrape/website', { url }),
+    getLinkedInCompany: (slug) => req('GET', `/lead-generation/linkedin/company/${slug}`),
+    
+    // Personalization
+    personalize: (params) => req('POST', '/lead-generation/personalize', params),
+    
+    // Outreach
+    sendToHeyReach: (leads) => req('POST', '/lead-generation/outreach/heyreach', { leads }),
+    sendToInstantly: (leads) => req('POST', '/lead-generation/outreach/instantly', { leads }),
+  },
+  settings: {
+    get: (type) => req('GET', `/settings/${type}`),
+    save: (type, settings) => req('POST', `/settings/${type}`, { settings }),
+  },
+  stats: {
+    dashboard: () => req('GET', '/stats/dashboard'),
+  },
 };

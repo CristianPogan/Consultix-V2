@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query, getOrgId } from '../db.js';
+import { query, getOrgId, ensureOrgExists } from '../db.js';
 
 const router = Router();
 
@@ -55,6 +55,10 @@ router.post('/', async (req, res) => {
   try {
     const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    
+    // Ensure organisation exists
+    await ensureOrgExists(orgId);
+    
     const { name, source } = req.body || {};
     const result = await query(
       `INSERT INTO lead_lists (org_id, name, source, status, total_contacts, enriched_count)

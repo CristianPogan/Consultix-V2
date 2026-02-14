@@ -9,6 +9,9 @@ import leadListsRouter from './api/routes/lead-lists.js';
 import companiesRouter from './api/routes/companies.js';
 import leadsRouter from './api/routes/leads.js';
 import promptsRouter from './api/routes/prompts.js';
+import leadGenerationRouter from './api/routes/lead-generation.js';
+import settingsRouter from './api/routes/settings.js';
+import statsRouter from './api/routes/stats.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +30,9 @@ app.use('/api/lead-lists', authMiddleware, leadListsRouter);
 app.use('/api/companies', authMiddleware, companiesRouter);
 app.use('/api/leads', authMiddleware, leadsRouter);
 app.use('/api/prompts', authMiddleware, promptsRouter);
+app.use('/api/lead-generation', authMiddleware, leadGenerationRouter);
+app.use('/api/settings', authMiddleware, settingsRouter);
+app.use('/api/stats', authMiddleware, statsRouter);
 
 // Serve static files from the Vite build output
 app.use(express.static(path.join(__dirname, 'dist')));
