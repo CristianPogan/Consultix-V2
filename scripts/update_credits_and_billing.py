@@ -41,7 +41,7 @@ CREDITS_PER_PLAN = {
 DEFAULT_SIGNUP_CREDITS = 300
 
 # Default signup token code (universal token for open signups)
-DEFAULT_SIGNUP_TOKEN = "AAAAAAA"
+DEFAULT_SIGNUP_TOKEN = "KLNY9NIhBFNPGFjw"
 
 
 def run_migrations(conn):

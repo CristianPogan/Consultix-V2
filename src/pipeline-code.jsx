@@ -168,6 +168,7 @@ const COLORS = {
 
 const FONT = "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace";
 const FONT_BODY = "'DM Sans', 'Segoe UI', system-ui, sans-serif";
+const LOGO_SRC = "/logo.png";
 
 // --- Auth Gate & Screen ---
 function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
@@ -207,8 +208,7 @@ function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
       <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
       <div style={{ width: "100%", maxWidth: 400, padding: "32px 36px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
-          <div style={{ width: 36, height: 36, background: COLORS.accent, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: COLORS.bg, fontFamily: FONT }}>⚡</div>
-          <div style={{ fontFamily: FONT, fontWeight: 600, fontSize: 18, letterSpacing: "-0.02em" }}>PIPELINE<span style={{ color: COLORS.accent }}>.</span>AI</div>
+          <img src={LOGO_SRC} alt="ConsultiX" style={{ height: 48, objectFit: "contain" }} />
         </div>
         <h1 style={{ fontFamily: FONT, fontSize: 20, fontWeight: 600, margin: "0 0 8px", color: COLORS.text }}>
           {mode === "signin" ? "Sign in" : "Create account"}
@@ -279,8 +279,9 @@ function AuthGate({ children }) {
 
   if (!authChecked) {
     return (
-      <div style={{ minHeight: "100vh", background: COLORS.bg, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.textMuted }}>
+      <div style={{ minHeight: "100vh", background: COLORS.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, color: COLORS.textMuted }}>
         <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+        <img src={LOGO_SRC} alt="ConsultiX" style={{ height: 48, objectFit: "contain" }} />
         <span style={{ fontFamily: FONT, fontSize: 14 }}>Loading...</span>
       </div>
     );
@@ -573,11 +574,8 @@ export default function App() {
       }}>
         {/* Logo */}
         <div style={{ padding: "20px 18px", borderBottom: `1px solid ${COLORS.border}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 30, height: 30, background: COLORS.accent, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: COLORS.bg, fontFamily: FONT }}>⚡</div>
-            <div>
-              <div style={{ fontFamily: FONT, fontWeight: 600, fontSize: 14, letterSpacing: "-0.02em" }}>PIPELINE<span style={{ color: COLORS.accent }}>.</span>AI</div>
-            </div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <img src={LOGO_SRC} alt="ConsultiX" style={{ height: 32, objectFit: "contain" }} />
           </div>
         </div>
 

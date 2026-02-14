@@ -24,6 +24,22 @@ function auth() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+describe('API: static assets (logo)', () => {
+  it('1. GET /logo.png returns 200 and image content', async () => {
+    const res = await api.get('/logo.png');
+    assert.strictEqual(res.status, 200);
+    assert.ok(res.headers['content-type']?.includes('image'));
+    assert.ok(parseInt(res.headers['content-length'], 10) > 0);
+  });
+
+  it('2. GET /favicon.png returns 200 and image content', async () => {
+    const res = await api.get('/favicon.png');
+    assert.strictEqual(res.status, 200);
+    assert.ok(res.headers['content-type']?.includes('image'));
+    assert.ok(parseInt(res.headers['content-length'], 10) > 0);
+  });
+});
+
 describe('API: auth', () => {
   it('1. POST /api/auth/token without apiKey returns 401 or 503', async () => {
     const res = await api.post('/api/auth/token').send({});

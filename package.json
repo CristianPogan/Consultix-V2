@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "start": "node server.js",
     "heroku-postbuild": "npm run build",
+    "pretest": "npm run build",
     "test": "node --test tests/api.test.js",
     "test:api": "node --test tests/api.test.js"
   },
