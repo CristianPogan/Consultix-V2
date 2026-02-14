@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { api } from "./api.js";
+import { api, AuthError } from "./api.js";
 
 const MOCK_COMPANIES = [
   { id: 1, name: "Meridian Health Systems", domain: "meridianhs.com", industry: "Healthcare SaaS", employees: 120, location: "Austin, TX", icpScore: 97, revenue: "$15M", techStack: ["Salesforce", "HubSpot", "Slack"], recentNews: "Just raised Series B ($28M) to expand into telehealth market" },
@@ -164,6 +164,8 @@ const COLORS = {
   warnBg: "rgba(240, 168, 77, 0.08)",
   blue: "#4d9ef0",
   blueBg: "rgba(77, 158, 240, 0.08)",
+  green: "#22c55e",
+  greenBg: "rgba(34, 197, 94, 0.08)",
 };
 
 const FONT = "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace";
@@ -176,22 +178,69 @@ function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [tokenValidated, setTokenValidated] = useState(false);
+  const [tokenValidating, setTokenValidating] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const validateToken = async () => {
+    if (!accessToken.trim()) {
+      setError("Enter your access token");
+      setErrorCode("MISSING_ACCESS_TOKEN");
+      return;
+    }
+    setError("");
+    setErrorCode("");
+    setTokenValidating(true);
+    try {
+      const result = await api.validateSignupToken(accessToken);
+      if (result.valid) {
+        setTokenValidated(true);
+        setError("");
+      } else {
+        setError(result.error || "Invalid access token");
+        setErrorCode("INVALID_ACCESS_TOKEN");
+        setTokenValidated(false);
+      }
+    } catch (err) {
+      setError(err.message || "Could not validate token");
+      setErrorCode("VALIDATION_ERROR");
+      setTokenValidated(false);
+    } finally {
+      setTokenValidating(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setErrorCode("");
     setLoading(true);
     try {
       if (mode === "signin") {
         await api.login(email, password);
       } else {
-        await api.signup(email, password, name);
+        if (!accessToken.trim()) {
+          setError("Access token is required to create an account");
+          setErrorCode("MISSING_ACCESS_TOKEN");
+          setLoading(false);
+          return;
+        }
+        if (!tokenValidated) {
+          setError("Please validate your access token first");
+          setErrorCode("TOKEN_NOT_VALIDATED");
+          setLoading(false);
+          return;
+        }
+        await api.signup(email, password, name, accessToken);
       }
       onSuccess();
     } catch (err) {
-      setError(err.message || "Something went wrong");
+      const msg = err instanceof AuthError ? err.message : (err.message || "Something went wrong");
+      setError(msg);
+      setErrorCode(err instanceof AuthError ? err.code : "UNKNOWN");
     } finally {
       setLoading(false);
     }
@@ -216,10 +265,23 @@ function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
         <p style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 24 }}>{mode === "signin" ? "Enter your email and password" : "Get started with your account"}</p>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {mode === "signup" && (
-            <div>
-              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Name</label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" required style={inputStyle} />
-            </div>
+            <>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Access Token <span style={{ color: COLORS.danger }}>*</span></label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input type="password" value={accessToken} onChange={e => { setAccessToken(e.target.value); setTokenValidated(false); setError(""); }} placeholder="Enter your signup access token" style={{ ...inputStyle, flex: 1 }} />
+                  <button type="button" onClick={validateToken} disabled={tokenValidating || !accessToken.trim()} style={{
+                    padding: "12px 16px", background: tokenValidated ? COLORS.green : COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8,
+                    fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: tokenValidating || !accessToken.trim() ? "not-allowed" : "pointer", opacity: tokenValidating || !accessToken.trim() ? 0.6 : 1, whiteSpace: "nowrap",
+                  }}>{tokenValidating ? "Validating..." : tokenValidated ? "✓ Valid" : "Validate"}</button>
+                </div>
+                {tokenValidated && <span style={{ fontSize: 11, color: COLORS.green, marginTop: 4, display: "block" }}>Token validated. You can proceed with signup.</span>}
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Name</label>
+                <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" required style={inputStyle} />
+              </div>
+            </>
           )}
           <div>
             <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Email</label>
@@ -230,14 +292,21 @@ function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={mode === "signup" ? 6 : 1} style={inputStyle} />
             {mode === "signup" && <span style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4, display: "block" }}>At least 6 characters</span>}
           </div>
-          {error && <div style={{ padding: "10px 12px", background: COLORS.dangerBg, border: `1px solid ${COLORS.danger}44`, borderRadius: 8, fontSize: 13, color: COLORS.danger }}>{error}</div>}
+          {error && (
+            <div style={{
+              padding: "10px 12px", borderRadius: 8, fontSize: 13,
+              background: errorCode === "EMAIL_EXISTS" ? COLORS.warnBg : (errorCode === "MISSING_FIELDS" || errorCode === "MISSING_ACCESS_TOKEN" || errorCode === "WEAK_PASSWORD" || errorCode === "TOKEN_NOT_VALIDATED" ? COLORS.blueBg : COLORS.dangerBg),
+              border: `1px solid ${errorCode === "EMAIL_EXISTS" ? COLORS.warn + "44" : (errorCode === "MISSING_FIELDS" || errorCode === "MISSING_ACCESS_TOKEN" || errorCode === "WEAK_PASSWORD" || errorCode === "TOKEN_NOT_VALIDATED" ? COLORS.blue + "44" : COLORS.danger + "44")}`,
+              color: errorCode === "EMAIL_EXISTS" ? COLORS.warn : (errorCode === "MISSING_FIELDS" || errorCode === "MISSING_ACCESS_TOKEN" || errorCode === "WEAK_PASSWORD" || errorCode === "TOKEN_NOT_VALIDATED" ? COLORS.blue : COLORS.danger),
+            }}>{error}</div>
+          )}
           <button type="submit" disabled={loading} style={{
             padding: "12px 20px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8,
             fontFamily: FONT, fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1,
           }}>{loading ? "Please wait..." : (mode === "signin" ? "Sign in" : "Sign up")}</button>
         </form>
         <div style={{ marginTop: 20, paddingTop: 20, borderTop: `1px solid ${COLORS.border}` }}>
-          <button type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); }} style={{
+          <button type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setErrorCode(""); setTokenValidated(false); setAccessToken(""); }} style={{
             background: "none", border: "none", color: COLORS.accent, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer", padding: 0,
           }}>{mode === "signin" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}</button>
         </div>

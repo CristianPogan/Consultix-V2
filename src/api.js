@@ -2,6 +2,14 @@ const API_BASE = '/api';
 const TOKEN_KEY = 'jwt_token';
 const API_KEY_KEY = 'api_key';
 
+export class AuthError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'AuthError';
+    this.code = code;
+  }
+}
+
 // Bootstrap: read apiKey from URL ?apiKey=xxx and store
 if (typeof window !== 'undefined') {
   const params = new URLSearchParams(window.location.search);
@@ -76,13 +84,17 @@ export const api = {
   clearToken: clearStoredToken,
   async login(email, password) {
     const { res, data } = await authReq('POST', '/auth/login', { email, password });
-    if (!res.ok) throw new Error(data.error || res.statusText);
+    if (!res.ok) throw new AuthError(data.error || res.statusText, data.code);
     setStoredToken(data.token);
     return { user: data.user, token: data.token };
   },
-  async signup(email, password, name) {
-    const { res, data } = await authReq('POST', '/auth/signup', { email, password, name });
-    if (!res.ok) throw new Error(data.error || res.statusText);
+  async validateSignupToken(accessToken) {
+    const { res, data } = await authReq('GET', `/auth/validate-signup-token?token=${encodeURIComponent(accessToken || '')}`);
+    return res.ok ? data : { valid: false, error: data.error || 'Invalid token' };
+  },
+  async signup(email, password, name, accessToken) {
+    const { res, data } = await authReq('POST', '/auth/signup', { email, password, name, accessToken });
+    if (!res.ok) throw new AuthError(data.error || res.statusText, data.code);
     setStoredToken(data.token);
     return { user: data.user, token: data.token };
   },

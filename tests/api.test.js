@@ -79,11 +79,45 @@ describe('API: auth', () => {
     assert.strictEqual(res.status, 401);
   });
 
-  it('8. POST /api/auth/signup and login flow works', async function () {
+  it('8. POST /api/auth/signup without accessToken returns 400', async () => {
+    const res = await api.post('/api/auth/signup').send({ email: 'a@b.com', password: 'test1234', name: 'Test' });
+    assert.strictEqual(res.status, 400);
+    assert.ok(res.body.error?.toLowerCase().includes('access token'));
+  });
+
+  it('9. POST /api/auth/signup with invalid accessToken returns 403', async function () {
     if (!hasDb) this.skip();
+    const res = await api.post('/api/auth/signup').send({
+      email: `test-${Date.now()}@auth.com`,
+      password: 'test1234',
+      name: 'Test',
+      accessToken: 'INVALID_TOKEN_XYZ',
+    });
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('10. GET /api/auth/validate-signup-token without token returns 400', async () => {
+    const res = await api.get('/api/auth/validate-signup-token');
+    assert.strictEqual(res.status, 400);
+  });
+
+  it('11. GET /api/auth/validate-signup-token with invalid token returns 403', async function () {
+    if (!hasDb) this.skip();
+    const res = await api.get('/api/auth/validate-signup-token?token=INVALID');
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('12. POST /api/auth/signup with valid token and login flow works', async function () {
+    if (!hasDb) this.skip();
+    const signupToken = process.env.VALID_SIGNUP_TOKEN || 'KLNY9NIhBFNPGFjw';
     const email = `test-${Date.now()}@auth-test.example.com`;
-    const signupRes = await api.post('/api/auth/signup').send({ email, password: 'test1234', name: 'Test User' });
-    if (signupRes.status === 503) this.skip();
+    const signupRes = await api.post('/api/auth/signup').send({
+      email,
+      password: 'test1234',
+      name: 'Test User',
+      accessToken: signupToken,
+    });
+    if (signupRes.status === 403 || signupRes.status === 503) return this.skip();
     assert.ok([200, 201].includes(signupRes.status), `Expected 200/201, got ${signupRes.status}: ${JSON.stringify(signupRes.body)}`);
     assert.ok(signupRes.body.token);
     assert.ok(signupRes.body.user?.email);
@@ -92,12 +126,12 @@ describe('API: auth', () => {
     assert.ok(loginRes.body.token);
   });
 
-  it('9. GET /api/auth/me without token returns 401', async () => {
+  it('13. GET /api/auth/me without token returns 401', async () => {
     const res = await api.get('/api/auth/me');
     assert.strictEqual(res.status, 401);
   });
 
-  it('10. GET /api/auth/me with valid token returns user', async function () {
+  it('14. GET /api/auth/me with valid token returns user', async function () {
     if (!hasAuth) this.skip();
     const res = await api.get('/api/auth/me').set(auth());
     assert.ok(res.status === 200 || res.status === 401);

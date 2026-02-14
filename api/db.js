@@ -70,4 +70,23 @@ export async function createUser(email, passwordHash, name, orgId) {
   return res.rows[0];
 }
 
+export async function validateSignupToken(accessToken) {
+  if (!accessToken || typeof accessToken !== 'string') return null;
+  const token = accessToken.trim();
+  if (!token) return null;
+  try {
+    const res = await query(
+      `SELECT id, token, assigned_credits, status FROM signup_access_tokens WHERE token = $1`,
+      [token]
+    );
+    const row = res.rows[0];
+    if (!row) return null;
+    if (row.status && row.status !== 'active' && String(row.status).toLowerCase() !== 'active') return { valid: false, reason: 'Token is inactive or expired' };
+    return { valid: true, id: row.id, assignedCredits: row.assigned_credits };
+  } catch (err) {
+    if (err.code === '42P01') return null;
+    throw err;
+  }
+}
+
 export default pool;
