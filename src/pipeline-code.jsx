@@ -8601,9 +8601,7 @@ function AccountView() {
                   width: 64, 
                   height: 64, 
                   borderRadius: 12, 
-                  background: profile.photoUrl ? `url(${profile.photoUrl})` : COLORS.accent + "15", 
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
+                  background: profile.photoUrl ? COLORS.accent + "15" : COLORS.accent + "15", 
                   display: "flex", 
                   alignItems: "center", 
                   justifyContent: "center", 
@@ -8612,7 +8610,20 @@ function AccountView() {
                   position: "relative",
                   overflow: "hidden"
                 }}>
-                  {!profile.photoUrl && "👤"}
+                  {profile.photoUrl ? (
+                    <img 
+                      src={profile.photoUrl} 
+                      alt="Profile" 
+                      style={{ 
+                        width: "100%", 
+                        height: "100%", 
+                        objectFit: "cover",
+                        objectPosition: "center"
+                      }} 
+                    />
+                  ) : (
+                    "👤"
+                  )}
                   {uploadingPhoto && (
                     <div style={{ 
                       position: "absolute", 
