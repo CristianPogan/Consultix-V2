@@ -9,6 +9,29 @@ npm install
 npm run dev      # Start Vite dev server (with hot reload)
 npm run build    # Production build to dist/
 npm run preview  # Preview production build locally
+npm start        # Run Express server (serves dist/ + API)
+```
+
+### API & Database
+
+The app includes REST APIs that read/write to PostgreSQL:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/icp-profiles` | GET, POST | ICP profile CRUD |
+| `/api/icp-profiles/default` | GET | Default ICP form values |
+| `/api/lead-lists` | GET, POST | Lead lists |
+| `/api/companies` | GET, POST | Companies (discovery) |
+| `/api/leads` | GET, POST, PUT | Leads / contacts |
+| `/api/prompts` | GET, POST | Saved personalization prompts |
+| `/api/prompts/defaults` | GET | Built-in prompt templates |
+
+Set `DATABASE_URL` (Heroku Postgres) or `DB_HOST`, `DB_USER`, `DB_PASSWORD` etc. See `.env.example`.
+
+### Tests
+
+```bash
+NODE_ENV=test DB_PASSWORD=your_password npm test
 ```
 
 ## Heroku Deployment
@@ -61,13 +84,17 @@ The Express server serves the built static files from `dist/` and supports clien
 ### Project Structure
 
 ```
-├── pipeline-demo.jsx    # Main React app (unchanged)
 ├── src/
-│   └── main.jsx         # React entry point
-├── index.html           # HTML entry for Vite
-├── vite.config.js      # Vite build configuration
-├── server.js            # Express server (Heroku production)
-├── Procfile             # Heroku process definition
-├── package.json
-└── README.md
+│   ├── pipeline-code.jsx  # Main React app
+│   ├── main.jsx           # React entry point
+│   └── api.js             # API client
+├── api/
+│   ├── db.js              # PostgreSQL pool
+│   └── routes/            # API route handlers
+├── index.html
+├── vite.config.js
+├── server.js              # Express server (API + static)
+├── Procfile
+├── tests/api.test.js      # API unit tests
+└── package.json
 ```

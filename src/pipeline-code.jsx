@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { api } from "./api.js";
 
 const MOCK_COMPANIES = [
   { id: 1, name: "Meridian Health Systems", domain: "meridianhs.com", industry: "Healthcare SaaS", employees: 120, location: "Austin, TX", icpScore: 97, revenue: "$15M", techStack: ["Salesforce", "HubSpot", "Slack"], recentNews: "Just raised Series B ($28M) to expand into telehealth market" },
@@ -173,6 +174,7 @@ export default function App() {
   const [step, setStep] = useState(0); // 0=ICP, 1=discovery, 2=enrichment, 3=personalization, 4=outreach
   const [showLeadsImport, setShowLeadsImport] = useState(false);
   const [icpForm, setIcpForm] = useState({ listName: "", industry: "B2B SaaS", keywords: "", employeeRange: "51-200", regions: ["North America", "Europe"], roles: ["VP Growth", "CTO", "Head of Product"], lookalike: "" });
+  const [savedPrompts, setSavedPrompts] = useState(SAVED_PROMPTS);
   const [discoveredLeads, setDiscoveredLeads] = useState([]);
   const [selectedLeads, setSelectedLeads] = useState(new Set());
   const [enrichedContacts, setEnrichedContacts] = useState([]);
@@ -211,6 +213,17 @@ export default function App() {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [processLog]);
+
+  useEffect(() => {
+    api.icpProfiles.getDefault().then(data => setIcpForm(prev => ({ ...prev, ...data }))).catch(() => {});
+    api.prompts.getDefaults().then(defs => {
+      api.prompts.list().then(rows => {
+        const merged = { ...defs };
+        (rows || []).forEach(r => { merged[r.id] = { label: r.label, text: r.text }; });
+        setSavedPrompts(merged);
+      }).catch(() => setSavedPrompts(defs || SAVED_PROMPTS));
+    }).catch(() => {});
+  }, []);
 
   const runDiscovery = async () => {
     setIsProcessing(true);
@@ -328,7 +341,7 @@ export default function App() {
     addLog("→ Connecting to Claude API (claude-sonnet-4-5)...", "system");
     await sleep(600);
     addLog("✓ Model ready", "success");
-    addLog(`→ Using prompt: "${SAVED_PROMPTS[selectedPromptKey]?.label || 'Custom'}"`, "info");
+    addLog(`→ Using prompt: "${savedPrompts[selectedPromptKey]?.label || 'Custom'}"`, "info");
     addLog(`→ Generating for ${selected.length} contacts...\n`, "system");
 
     const emails = {};
@@ -632,6 +645,7 @@ export default function App() {
                 setPromptText={setPromptText}
                 selectedPromptKey={selectedPromptKey}
                 setSelectedPromptKey={setSelectedPromptKey}
+                savedPrompts={savedPrompts}
                 previewEmails={previewEmails}
                 isPreviewLoading={isPreviewLoading}
                 onPreview={generatePreview}
@@ -1610,7 +1624,7 @@ function CampaignSetupPanel({ contacts, emails, channelAssignments, setChannelAs
   );
 }
 
-function PersonalizeModal({ contacts, promptText, setPromptText, selectedPromptKey, setSelectedPromptKey, previewEmails, isPreviewLoading, onPreview, onApprove, onClose, totalContacts }) {
+function PersonalizeModal({ contacts, promptText, setPromptText, selectedPromptKey, setSelectedPromptKey, savedPrompts = SAVED_PROMPTS, previewEmails, isPreviewLoading, onPreview, onApprove, onClose, totalContacts }) {
   const inputStyle = {
     width: "100%", padding: "10px 12px", background: COLORS.surface, border: `1px solid ${COLORS.border}`,
     borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13,
@@ -1665,7 +1679,7 @@ function PersonalizeModal({ contacts, promptText, setPromptText, selectedPromptK
                 onChange={e => {
                   const key = e.target.value;
                   setSelectedPromptKey(key);
-                  setPromptText(SAVED_PROMPTS[key].text);
+                  setPromptText((savedPrompts[key]?.text) || promptText);
                 }}
                 style={{
                   ...inputStyle,
@@ -1678,7 +1692,7 @@ function PersonalizeModal({ contacts, promptText, setPromptText, selectedPromptK
                   fontSize: 12,
                 }}
               >
-                {Object.entries(SAVED_PROMPTS).map(([key, prompt]) => (
+                {Object.entries(savedPrompts).map(([key, prompt]) => (
                   <option key={key} value={key} style={{ background: COLORS.surface, color: COLORS.text }}>
                     {prompt.label}
                   </option>
