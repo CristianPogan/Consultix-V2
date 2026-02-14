@@ -2447,16 +2447,16 @@ function DashboardView({ setActivePage }) {
                 ))}
               </div>
             </div>
-            <div style={{ position: "relative", height: chartH + 30 }}>
+            <div style={{ position: "relative", height: chartH + 30, minWidth: chartW + 48 + 20, overflow: "visible" }}>
               {/* Y-axis labels */}
               {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => (
-                <div key={i} style={{ position: "absolute", left: 0, top: (1 - pct) * chartH, width: "100%", display: "flex", alignItems: "center" }}>
+                <div key={i} style={{ position: "absolute", left: 0, top: (1 - pct) * chartH, width: chartW + 48, display: "flex", alignItems: "center" }}>
                   <span style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT, width: 40, textAlign: "right", paddingRight: 8 }}>{Math.round(maxVal * pct).toLocaleString()}</span>
-                  <div style={{ flex: 1, height: 1, background: COLORS.border, opacity: 0.5 }} />
+                  <div style={{ flex: 1, minWidth: 0, height: 1, background: COLORS.border, opacity: 0.5 }} />
                 </div>
               ))}
               {/* Lines */}
-              <svg style={{ position: "absolute", left: 48, top: 0, width: chartW, height: chartH }} viewBox={`0 0 ${chartW} ${chartH}`}>
+              <svg style={{ position: "absolute", left: 48, top: 0, width: chartW, height: chartH, overflow: "visible" }} viewBox={`0 0 ${chartW} ${chartH}`}>
                 {activeMetrics.map(key => {
                   const d = CHART_SERIES[key].data[chartRange] || [];
                   const max = Math.max(...allValues, 1);
