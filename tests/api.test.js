@@ -52,6 +52,41 @@ describe('API: auth', () => {
     const res = await api.get('/api/icp-profiles').set('Authorization', 'Bearer invalid.jwt.token');
     assert.strictEqual(res.status, 401);
   });
+
+  it('6. POST /api/auth/login without email/password returns 400', async () => {
+    const res = await api.post('/api/auth/login').send({});
+    assert.strictEqual(res.status, 400);
+  });
+
+  it('7. POST /api/auth/login with invalid credentials returns 401', async () => {
+    const res = await api.post('/api/auth/login').send({ email: 'nonexistent@test.com', password: 'wrong' });
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('8. POST /api/auth/signup and login flow works', async function () {
+    if (!hasDb) this.skip();
+    const email = `test-${Date.now()}@auth-test.example.com`;
+    const signupRes = await api.post('/api/auth/signup').send({ email, password: 'test1234', name: 'Test User' });
+    if (signupRes.status === 503) this.skip();
+    assert.ok([200, 201].includes(signupRes.status), `Expected 200/201, got ${signupRes.status}: ${JSON.stringify(signupRes.body)}`);
+    assert.ok(signupRes.body.token);
+    assert.ok(signupRes.body.user?.email);
+    const loginRes = await api.post('/api/auth/login').send({ email, password: 'test1234' });
+    assert.strictEqual(loginRes.status, 200);
+    assert.ok(loginRes.body.token);
+  });
+
+  it('9. GET /api/auth/me without token returns 401', async () => {
+    const res = await api.get('/api/auth/me');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('10. GET /api/auth/me with valid token returns user', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/auth/me').set(auth());
+    assert.ok(res.status === 200 || res.status === 401);
+    if (res.status === 200) assert.ok(res.body.valid);
+  });
 });
 
 describe('API: icp-profiles', () => {

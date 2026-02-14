@@ -169,7 +169,130 @@ const COLORS = {
 const FONT = "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace";
 const FONT_BODY = "'DM Sans', 'Segoe UI', system-ui, sans-serif";
 
+// --- Auth Gate & Screen ---
+function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
+  const [mode, setMode] = useState(initialMode);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      if (mode === "signin") {
+        await api.login(email, password);
+      } else {
+        await api.signup(email, password, name);
+      }
+      onSuccess();
+    } catch (err) {
+      setError(err.message || "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const inputStyle = {
+    width: "100%", padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+    borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 14, outline: "none",
+    boxSizing: "border-box", transition: "border-color 0.2s",
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: COLORS.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+      <div style={{ width: "100%", maxWidth: 400, padding: "32px 36px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
+          <div style={{ width: 36, height: 36, background: COLORS.accent, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: COLORS.bg, fontFamily: FONT }}>⚡</div>
+          <div style={{ fontFamily: FONT, fontWeight: 600, fontSize: 18, letterSpacing: "-0.02em" }}>PIPELINE<span style={{ color: COLORS.accent }}>.</span>AI</div>
+        </div>
+        <h1 style={{ fontFamily: FONT, fontSize: 20, fontWeight: 600, margin: "0 0 8px", color: COLORS.text }}>
+          {mode === "signin" ? "Sign in" : "Create account"}
+        </h1>
+        <p style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 24 }}>{mode === "signin" ? "Enter your email and password" : "Get started with your account"}</p>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {mode === "signup" && (
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Name</label>
+              <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" required style={inputStyle} />
+            </div>
+          )}
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={mode === "signup" ? 6 : 1} style={inputStyle} />
+            {mode === "signup" && <span style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4, display: "block" }}>At least 6 characters</span>}
+          </div>
+          {error && <div style={{ padding: "10px 12px", background: COLORS.dangerBg, border: `1px solid ${COLORS.danger}44`, borderRadius: 8, fontSize: 13, color: COLORS.danger }}>{error}</div>}
+          <button type="submit" disabled={loading} style={{
+            padding: "12px 20px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8,
+            fontFamily: FONT, fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1,
+          }}>{loading ? "Please wait..." : (mode === "signin" ? "Sign in" : "Sign up")}</button>
+        </form>
+        <div style={{ marginTop: 20, paddingTop: 20, borderTop: `1px solid ${COLORS.border}` }}>
+          <button type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); }} style={{
+            background: "none", border: "none", color: COLORS.accent, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer", padding: 0,
+          }}>{mode === "signin" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuthGate({ children }) {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      try {
+        const me = await api.me();
+        if (cancelled) return;
+        if (me?.valid) {
+          setIsAuthenticated(true);
+          setAuthChecked(true);
+          return;
+        }
+      } catch {
+        api.clearToken();
+      }
+      try {
+        await api.getToken();
+        if (cancelled) return;
+        setIsAuthenticated(true);
+      } catch {
+        // No apiKey or token exchange failed
+      }
+      if (!cancelled) setAuthChecked(true);
+    }
+    check();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!authChecked) {
+    return (
+      <div style={{ minHeight: "100vh", background: COLORS.bg, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.textMuted }}>
+        <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+        <span style={{ fontFamily: FONT, fontSize: 14 }}>Loading...</span>
+      </div>
+    );
+  }
+  if (!isAuthenticated) {
+    return <AuthScreen onSuccess={() => setIsAuthenticated(true)} />;
+  }
+  return children;
+}
+
 // --- Main App ---
+export { AuthGate };
 export default function App() {
   const [step, setStep] = useState(0); // 0=ICP, 1=discovery, 2=enrichment, 3=personalization, 4=outreach
   const [showLeadsImport, setShowLeadsImport] = useState(false);

@@ -57,12 +57,39 @@ async function req(method, path, body) {
   return data;
 }
 
+async function authReq(method, path, body) {
+  const token = getStoredToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const opt = { method, headers };
+  if (body) opt.body = JSON.stringify(body);
+  const res = await fetch(`/api${path}`, opt);
+  const data = await res.json().catch(() => ({}));
+  return { res, data };
+}
+
 export const api = {
   setApiKey: (key) => {
     if (typeof localStorage !== 'undefined') localStorage.setItem(API_KEY_KEY, key);
   },
   getToken,
   clearToken: clearStoredToken,
+  async login(email, password) {
+    const { res, data } = await authReq('POST', '/auth/login', { email, password });
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    setStoredToken(data.token);
+    return { user: data.user, token: data.token };
+  },
+  async signup(email, password, name) {
+    const { res, data } = await authReq('POST', '/auth/signup', { email, password, name });
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    setStoredToken(data.token);
+    return { user: data.user, token: data.token };
+  },
+  async me() {
+    const { res, data } = await authReq('GET', '/auth/me');
+    return res.ok ? data : null;
+  },
   icpProfiles: {
     list: () => req('GET', '/icp-profiles'),
     create: (data) => req('POST', '/icp-profiles', data),

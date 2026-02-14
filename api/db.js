@@ -33,4 +33,41 @@ export async function getOrgId() {
   return res.rows[0]?.id || null;
 }
 
+async function ensureAppUsersTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_users (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      name TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    )
+  `);
+  await query('CREATE INDEX IF NOT EXISTS idx_app_users_email ON app_users(email)').catch(() => {});
+}
+
+let _usersTableReady = false;
+async function ensureUsersTableReady() {
+  if (_usersTableReady) return;
+  await ensureAppUsersTable();
+  _usersTableReady = true;
+}
+
+export async function findUserByEmail(email) {
+  await ensureUsersTableReady();
+  const res = await query('SELECT id, email, password_hash, name, org_id FROM app_users WHERE LOWER(email) = LOWER($1)', [email]);
+  return res.rows[0] || null;
+}
+
+export async function createUser(email, passwordHash, name, orgId) {
+  await ensureUsersTableReady();
+  const res = await query(
+    'INSERT INTO app_users (email, password_hash, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id, email, name, org_id',
+    [email.toLowerCase().trim(), passwordHash, name.trim(), orgId]
+  );
+  return res.rows[0];
+}
+
 export default pool;
