@@ -6,7 +6,7 @@ const router = Router();
 // GET /api/icp-profiles — list ICP profiles for org
 router.get('/', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const result = await query(
       `SELECT id, name, industry, keywords, employee_ranges, regions, roles, lookalike_domains, max_leads, created_at
@@ -35,7 +35,7 @@ router.get('/', async (req, res) => {
 // POST /api/icp-profiles — create ICP profile
 router.post('/', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const { name, industry, keywords, employeeRanges, regions, roles, lookalikeDomains, maxLeads } = req.body || {};
     const kw = Array.isArray(keywords) ? keywords : (keywords ? [String(keywords)] : []);
@@ -71,7 +71,7 @@ router.post('/', async (req, res) => {
 // PUT /api/icp-profiles/:id — update ICP profile
 router.put('/:id', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const { id } = req.params;
     const { name, industry, keywords, employeeRanges, regions, roles, lookalikeDomains, maxLeads } = req.body || {};
@@ -114,7 +114,7 @@ const DEFAULT_ICP = {
 // GET /api/icp-profiles/default — default ICP form values (first profile or defaults)
 router.get('/default', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.json(DEFAULT_ICP);
     const result = await query(
       'SELECT * FROM icp_profiles WHERE org_id = $1 ORDER BY created_at DESC LIMIT 1',

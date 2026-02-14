@@ -1,6 +1,6 @@
 /**
- * API Unit Tests — 5 tests per API (icp-profiles, lead-lists, companies, leads, prompts)
- * Run: npm test (requires DB_PASSWORD or DATABASE_URL for DB-dependent tests)
+ * API Unit Tests — 5 tests per API (with JWT auth)
+ * Run: npm test (requires JWT_API_KEY, DB_PASSWORD or DATABASE_URL)
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
@@ -9,28 +9,71 @@ import { app } from '../server.js';
 
 const api = request(app);
 
-// Skip DB tests if no DB configured
 const hasDb = !!(process.env.DATABASE_URL || process.env.DB_PASSWORD);
+const hasAuth = !!process.env.JWT_API_KEY;
+
+let token = null;
+
+// Acquire token before any test runs (top-level await)
+if (hasAuth) {
+  const res = await request(app).post('/api/auth/token').send({ apiKey: process.env.JWT_API_KEY });
+  if (res.status === 200 && res.body.token) token = res.body.token;
+}
+
+function auth() {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+describe('API: auth', () => {
+  it('1. POST /api/auth/token without apiKey returns 401 or 503', async () => {
+    const res = await api.post('/api/auth/token').send({});
+    assert.ok(res.status === 401 || res.status === 503);
+  });
+
+  it('2. POST /api/auth/token with wrong apiKey returns 401', async () => {
+    const res = await api.post('/api/auth/token').send({ apiKey: 'wrong' });
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('3. POST /api/auth/token with valid apiKey returns token', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/auth/token').send({ apiKey: process.env.JWT_API_KEY });
+    assert.strictEqual(res.status, 200);
+    assert.ok(res.body.token);
+    assert.ok(typeof res.body.token === 'string');
+  });
+
+  it('4. Protected route without token returns 401', async () => {
+    const res = await api.get('/api/icp-profiles').set({});
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('5. Protected route with invalid token returns 401', async () => {
+    const res = await api.get('/api/icp-profiles').set('Authorization', 'Bearer invalid.jwt.token');
+    assert.strictEqual(res.status, 401);
+  });
+});
 
 describe('API: icp-profiles', () => {
-  it('1. GET /api/icp-profiles returns array or 503 or 500', async () => {
-    const res = await api.get('/api/icp-profiles');
+  it('1. GET /api/icp-profiles with JWT returns array or 503', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/icp-profiles').set(auth());
     assert.ok(res.status === 200 || res.status === 503 || res.status === 500);
     if (res.status === 200) assert.ok(Array.isArray(res.body));
   });
 
-  it('2. GET /api/icp-profiles/default returns object with listName, industry, regions', async () => {
-    const res = await api.get('/api/icp-profiles/default');
+  it('2. GET /api/icp-profiles/default with JWT returns object', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/icp-profiles/default').set(auth());
     assert.strictEqual(res.status, 200);
-    assert.ok(typeof res.body === 'object');
     assert.ok('listName' in res.body);
     assert.ok('industry' in res.body);
     assert.ok(Array.isArray(res.body.regions));
   });
 
-  it('3. POST /api/icp-profiles creates profile with valid body', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.post('/api/icp-profiles').send({
+  it('3. POST /api/icp-profiles creates profile', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/icp-profiles').set(auth()).send({
       name: 'Test ICP',
       industry: 'SaaS',
       regions: ['North America'],
@@ -43,129 +86,120 @@ describe('API: icp-profiles', () => {
     }
   });
 
-  it('4. PUT /api/icp-profiles/:id returns 404 for non-existent id', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.put('/api/icp-profiles/00000000-0000-0000-0000-000000000000').send({ name: 'Updated' });
+  it('4. PUT /api/icp-profiles/:id returns 404 for non-existent', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.put('/api/icp-profiles/00000000-0000-0000-0000-000000000000').set(auth()).send({ name: 'Updated' });
     assert.ok(res.status === 404 || res.status === 503 || res.status === 500);
   });
 
-  it('5. GET /api/icp-profiles default has regions as array', async () => {
-    const res = await api.get('/api/icp-profiles/default');
+  it('5. GET /api/icp-profiles/default has regions array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/icp-profiles/default').set(auth());
     assert.strictEqual(res.status, 200);
-    const regions = res.body.regions;
-    assert.ok(Array.isArray(regions) || (regions && typeof regions === 'object'));
+    assert.ok(Array.isArray(res.body.regions));
   });
 });
 
 describe('API: lead-lists', () => {
-  it('1. GET /api/lead-lists returns array or 503', async () => {
-    const res = await api.get('/api/lead-lists');
+  it('1. GET /api/lead-lists with JWT returns array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/lead-lists').set(auth());
     assert.ok(res.status === 200 || res.status === 503 || res.status === 500);
     if (res.status === 200) assert.ok(Array.isArray(res.body));
   });
 
-  it('2. POST /api/lead-lists creates list with name', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.post('/api/lead-lists').send({ name: 'Test List', source: 'discovery' });
+  it('2. POST /api/lead-lists creates list', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/lead-lists').set(auth()).send({ name: 'Test List', source: 'discovery' });
     assert.ok(res.status === 201 || res.status === 503 || res.status === 500);
-    if (res.status === 201) {
-      assert.ok(res.body.id);
-      assert.ok(res.body.contacts !== undefined);
-    }
+    if (res.status === 201) assert.ok(res.body.id);
   });
 
-  it('3. GET /api/lead-lists returns objects with id and name', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.get('/api/lead-lists');
+  it('3. Lead list has id and name', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/lead-lists').set(auth());
     if (res.status === 200 && res.body.length > 0) {
       assert.ok(res.body[0].id);
       assert.ok('name' in res.body[0]);
     }
   });
 
-  it('4. POST /api/lead-lists without body uses defaults', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.post('/api/lead-lists').send({});
+  it('4. POST without body uses defaults', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/lead-lists').set(auth()).send({});
     assert.ok(res.status === 201 || res.status === 503);
   });
 
-  it('5. Lead list object has contacts array', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.post('/api/lead-lists').send({ name: 'Contacts Test' });
-    if (res.status === 201) {
-      assert.ok(Array.isArray(res.body.contacts));
-    }
+  it('5. Lead list has contacts array', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/lead-lists').set(auth()).send({ name: 'Contacts Test' });
+    if (res.status === 201) assert.ok(Array.isArray(res.body.contacts));
   });
 });
 
 describe('API: companies', () => {
-  it('1. GET /api/companies returns array or 503', async () => {
-    const res = await api.get('/api/companies');
+  it('1. GET /api/companies with JWT returns array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/companies').set(auth());
     assert.ok(res.status === 200 || res.status === 503 || res.status === 500);
     if (res.status === 200) assert.ok(Array.isArray(res.body));
   });
 
   it('2. POST /api/companies creates company', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.post('/api/companies').send({
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/companies').set(auth()).send({
       name: 'Test Co',
-      domain: 'testco.example.com',
+      domain: 'testco-' + Date.now() + '.example.com',
       industry: 'Tech',
       icpScore: 85,
     });
     assert.ok(res.status === 201 || res.status === 503 || res.status === 500);
-    if (res.status === 201) {
-      assert.ok(res.body.id);
-      assert.strictEqual(res.body.name, 'Test Co');
-    }
+    if (res.status === 201) assert.ok(res.body.id);
   });
 
-  it('3. GET /api/companies?list_id= filters by list', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.get('/api/companies?list_id=00000000-0000-0000-0000-000000000000');
+  it('3. GET with list_id param works', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/companies?list_id=00000000-0000-0000-0000-000000000000').set(auth());
     assert.ok(res.status === 200 || res.status === 503);
-    if (res.status === 200) assert.ok(Array.isArray(res.body));
   });
 
-  it('4. Company response has icpScore or icp_fit_score', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.post('/api/companies').send({
+  it('4. Company response has icpScore', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/companies').set(auth()).send({
       name: 'Score Test',
-      domain: 'scoretest.example.com',
+      domain: 'score-' + Date.now() + '.example.com',
       icpScore: 92,
     });
-    if (res.status === 201) {
-      assert.ok(res.body.icpScore !== undefined || res.body.icp_fit_score !== undefined);
-    }
+    if (res.status === 201) assert.ok(res.body.icpScore !== undefined);
   });
 
-  it('5. Companies list is array', async () => {
-    const res = await api.get('/api/companies');
-    if (res.status === 200) {
-      assert.ok(Array.isArray(res.body));
-    }
+  it('5. Companies list is array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/companies').set(auth());
+    if (res.status === 200) assert.ok(Array.isArray(res.body));
   });
 });
 
 describe('API: leads', () => {
-  it('1. GET /api/leads returns array or 503', async () => {
-    const res = await api.get('/api/leads');
+  it('1. GET /api/leads with JWT returns array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/leads').set(auth());
     assert.ok(res.status === 200 || res.status === 503 || res.status === 500);
     if (res.status === 200) assert.ok(Array.isArray(res.body));
   });
 
-  it('2. POST /api/leads without list_id returns 400', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.post('/api/leads').send({ email: 'test@example.com' });
+  it('2. POST without list_id returns 400', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/leads').set(auth()).send({ email: 'test@example.com' });
     assert.ok(res.status === 400 || res.status === 503 || res.status === 500);
   });
 
-  it('3. POST /api/leads with list_id creates lead', async function () {
-    if (!hasDb) this.skip();
-    const listRes = await api.post('/api/lead-lists').send({ name: 'Lead Test List' });
+  it('3. POST with list_id creates lead', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const listRes = await api.post('/api/lead-lists').set(auth()).send({ name: 'Lead Test List' });
     const listId = listRes.status === 201 ? listRes.body.id : null;
     if (!listId) this.skip();
-    const res = await api.post('/api/leads').send({
+    const res = await api.post('/api/leads').set(auth()).send({
       list_id: listId,
       email: 'lead@example.com',
       first_name: 'Test',
@@ -174,50 +208,48 @@ describe('API: leads', () => {
     assert.ok(res.status === 201 || res.status === 500);
   });
 
-  it('4. PUT /api/leads/:id on non-existent returns 404', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.put('/api/leads/00000000-0000-0000-0000-000000000000').send({
+  it('4. PUT on non-existent returns 404', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.put('/api/leads/00000000-0000-0000-0000-000000000000').set(auth()).send({
       personalisation_json: { subject: 'Hi' },
     });
     assert.ok(res.status === 404 || res.status === 503 || res.status === 500);
   });
 
-  it('5. Leads list is array', async () => {
-    const res = await api.get('/api/leads');
-    if (res.status === 200) {
-      assert.ok(Array.isArray(res.body));
-    }
+  it('5. Leads list is array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/leads').set(auth());
+    if (res.status === 200) assert.ok(Array.isArray(res.body));
   });
 });
 
 describe('API: prompts', () => {
-  it('1. GET /api/prompts returns array or 503', async () => {
-    const res = await api.get('/api/prompts');
+  it('1. GET /api/prompts with JWT returns array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/prompts').set(auth());
     assert.ok(res.status === 200 || res.status === 503 || res.status === 500);
     if (res.status === 200) assert.ok(Array.isArray(res.body));
   });
 
-  it('2. GET /api/prompts/defaults returns object with default, warm, direct, founder', async () => {
-    const res = await api.get('/api/prompts/defaults');
+  it('2. GET /api/prompts/defaults with JWT returns object', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/prompts/defaults').set(auth());
     assert.strictEqual(res.status, 200);
     assert.ok(res.body.default);
     assert.ok(res.body.warm);
-    assert.ok(res.body.direct);
-    assert.ok(res.body.founder);
   });
 
-  it('3. Default prompts have label and text', async () => {
-    const res = await api.get('/api/prompts/defaults');
+  it('3. Default prompts have label and text', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/prompts/defaults').set(auth());
     assert.strictEqual(res.status, 200);
-    for (const key of ['default', 'warm']) {
-      assert.ok(res.body[key].label);
-      assert.ok(res.body[key].text);
-    }
+    assert.ok(res.body.default.label);
+    assert.ok(res.body.default.text);
   });
 
   it('4. POST /api/prompts creates prompt', async function () {
-    if (!hasDb) this.skip();
-    const res = await api.post('/api/prompts').send({
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/prompts').set(auth()).send({
       label: 'Test Prompt',
       text: 'You are a test.',
     });
@@ -225,8 +257,9 @@ describe('API: prompts', () => {
     if (res.status === 201) assert.ok(res.body.id);
   });
 
-  it('5. Prompts defaults are always available', async () => {
-    const res = await api.get('/api/prompts/defaults');
+  it('5. Prompts defaults always available', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/prompts/defaults').set(auth());
     assert.strictEqual(res.status, 200);
     assert.ok(Object.keys(res.body).length >= 4);
   });

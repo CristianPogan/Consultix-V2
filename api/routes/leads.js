@@ -6,7 +6,7 @@ const router = Router();
 // GET /api/leads — list leads (by list_id or company_id)
 router.get('/', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const { list_id, company_id } = req.query;
     let sql = `SELECT l.id, l.list_id, l.company_id, l.first_name, l.last_name, l.email, l.title, l.linkedin_url, l.company, l.company_domain, l.email_verified, l.email_bounce_risk, l.icp_score, l.personalisation_json, l.company_data_json
@@ -52,7 +52,7 @@ router.get('/', async (req, res) => {
 // POST /api/leads — create lead
 router.post('/', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const { list_id, company_id, first_name, last_name, email, title, company, company_domain, linkedin_url, email_bounce_risk, linkedinData, personalisation_json } = req.body || {};
     if (!list_id) return res.status(400).json({ error: 'list_id required' });
@@ -87,7 +87,7 @@ router.post('/', async (req, res) => {
 // PUT /api/leads/:id — update lead (e.g. personalisation_json)
 router.put('/:id', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const { id } = req.params;
     const { personalisation_json } = req.body || {};

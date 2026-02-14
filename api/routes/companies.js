@@ -6,7 +6,7 @@ const router = Router();
 // GET /api/companies — list companies (optionally by list_id)
 router.get('/', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const { list_id } = req.query;
     let sql = `SELECT c.id, c.name, c.domain, c.industry, c.employee_count, c.employee_range, c.revenue_range, c.headquarters_city, c.headquarters_state, c.headquarters_country, c.technologies, c.icp_fit_score, c.description, c.enrichment_data_json, c.enriched_at
@@ -46,7 +46,7 @@ router.get('/', async (req, res) => {
 // POST /api/companies — create company (from discovery)
 router.post('/', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const { name, domain, industry, employees, location, revenue, techStack, icpScore, recentNews } = req.body || {};
     const [city, state, country] = (location || '').split(',').map(s => s?.trim()).filter(Boolean);

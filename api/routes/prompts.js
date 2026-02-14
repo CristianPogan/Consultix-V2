@@ -10,7 +10,7 @@ const router = Router();
 // GET /api/prompts — list saved personalisation prompts (messaging_copies with category we define)
 router.get('/', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const result = await query(
       `SELECT id, name, content, audience, use_count, created_at
@@ -38,7 +38,7 @@ router.get('/', async (req, res) => {
 // POST /api/prompts — create saved prompt
 router.post('/', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const { label, text, key } = req.body || {};
     const result = await query(

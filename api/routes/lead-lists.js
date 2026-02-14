@@ -6,7 +6,7 @@ const router = Router();
 // GET /api/lead-lists — list lead lists
 router.get('/', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const result = await query(
       `SELECT ll.id, ll.name, ll.source, ll.status, ll.total_contacts, ll.enriched_count, ll.created_at,
@@ -53,7 +53,7 @@ router.get('/', async (req, res) => {
 // POST /api/lead-lists — create lead list
 router.post('/', async (req, res) => {
   try {
-    const orgId = await getOrgId();
+    const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const { name, source } = req.body || {};
     const result = await query(
