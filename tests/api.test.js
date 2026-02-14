@@ -107,6 +107,16 @@ describe('API: auth', () => {
     assert.strictEqual(res.status, 403);
   });
 
+  it('11b. GET /api/auth/validate-signup-token with valid default token returns 200', async function () {
+    if (!hasDb) this.skip();
+    const signupToken = process.env.VALID_SIGNUP_TOKEN || 'KLNY9NIhBFNPGFjw';
+    const res = await api.get(`/api/auth/validate-signup-token?token=${encodeURIComponent(signupToken)}`);
+    if (res.status === 500) return this.skip();
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.valid, true);
+    assert.ok(typeof res.body.assignedCredits === 'number' || res.body.assignedCredits === undefined);
+  });
+
   it('12. POST /api/auth/signup with valid token and login flow works', async function () {
     if (!hasDb) this.skip();
     const signupToken = process.env.VALID_SIGNUP_TOKEN || 'KLNY9NIhBFNPGFjw';

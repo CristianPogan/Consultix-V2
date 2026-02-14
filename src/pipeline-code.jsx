@@ -173,10 +173,12 @@ const FONT_BODY = "'DM Sans', 'Segoe UI', system-ui, sans-serif";
 const LOGO_SRC = "/logo.png";
 
 // --- Auth Gate & Screen ---
-function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
-  const [mode, setMode] = useState(initialMode);
+function AuthScreen({ onSuccess, mode: initialMode = "signin", resetToken: urlToken = null }) {
+  const [mode, setMode] = useState(urlToken ? "reset" : initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [resetToken] = useState(urlToken);
   const [name, setName] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [tokenValidated, setTokenValidated] = useState(false);
@@ -184,6 +186,8 @@ function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
 
   const validateToken = async () => {
     if (!accessToken.trim()) {
@@ -219,8 +223,39 @@ function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
     setErrorCode("");
     setLoading(true);
     try {
-      if (mode === "signin") {
+      if (mode === "forgot") {
+        await api.forgotPassword(email);
+        setForgotSent(true);
+      } else if (mode === "reset") {
+        if (password !== passwordConfirm) {
+          setError("Passwords do not match");
+          setErrorCode("PASSWORD_MISMATCH");
+          setLoading(false);
+          return;
+        }
+        if (password.length < 6) {
+          setError("Password must be at least 6 characters");
+          setErrorCode("WEAK_PASSWORD");
+          setLoading(false);
+          return;
+        }
+        await api.resetPassword(resetToken, password);
+        if (typeof window !== "undefined") {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("reset");
+          url.searchParams.delete("token");
+          window.history.replaceState({}, "", url.pathname + url.search);
+        }
+        setMode("signin");
+        setPassword("");
+        setPasswordConfirm("");
+        setError("");
+        setErrorCode("");
+        setResetSuccess(true);
+        setTimeout(() => setResetSuccess(false), 5000);
+      } else if (mode === "signin") {
         await api.login(email, password);
+        onSuccess();
       } else {
         if (!accessToken.trim()) {
           setError("Access token is required to create an account");
@@ -235,8 +270,8 @@ function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
           return;
         }
         await api.signup(email, password, name, accessToken);
+        onSuccess();
       }
-      onSuccess();
     } catch (err) {
       const msg = err instanceof AuthError ? err.message : (err.message || "Something went wrong");
       setError(msg);
@@ -260,9 +295,28 @@ function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
           <img src={LOGO_SRC} alt="ConsultiX" style={{ height: 48, objectFit: "contain" }} />
         </div>
         <h1 style={{ fontFamily: FONT, fontSize: 20, fontWeight: 600, margin: "0 0 8px", color: COLORS.text }}>
-          {mode === "signin" ? "Sign in" : "Create account"}
+          {mode === "forgot" ? "Forgot password" : mode === "reset" ? "Reset password" : mode === "signin" ? "Sign in" : "Create account"}
         </h1>
-        <p style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 24 }}>{mode === "signin" ? "Enter your email and password" : "Get started with your account"}</p>
+        <p style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 24 }}>
+          {mode === "forgot" ? "Enter your email and we'll send a reset link" : mode === "reset" ? "Enter your new password" : mode === "signin" ? "Enter your email and password" : "Get started with your account"}
+        </p>
+        {resetSuccess && (
+          <div style={{
+            padding: "10px 12px", borderRadius: 8, fontSize: 13, marginBottom: 16,
+            background: COLORS.greenBg, border: `1px solid ${COLORS.green}44`, color: COLORS.green,
+          }}>Password reset successfully. Sign in with your new password.</div>
+        )}
+        {forgotSent ? (
+          <div style={{ padding: "24px 0", textAlign: "center" }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>✉️</div>
+            <p style={{ color: COLORS.text, fontSize: 14, marginBottom: 8 }}>Check your email</p>
+            <p style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 24 }}>If an account exists, we've sent a reset link to {email}</p>
+            <button type="button" onClick={() => { setForgotSent(false); setMode("signin"); }} style={{
+              background: "none", border: "none", color: COLORS.accent, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer", padding: 0,
+            }}>Back to sign in</button>
+          </div>
+        ) : (
+        <>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {mode === "signup" && (
             <>
@@ -283,33 +337,74 @@ function AuthScreen({ onSuccess, mode: initialMode = "signin" }) {
               </div>
             </>
           )}
-          <div>
-            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required autoComplete="email" style={inputStyle} />
-          </div>
-          <div>
-            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Password</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={mode === "signup" ? 6 : 1} autoComplete={mode === "signin" ? "current-password" : "new-password"} style={inputStyle} />
-            {mode === "signup" && <span style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4, display: "block" }}>At least 6 characters</span>}
-          </div>
+          {(mode === "signin" || mode === "signup" || mode === "forgot") && (
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Email</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required={mode !== "reset"} autoComplete="email" style={inputStyle} />
+            </div>
+          )}
+          {(mode === "signin" || mode === "signup") && (
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Password</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={mode === "signup" ? 6 : 1} autoComplete={mode === "signin" ? "current-password" : "new-password"} style={inputStyle} />
+              {mode === "signup" && <span style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4, display: "block" }}>At least 6 characters</span>}
+              {mode === "signin" && (
+                <button type="button" onClick={() => { setMode("forgot"); setError(""); setErrorCode(""); }} style={{
+                  background: "none", border: "none", color: COLORS.accent, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", padding: "6px 0 0", textAlign: "left",
+                }}>Forgot password?</button>
+              )}
+            </div>
+          )}
+          {mode === "reset" && (
+            <>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>New password</label>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} autoComplete="new-password" style={inputStyle} />
+                <span style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4, display: "block" }}>At least 6 characters</span>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: COLORS.textDim, marginBottom: 6, fontFamily: FONT }}>Confirm password</label>
+                <input type="password" value={passwordConfirm} onChange={e => setPasswordConfirm(e.target.value)} placeholder="••••••••" required minLength={6} autoComplete="new-password" style={inputStyle} />
+              </div>
+            </>
+          )}
           {error && (
             <div style={{
               padding: "10px 12px", borderRadius: 8, fontSize: 13,
-              background: errorCode === "EMAIL_EXISTS" ? COLORS.warnBg : (errorCode === "MISSING_FIELDS" || errorCode === "MISSING_ACCESS_TOKEN" || errorCode === "WEAK_PASSWORD" || errorCode === "TOKEN_NOT_VALIDATED" ? COLORS.blueBg : COLORS.dangerBg),
-              border: `1px solid ${errorCode === "EMAIL_EXISTS" ? COLORS.warn + "44" : (errorCode === "MISSING_FIELDS" || errorCode === "MISSING_ACCESS_TOKEN" || errorCode === "WEAK_PASSWORD" || errorCode === "TOKEN_NOT_VALIDATED" ? COLORS.blue + "44" : COLORS.danger + "44")}`,
-              color: errorCode === "EMAIL_EXISTS" ? COLORS.warn : (errorCode === "MISSING_FIELDS" || errorCode === "MISSING_ACCESS_TOKEN" || errorCode === "WEAK_PASSWORD" || errorCode === "TOKEN_NOT_VALIDATED" ? COLORS.blue : COLORS.danger),
+              background: errorCode === "EMAIL_EXISTS" ? COLORS.warnBg : (["MISSING_FIELDS", "MISSING_ACCESS_TOKEN", "WEAK_PASSWORD", "PASSWORD_MISMATCH", "TOKEN_NOT_VALIDATED"].includes(errorCode) ? COLORS.blueBg : COLORS.dangerBg),
+              border: `1px solid ${errorCode === "EMAIL_EXISTS" ? COLORS.warn + "44" : (["MISSING_FIELDS", "MISSING_ACCESS_TOKEN", "WEAK_PASSWORD", "PASSWORD_MISMATCH", "TOKEN_NOT_VALIDATED"].includes(errorCode) ? COLORS.blue + "44" : COLORS.danger + "44")}`,
+              color: errorCode === "EMAIL_EXISTS" ? COLORS.warn : (["MISSING_FIELDS", "MISSING_ACCESS_TOKEN", "WEAK_PASSWORD", "PASSWORD_MISMATCH", "TOKEN_NOT_VALIDATED"].includes(errorCode) ? COLORS.blue : COLORS.danger),
             }}>{error}</div>
           )}
           <button type="submit" disabled={loading} style={{
             padding: "12px 20px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8,
             fontFamily: FONT, fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1,
-          }}>{loading ? "Please wait..." : (mode === "signin" ? "Sign in" : "Sign up")}</button>
+          }}>{loading ? "Please wait..." : mode === "forgot" ? "Send reset link" : mode === "reset" ? "Reset password" : mode === "signin" ? "Sign in" : "Sign up"}</button>
         </form>
         <div style={{ marginTop: 20, paddingTop: 20, borderTop: `1px solid ${COLORS.border}` }}>
-          <button type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setErrorCode(""); setTokenValidated(false); setAccessToken(""); }} style={{
-            background: "none", border: "none", color: COLORS.accent, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer", padding: 0,
-          }}>{mode === "signin" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}</button>
+          {mode === "forgot" && (
+            <button type="button" onClick={() => { setMode("signin"); setError(""); setErrorCode(""); }} style={{
+              background: "none", border: "none", color: COLORS.accent, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer", padding: 0,
+            }}>Back to sign in</button>
+          )}
+          {mode === "reset" && (
+            <button type="button" onClick={() => { setMode("signin"); setError(""); setErrorCode(""); }} style={{
+              background: "none", border: "none", color: COLORS.accent, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer", padding: 0,
+            }}>Back to sign in</button>
+          )}
+          {mode === "signin" && (
+            <button type="button" onClick={() => { setMode("signup"); setError(""); setErrorCode(""); setTokenValidated(false); setAccessToken(""); }} style={{
+              background: "none", border: "none", color: COLORS.accent, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer", padding: 0,
+            }}>Don't have an account? Sign up</button>
+          )}
+          {mode === "signup" && (
+            <button type="button" onClick={() => { setMode("signin"); setError(""); setErrorCode(""); setTokenValidated(false); setAccessToken(""); }} style={{
+              background: "none", border: "none", color: COLORS.accent, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer", padding: 0,
+            }}>Already have an account? Sign in</button>
+          )}
         </div>
+        </>
+        )}
       </div>
     </div>
   );
@@ -356,7 +451,9 @@ function AuthGate({ children }) {
     );
   }
   if (!isAuthenticated) {
-    return <AuthScreen onSuccess={() => setIsAuthenticated(true)} />;
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    const resetToken = params.get("reset") === "true" ? params.get("token") || null : null;
+    return <AuthScreen onSuccess={() => setIsAuthenticated(true)} resetToken={resetToken} />;
   }
   return children;
 }
