@@ -3,7 +3,9 @@ import pg from 'pg';
 const { Pool } = pg;
 
 // Heroku provides DATABASE_URL; otherwise use individual env vars
-const sslOpt = process.env.NODE_ENV === 'test' ? { rejectUnauthorized: false } : { rejectUnauthorized: true };
+// SSL: Heroku Postgres and many RDS/cloud Postgres use certs that trigger "unable to get local issuer certificate"
+// when rejectUnauthorized is true. Use false to avoid 500s on DB operations (connection remains encrypted).
+const sslOpt = { rejectUnauthorized: false };
 const config = process.env.DATABASE_URL
   ? { connectionString: process.env.DATABASE_URL, ssl: sslOpt }
   : {
