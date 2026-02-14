@@ -132,25 +132,33 @@ export async function updateUserPassword(userId, passwordHash) {
 const DEFAULT_SIGNUP_TOKEN = process.env.DEFAULT_SIGNUP_TOKEN || 'KLNY9NIhBFNPGFjw';
 
 async function ensureSignupAccessTokensTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS signup_access_tokens (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      token TEXT UNIQUE NOT NULL,
-      assigned_credits INTEGER DEFAULT 300,
-      status TEXT DEFAULT 'active',
-      created_at TIMESTAMPTZ DEFAULT now(),
-      updated_at TIMESTAMPTZ DEFAULT now()
-    )
-  `);
-  await query('CREATE INDEX IF NOT EXISTS idx_signup_access_tokens_token ON signup_access_tokens(token)').catch(() => {});
-  // Seed default token if table is empty (idempotent)
-  const count = await query('SELECT 1 FROM signup_access_tokens LIMIT 1');
-  if (count.rows.length === 0) {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS signup_access_tokens (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        token TEXT UNIQUE NOT NULL,
+        assigned_credits INTEGER DEFAULT 300,
+        status TEXT DEFAULT 'active',
+        created_at TIMESTAMPTZ DEFAULT now(),
+        updated_at TIMESTAMPTZ DEFAULT now()
+      )
+    `);
+    await query('CREATE INDEX IF NOT EXISTS idx_signup_access_tokens_token ON signup_access_tokens(token)').catch(() => {});
+  } catch (e) {
+    // Table may already exist with different schema
+  }
+  // Always try to upsert default token (idempotent) — handles empty table or schema differences
+  try {
     await query(
       `INSERT INTO signup_access_tokens (token, assigned_credits, status) VALUES ($1, 300, 'active')
        ON CONFLICT (token) DO UPDATE SET status = 'active', assigned_credits = 300, updated_at = now()`,
       [DEFAULT_SIGNUP_TOKEN]
-    ).catch(() => {});
+    );
+  } catch (e) {
+    // Schema may lack assigned_credits/status — try minimal insert
+    try {
+      await query(`INSERT INTO signup_access_tokens (token) VALUES ($1) ON CONFLICT (token) DO NOTHING`, [DEFAULT_SIGNUP_TOKEN]);
+    } catch (_) {}
   }
 }
 
@@ -167,14 +175,39 @@ export async function validateSignupToken(accessToken) {
   if (!token) return null;
   try {
     await ensureSignupTokensReady();
-    const res = await query(
-      `SELECT id, token, assigned_credits, status FROM signup_access_tokens WHERE token = $1`,
-      [token]
-    );
-    const row = res.rows[0];
+    // Prefer full select; fallback to token-only if schema differs
+    let row = null;
+    try {
+      const res = await query(
+        `SELECT id, token, assigned_credits, status FROM signup_access_tokens WHERE token = $1`,
+        [token]
+      );
+      row = res.rows[0];
+    } catch (e) {
+      try {
+        const res = await query(`SELECT id, token FROM signup_access_tokens WHERE token = $1`, [token]);
+        row = res.rows[0] ? { ...res.rows[0], assigned_credits: 300, status: 'active' } : null;
+      } catch (_) {
+        return null;
+      }
+    }
+    if (!row && token === DEFAULT_SIGNUP_TOKEN) {
+      for (const stmt of [
+        `INSERT INTO signup_access_tokens (token, assigned_credits, status) VALUES ($1, 300, 'active') ON CONFLICT (token) DO NOTHING`,
+        `INSERT INTO signup_access_tokens (token) VALUES ($1) ON CONFLICT (token) DO NOTHING`,
+        `INSERT INTO signup_access_tokens (token, assigned_credits, status) VALUES ($1, 300, 'active')`,
+      ]) {
+        try {
+          await query(stmt, [token]);
+        } catch (_) {}
+      }
+      const retry = await query(`SELECT id, token FROM signup_access_tokens WHERE token = $1`, [token]).catch(() => ({ rows: [] }));
+      row = retry.rows[0] ? { ...retry.rows[0], assigned_credits: 300, status: 'active' } : null;
+    }
     if (!row) return null;
-    if (row.status && row.status !== 'active' && String(row.status).toLowerCase() !== 'active') return { valid: false, reason: 'Token is inactive or expired' };
-    return { valid: true, id: row.id, assignedCredits: row.assigned_credits };
+    const status = row.status == null ? 'active' : String(row.status).toLowerCase();
+    if (status !== 'active') return { valid: false, reason: 'Token is inactive or expired' };
+    return { valid: true, id: row.id, assignedCredits: row.assigned_credits ?? 300 };
   } catch (err) {
     if (err.code === '42P01') return null;
     throw err;
