@@ -67,7 +67,9 @@ router.post('/discover/icypeas', async (req, res) => {
   try {
     const { jobTitles, locations, companies, keywords, limit } = req.body;
     
-    const people = await findPeopleIcyPeas({
+    console.log('IcyPeas discovery request:', { jobTitles, locations, companies, keywords, limit });
+    
+    const result = await findPeopleIcyPeas({
       jobTitles,
       locations,
       companies,
@@ -75,11 +77,34 @@ router.post('/discover/icypeas', async (req, res) => {
       limit,
     });
     
+    console.log('IcyPeas raw response:', JSON.stringify(result).substring(0, 500));
+    console.log('IcyPeas result keys:', Object.keys(result));
+    
+    // IcyPeas returns { success: true, leads: [...], total: X }
+    let peopleArray = [];
+    if (Array.isArray(result.leads)) {
+      peopleArray = result.leads;
+    } else if (result.people && Array.isArray(result.people.leads)) {
+      peopleArray = result.people.leads;
+    } else if (Array.isArray(result.people)) {
+      peopleArray = result.people;
+    } else if (Array.isArray(result.data)) {
+      peopleArray = result.data;
+    } else if (Array.isArray(result)) {
+      peopleArray = result;
+    }
+    
+    console.log('People array length:', peopleArray.length);
+    if (peopleArray.length > 0) {
+      console.log('First person sample:', JSON.stringify(peopleArray[0]).substring(0, 300));
+    }
+    
     res.json({ 
       success: true, 
-      count: people.data?.length || 0,
-      people: people.data || [],
-      pagination: people.pagination
+      count: peopleArray.length,
+      people: peopleArray,
+      total: result.total || peopleArray.length,
+      pagination: result.pagination || null
     });
   } catch (err) {
     console.error('IcyPeas discovery error:', err);

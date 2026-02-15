@@ -519,21 +519,6 @@ export default function App() {
     setIsProcessing(true);
     setProcessLog([]);
     
-    // Save ICP profile to database first
-    try {
-      await api.icpProfiles.create({
-        name: icpForm.listName || "Untitled Profile",
-        industry: icpForm.industry,
-        employee_ranges: icpForm.employeeSizes || ["51-200"],
-        target_roles: icpForm.roles || [],
-        target_regions: icpForm.regions || [],
-        keywords: icpForm.keywords ? icpForm.keywords.split(',').map(k => k.trim()) : [],
-      });
-    } catch (err) {
-      // Profile might already exist or DB error - continue anyway
-      console.error("Failed to save ICP profile:", err);
-    }
-    
     addLog("→ Connecting to IcyPeas API...", "system");
     await sleep(800);
     
@@ -556,23 +541,39 @@ export default function App() {
         limit: 100
       });
       
-      const companies = (result.people || []).reduce((acc, person) => {
-        const companyName = person.currentCompanyName || person.companyName || 'Unknown Company';
+      addLog(`→ Received ${result.count || 0} people from IcyPeas`, "info");
+      console.log("IcyPeas full result:", result);
+      
+      const peopleData = result.people || [];
+      
+      if (peopleData.length === 0) {
+        addLog(`⚠ No people found with current criteria`, "info");
+        throw new Error("No results from IcyPeas - check your search criteria");
+      }
+      
+      addLog(`→ Processing ${peopleData.length} people into companies...`, "info");
+      
+      const companies = peopleData.reduce((acc, person) => {
+        // IcyPeas structure: lastCompanyName, lastCompanyIndustry, etc.
+        const companyName = person.lastCompanyName || person.currentCompanyName || person.companyName || person.company || 'Unknown Company';
+        
+        if (companyName === 'Unknown Company') return acc; // Skip unknown companies
+        
         if (!acc.find(c => c.name === companyName)) {
           acc.push({
             id: acc.length + 1,
             name: companyName,
-            industry: person.currentCompanyIndustry || icpForm.industry,
-            employees: person.currentCompanySize || 'N/A',
-            website: person.currentCompanyWebsite || '',
-            location: person.currentCompanyLocation || (icpForm.regions || [])[0] || 'Unknown',
+            industry: person.lastCompanyIndustry || person.currentCompanyIndustry || person.industry || icpForm.industry,
+            employees: person.lastCompanySize || person.currentCompanySize || person.companySize || 'N/A',
+            website: person.lastCompanyWebsite || person.currentCompanyWebsite || person.companyWebsite || '',
+            location: person.lastCompanyAddress || person.currentCompanyLocation || person.location || (icpForm.regions || [])[0] || 'Unknown',
             icpScore: 95 + Math.floor(Math.random() * 5),
           });
         }
         return acc;
       }, []);
       
-      addLog(`✓ Found ${companies.length} companies matching ICP`, "success");
+      addLog(`✓ Found ${companies.length} unique companies from ${peopleData.length} people`, "success");
       await sleep(300);
       
       for (const c of companies) {
@@ -628,14 +629,21 @@ export default function App() {
           for (const person of people) {
             await sleep(200);
             
+            // IcyPeas structure: firstname, lastname (lowercase), lastJobTitle
+            const firstName = person.firstname || person.firstName || '';
+            const lastName = person.lastname || person.lastName || '';
+            const fullName = `${firstName} ${lastName}`.trim();
+            
+            if (!fullName) continue; // Skip if no name
+            
             // Try to find email if not present
-            let email = person.email;
-            if (!email) {
+            let email = person.email || person.emailAddress;
+            if (!email && firstName && lastName) {
               try {
-                addLog(`  → Finding email for ${person.firstName} ${person.lastName}...`, "dim");
+                addLog(`  → Finding email for ${fullName}...`, "dim");
                 const emailResult = await api.leadGeneration.enrichEmail({
-                  firstName: person.firstName,
-                  lastName: person.lastName,
+                  firstName,
+                  lastName,
                   company: company.name
                 });
                 email = emailResult.email;
@@ -650,25 +658,29 @@ export default function App() {
               try {
                 const verifyResult = await api.leadGeneration.verifyEmail(email);
                 bounceRisk = verifyResult.verified ? "low" : "high";
-                addLog(`  ✓ ${person.firstName} ${person.lastName} (${person.currentJobTitle}) — ${email} — verified ✓`, "data");
+                addLog(`  ✓ ${fullName} (${person.lastJobTitle || person.headline || 'Unknown'}) — ${email} — verified ✓`, "data");
               } catch (e) {
                 bounceRisk = "unknown";
-                addLog(`  ✓ ${person.firstName} ${person.lastName} (${person.currentJobTitle}) — ${email} — unverified`, "data");
+                addLog(`  ✓ ${fullName} (${person.lastJobTitle || person.headline || 'Unknown'}) — ${email} — unverified`, "data");
               }
+            } else {
+              addLog(`  ✓ ${fullName} (${person.lastJobTitle || person.headline || 'Unknown'}) — no email found`, "data");
             }
             
             allContacts.push({
               id: allContacts.length + 1,
-              name: `${person.firstName} ${person.lastName}`,
-              title: person.currentJobTitle || 'Unknown',
+              name: fullName,
+              title: person.lastJobTitle || person.headline || 'Unknown',
               email: email || 'Not found',
-              linkedin: person.linkedinUrl || '',
+              linkedin: person.profileUrl || person.linkedinUrl || '',
               company: company.name,
               companyId: company.id,
               bounceRisk: bounceRisk,
-              linkedinData: person.linkedinUrl ? {
+              linkedinData: person.profileUrl ? {
                 connections: Math.floor(Math.random() * 1000) + 500,
-                posts: Math.floor(Math.random() * 50)
+                posts: Math.floor(Math.random() * 50),
+                about: (person.description || '').substring(0, 200),
+                recentActivity: person.headline || ''
               } : null
             });
           }
@@ -887,34 +899,49 @@ export default function App() {
     // Save companies and leads to database
     if (listId) {
       try {
+        let savedCount = 0;
         for (const contact of contacts) {
           // Create/find company
           try {
+            const companyData = discoveredLeads.find(c => c.name === contact.company);
             await api.companies.create({
               name: contact.company,
-              domain: discoveredLeads.find(c => c.name === contact.company)?.domain || '',
-              industry: discoveredLeads.find(c => c.name === contact.company)?.industry || icpForm.industry,
+              domain: companyData?.website || companyData?.domain || '',
+              industry: companyData?.industry || icpForm.industry,
+              employees: companyData?.employees || null,
+              location: companyData?.location || '',
+              icpScore: companyData?.icpScore || null,
             });
           } catch (e) {
             // Company might already exist
           }
           
-          // Create lead
+          // Create lead with personalized email
           try {
+            const personalizedEmail = personalizedEmails[contact.id];
             await api.leads.create({
               list_id: listId,
               first_name: contact.name.split(" ")[0],
               last_name: contact.name.split(" ").slice(1).join(" "),
-              email: contact.email,
+              email: contact.email !== 'Not found' ? contact.email : null,
               title: contact.title,
-              linkedin_url: contact.linkedin,
+              linkedin_url: contact.linkedin || null,
               company_name: contact.company,
+              company_domain: discoveredLeads.find(c => c.name === contact.company)?.website || null,
+              email_bounce_risk: contact.bounceRisk || 'unknown',
+              linkedinData: contact.linkedinData || null,
+              personalisation_json: personalizedEmail ? {
+                subject: personalizedEmail.subject,
+                body: personalizedEmail.body,
+                channel: channelAssignments[contact.id]?.email ? 'email' : channelAssignments[contact.id]?.linkedin ? 'linkedin' : 'none'
+              } : null,
             });
+            savedCount++;
           } catch (e) {
-            // Lead might already exist
+            console.error(`Failed to save lead ${contact.name}:`, e);
           }
         }
-        addLog(`✓ ${contacts.length} contacts saved to database`, "success");
+        addLog(`✓ ${savedCount}/${contacts.length} contacts saved to database`, "success");
       } catch (err) {
         addLog(`⚠ Some contacts could not be saved: ${err.message}`, "info");
       }
@@ -1013,6 +1040,12 @@ export default function App() {
     if (emailContacts.length > 0) addLog(`  📧 ${emailContacts.length} → Email (${emailPlatform === "instantly" ? "Instantly.ai" : "SmartLead"})`, "info");
     if (linkedinContacts.length > 0) addLog(`  💼 ${linkedinContacts.length} → LinkedIn (${linkedinPlatform === "heyreach" ? "HeyReach" : "AimFox"})`, "info");
     if (listOnlyContacts.length > 0) addLog(`  📋 ${listOnlyContacts.length} → List only`, "info");
+    
+    if (listId) {
+      await sleep(200);
+      addLog(`\n✓ Lead list "${listName}" saved to database!`, "success");
+      addLog(`  View in "Outbound → Lead Lists"`, "info");
+    }
     
     // Reset form for next campaign
     setIcpForm(prev => ({ ...prev, listName: "" }));
@@ -2593,19 +2626,40 @@ function LeadListsView({ outreachQueue, enrichedContacts, personalizedEmails, ch
     async function loadLists() {
       try {
         const lists = await api.leadLists.list();
-        setLoadedLists(lists.map(list => ({
-          id: list.id,
-          name: list.name,
-          createdAt: new Date(list.createdAt),
-          contacts: list.contacts || [],
-          emails: {},
-          channels: {},
-          status: list.status || "draft",
-          emailPlatform: "instantly",
-          linkedinPlatform: "heyreach",
-          emailCampaign: "",
-          linkedinCampaign: "",
-        })));
+        setLoadedLists(lists.map(list => {
+          // Extract emails and channels from contacts
+          const emails = {};
+          const channels = {};
+          const contacts = (list.contacts || []).map(c => {
+            // Parse personalization data
+            if (c.personalisation_json) {
+              emails[c.id] = {
+                subject: c.personalisation_json.subject || '',
+                body: c.personalisation_json.body || '',
+              };
+              channels[c.id] = {
+                email: c.personalisation_json.channel === 'email',
+                linkedin: c.personalisation_json.channel === 'linkedin',
+                listOnly: c.personalisation_json.channel === 'none',
+              };
+            }
+            return c;
+          });
+          
+          return {
+            id: list.id,
+            name: list.name,
+            createdAt: new Date(list.createdAt),
+            contacts: contacts,
+            emails: emails,
+            channels: channels,
+            status: list.status || "draft",
+            emailPlatform: "instantly",
+            linkedinPlatform: "heyreach",
+            emailCampaign: "",
+            linkedinCampaign: "",
+          };
+        }));
       } catch (err) {
         console.error("Failed to load lists:", err);
       } finally {
@@ -6508,29 +6562,29 @@ function AddLeadsModal({ campaign, onClose, accentColor, availableLists = [] }) 
           {loading ? (
             <div style={{ padding: "20px", textAlign: "center", color: COLORS.textMuted }}>Loading lists...</div>
           ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {lists.map(list => (
-              <div key={list.id} onClick={() => setSelectedList(list.id)} style={{
-                padding: "12px 16px", borderRadius: 8, cursor: "pointer",
-                background: selectedList === list.id ? (accentColor || COLORS.accent) + "15" : COLORS.surface,
-                border: `1px solid ${selectedList === list.id ? (accentColor || COLORS.accent) + "44" : COLORS.border}`,
-                transition: "all 0.15s",
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{list.name}</div>
-                    <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>{list.contacts} contacts · {list.date}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {lists.map(list => (
+                <div key={list.id} onClick={() => setSelectedList(list.id)} style={{
+                  padding: "12px 16px", borderRadius: 8, cursor: "pointer",
+                  background: selectedList === list.id ? (accentColor || COLORS.accent) + "15" : COLORS.surface,
+                  border: `1px solid ${selectedList === list.id ? (accentColor || COLORS.accent) + "44" : COLORS.border}`,
+                  transition: "all 0.15s",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{list.name}</div>
+                      <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>{list.contacts} contacts · {list.date}</div>
+                    </div>
+                    <div style={{
+                      width: 18, height: 18, borderRadius: "50%",
+                      border: `2px solid ${selectedList === list.id ? (accentColor || COLORS.accent) : COLORS.borderActive}`,
+                      background: selectedList === list.id ? (accentColor || COLORS.accent) : "transparent",
+                      display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: COLORS.bg, fontWeight: 700,
+                    }}>{selectedList === list.id && "✓"}</div>
                   </div>
-                  <div style={{
-                    width: 18, height: 18, borderRadius: "50%",
-                    border: `2px solid ${selectedList === list.id ? (accentColor || COLORS.accent) : COLORS.borderActive}`,
-                    background: selectedList === list.id ? (accentColor || COLORS.accent) : "transparent",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: COLORS.bg, fontWeight: 700,
-                  }}>{selectedList === list.id && "✓"}</div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
           )}
         </div>
         <div style={{ padding: "14px 24px", borderTop: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -6539,7 +6593,7 @@ function AddLeadsModal({ campaign, onClose, accentColor, availableLists = [] }) 
             padding: "10px 24px", background: selectedList ? (accentColor || COLORS.accent) : COLORS.border,
             color: selectedList ? COLORS.bg : COLORS.textDim,
             border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: selectedList ? "pointer" : "default",
-          }}>Add {selectedList ? MOCK_LISTS.find(l => l.id === selectedList)?.contacts : 0} Leads →</button>
+          }}>Add {selectedList ? lists.find(l => l.id === selectedList)?.contacts : 0} Leads →</button>
         </div>
       </div>
     </div>
