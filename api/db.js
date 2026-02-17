@@ -88,6 +88,7 @@ async function ensureOrganisationsTable() {
     await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS full_name TEXT').catch(() => {});
     await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()').catch(() => {});
     await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS is_project BOOLEAN DEFAULT false').catch(() => {});
+    await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS org_id TEXT').catch(() => {});
   } catch (_) {}
 }
 
@@ -118,19 +119,26 @@ export async function ensureOrganisationsReady() {
   _organisationsReady = true;
 }
 
-export async function listOrganisations() {
+export async function listOrganisations(orgId) {
   await ensureOrganisationsReady();
-  const projectIds = DEFAULT_PROJECTS.map(p => p.id);
   let rows = [];
   try {
     const res = await query(
-      `SELECT id, name, slug, full_name, created_at FROM organisations WHERE is_project = true ORDER BY id`
+      `SELECT id, name, slug, full_name, created_at, org_id
+       FROM organisations
+       WHERE is_project = true AND (org_id IS NULL OR org_id = $1)
+       ORDER BY org_id NULLS LAST, created_at ASC, id`,
+      [orgId || null]
     );
     rows = res?.rows || [];
   } catch (e) {
+    const projectIds = DEFAULT_PROJECTS.map(p => p.id);
     try {
       const res = await query(
-        `SELECT id, name, slug, full_name, created_at FROM organisations WHERE id IN ($1::uuid, $2::uuid, $3::uuid) ORDER BY id`,
+        `SELECT id, name, slug, full_name, created_at, org_id
+         FROM organisations
+         WHERE id IN ($1::uuid, $2::uuid, $3::uuid)
+         ORDER BY id`,
         projectIds
       );
       rows = res?.rows || [];
@@ -142,6 +150,31 @@ export async function listOrganisations() {
     ...r,
     full_name: r.full_name ?? r.name,
   }));
+}
+
+export async function createProject(orgId, name) {
+  await ensureOrganisationsReady();
+  if (!orgId || !name || !String(name).trim()) {
+    throw new Error('Organisation and project name required');
+  }
+  const trimName = String(name).trim();
+  const slug = trimName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const existing = await query(
+    `SELECT id FROM organisations
+     WHERE is_project = true AND org_id = $1 AND LOWER(TRIM(name)) = LOWER(TRIM($2))`,
+    [orgId, trimName]
+  );
+  if (existing.rows.length > 0) {
+    throw new Error('A project with this name already exists');
+  }
+  const res = await query(
+    `INSERT INTO organisations (id, name, slug, full_name, created_at, is_project, org_id)
+     VALUES (gen_random_uuid(), $1, $2, $3, now(), true, $4)
+     RETURNING id, name, slug, full_name, created_at`,
+    [trimName, slug || 'project', trimName, orgId]
+  );
+  const r = res.rows[0];
+  return { ...r, full_name: r.full_name ?? r.name };
 }
 
 // =============================================================================

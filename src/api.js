@@ -189,5 +189,6 @@ export const api = {
   },
   organisations: {
     list: () => req('GET', '/organisations'),
+    create: (data) => req('POST', '/organisations', data),
   },
 };

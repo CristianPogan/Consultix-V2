@@ -490,6 +490,9 @@ export default function App() {
   const [linkedinPlatform, setLinkedinPlatform] = useState("heyreach");
   const [linkedinCampaign, setLinkedinCampaign] = useState("");
   const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [showAddProjectModal, setShowAddProjectModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [addProjectCreating, setAddProjectCreating] = useState(false);
   const logRef = useRef(null);
 
   const addLog = (msg, type = "info") => {
@@ -1099,7 +1102,38 @@ export default function App() {
 
           {/* Project Selector — Above everything */}
           <div style={{ padding: "0 6px", marginBottom: 12 }}>
-            <div style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, padding: "0 4px", marginBottom: 6 }}>PROJECT</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, padding: "0 4px" }}>
+              <span style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600 }}>PROJECT</span>
+              <button onClick={() => { setNewProjectName(""); setShowAddProjectModal(true); }} style={{ padding: "2px 8px", borderRadius: 6, background: "transparent", border: `1px solid ${COLORS.border}`, color: COLORS.accent, fontFamily: FONT, fontSize: 14, fontWeight: 600, cursor: "pointer", lineHeight: 1 }} title="Add project">+</button>
+            </div>
+            {showAddProjectModal && (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={() => !addProjectCreating && setShowAddProjectModal(false)}>
+                <div style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 24, maxWidth: 360, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }} onClick={e => e.stopPropagation()}>
+                  <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16 }}>New Project</div>
+                  <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Project name</label>
+                  <input value={newProjectName} onChange={e => setNewProjectName(e.target.value)} placeholder="e.g. Acme Corp AI Audit" style={{ width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 20 }} autoFocus />
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+                    <button onClick={() => !addProjectCreating && setShowAddProjectModal(false)} style={{ padding: "10px 20px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+                    <button onClick={async () => {
+                      const name = newProjectName.trim();
+                      if (!name) return;
+                      setAddProjectCreating(true);
+                      try {
+                        const project = await api.organisations.create({ name });
+                        setAuditProjects(prev => [...prev, project]);
+                        setSelectedAuditProject(String(project.id));
+                        setShowAddProjectModal(false);
+                        setNewProjectName("");
+                      } catch (err) {
+                        alert(err.message || "Failed to create project");
+                      } finally {
+                        setAddProjectCreating(false);
+                      }
+                    }} disabled={addProjectCreating || !newProjectName.trim()} style={{ padding: "10px 24px", background: (addProjectCreating || !newProjectName.trim()) ? COLORS.border : COLORS.accent, color: (addProjectCreating || !newProjectName.trim()) ? COLORS.textDim : COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: (addProjectCreating || !newProjectName.trim()) ? "not-allowed" : "pointer" }}>{addProjectCreating ? "Creating..." : "Create"}</button>
+                  </div>
+                </div>
+              </div>
+            )}
             <select value={selectedAuditProject ?? (auditProjects[0]?.id ? String(auditProjects[0].id) : "")} onChange={e => setSelectedAuditProject(e.target.value || null)} style={{
               width: "100%", padding: "8px 10px",
               background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6,

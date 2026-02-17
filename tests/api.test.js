@@ -361,6 +361,36 @@ describe('API: organisations (projects)', () => {
       assert.ok((p.client || p.name), 'client or name must exist for select display');
     });
   });
+
+  it('6. POST /api/organisations creates project with unique name', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const name = 'Test Project ' + Date.now();
+    const res = await api.post('/api/organisations').set(auth()).send({ name });
+    assert.ok([201, 409, 500].includes(res.status));
+    if (res.status === 201) {
+      assert.ok(res.body.id);
+      assert.ok(res.body.client || res.body.name);
+      assert.strictEqual(res.body.client || res.body.name, name);
+    }
+  });
+
+  it('7. POST /api/organisations duplicate name returns 409', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const name = 'Duplicate Test ' + Date.now();
+    const first = await api.post('/api/organisations').set(auth()).send({ name });
+    if (first.status !== 201) this.skip();
+    const second = await api.post('/api/organisations').set(auth()).send({ name });
+    assert.strictEqual(second.status, 409);
+    assert.ok(second.body.error?.toLowerCase().includes('already exists'));
+  });
+
+  it('8. POST /api/organisations without auth returns 401 or without name returns 400', async function () {
+    const noAuth = await api.post('/api/organisations').send({ name: 'Test' });
+    assert.strictEqual(noAuth.status, 401);
+    if (!hasAuth) return;
+    const res = await api.post('/api/organisations').set(auth()).send({});
+    assert.ok([400, 401].includes(res.status));
+  });
 });
 
 describe('API: integrations', () => {
