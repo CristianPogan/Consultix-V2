@@ -3300,16 +3300,16 @@ function DashboardView({ setActivePage, projectId }) {
                 ))}
               </div>
             </div>
-            <div style={{ position: "relative", height: chartH + 30, width: "100%", minWidth: 400, overflow: "auto" }}>
-              {/* Y-axis labels */}
+            <div style={{ position: "relative", height: chartH + 30, width: "100%", minWidth: 400, overflow: "hidden" }}>
+              {/* Y-axis labels - full width */}
               {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => (
-                <div key={i} style={{ position: "absolute", left: 0, top: (1 - pct) * chartH, width: "100%", maxWidth: chartW + 68, display: "flex", alignItems: "center" }}>
-                  <span style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT, width: 40, textAlign: "right", paddingRight: 8 }}>{Math.round(maxVal * pct).toLocaleString()}</span>
+                <div key={i} style={{ position: "absolute", left: 0, right: 0, top: (1 - pct) * chartH, display: "flex", alignItems: "center" }}>
+                  <span style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT, width: 40, flexShrink: 0, textAlign: "right", paddingRight: 8 }}>{Math.round(maxVal * pct).toLocaleString()}</span>
                   <div style={{ flex: 1, minWidth: 0, height: 1, background: COLORS.border, opacity: 0.5 }} />
                 </div>
               ))}
-              {/* SVG chart - scales with container via viewBox */}
-              <svg style={{ position: "absolute", left: 48, top: 0, width: "100%", maxWidth: chartW, height: chartH, overflow: "visible" }} viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none">
+              {/* SVG chart - stretches to fill horizontal space (left: 48 for y-axis, right: 0) */}
+              <svg style={{ position: "absolute", left: 48, right: 0, top: 0, height: chartH, overflow: "visible" }} viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none">
                 {!loadingChart && activeMetrics.map(key => {
                   const d = CHART_SERIES[key].data || [];
                   if (d.length === 0) return null;
@@ -3328,8 +3328,8 @@ function DashboardView({ setActivePage, projectId }) {
                   return <circle key={key + "_dot"} cx={x} cy={y} r="4" fill={CHART_SERIES[key].color} vectorEffect="non-scaling-stroke" />;
                 })}
               </svg>
-              {/* X-axis labels - from API, real dates */}
-              <div style={{ position: "absolute", left: 48, bottom: 0, width: "100%", maxWidth: chartW, display: "flex", justifyContent: "space-between" }}>
+              {/* X-axis labels - from API, real dates, aligned with SVG */}
+              <div style={{ position: "absolute", left: 48, right: 0, bottom: 0, display: "flex", justifyContent: "space-between" }}>
                 {(sampledLabels.length > 0 ? sampledLabels : (chartRange === "7D" ? ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] : chartRange === "30D" ? ["Week 1","Week 2","Week 3","Week 4"] : chartRange === "90D" ? ["Week 1","Week 5","Week 9","Week 13"] : ["Jan","Apr","Jul","Oct"])).map((l, i) => (
                   <span key={i} style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT }}>{l}</span>
                 ))}
