@@ -4297,15 +4297,16 @@ function AICouncilView() {
   const sendMessage = async () => {
     if (!input.trim() || isTyping) return;
     const nm = [...messages, { role: "user", text: input }]; setMessages(nm); setInput(""); setIsTyping(true);
-    await new Promise(r => setTimeout(r, 2000));
-    setOutput({ title: "Strategic Analysis", sections: [
-      { heading: "Assessment", content: "Based on your current pipeline data and market positioning, this approach aligns well with your core strengths. The AI automation niche for mid-market B2B SaaS remains underserved, with your 100+ testimonials providing significant social proof advantage." },
-      { heading: "Recommendation", content: "Prioritise the lead generation platform launch over expanding consulting capacity. The platform creates recurring revenue and scales without your direct time. Target Q2 for beta with 10 founding customers at a reduced rate." },
-      { heading: "Risk Factors", content: "Main risk is feature creep — the prototype covers 8+ modules. Launch with Leads + Lead Lists + Import & Enrich only. Add audit and sales tools in V2 based on user demand signals." },
-      { heading: "Next Steps", content: "1. Finalise technical architecture with development partner\n2. Set up Supabase project and deploy auth + shell\n3. Build leads engine (weeks 1-3)\n4. Recruit 10 beta testers from existing client base\n5. Target soft launch by end of Q1" },
-    ]});
-    setMessages([...nm, { role: "agent", text: "I've prepared a strategic analysis based on your question. Check the output panel for the full breakdown.\n\nWant me to dig deeper into any specific area?" }]);
-    setIsTyping(false);
+    try {
+      const { agentText, output: out } = await api.aiCouncil.chat({ message: input, messages: messages });
+      if (out) setOutput(out);
+      setMessages([...nm, { role: "agent", text: agentText }]);
+    } catch (err) {
+      const errMsg = err?.message || (err?.data?.error) || "Something went wrong. Please try again.";
+      setMessages([...nm, { role: "agent", text: errMsg }]);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   return (
@@ -4344,12 +4345,16 @@ function AICouncilView() {
         ) : (
           <div>
             <div style={{ marginBottom: 20 }}><h3 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 600, margin: 0 }}>{output.title}</h3></div>
-            {output.sections.map((sec, i) => (
-              <div key={i} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 10, borderLeft: `3px solid ${[COLORS.accent, COLORS.blue, COLORS.warn, "#7B61FF"][i % 4]}` }}>
-                <div style={{ fontFamily: FONT, fontSize: 10, color: [COLORS.accent, COLORS.blue, COLORS.warn, "#7B61FF"][i % 4], letterSpacing: "0.06em", fontWeight: 600, marginBottom: 6 }}>{sec.heading.toUpperCase()}</div>
-                <div style={{ fontSize: 13, color: COLORS.text, lineHeight: 1.6, whiteSpace: "pre-line" }}>{sec.content}</div>
-              </div>
-            ))}
+            {output.sections.map((sec, i) => {
+              const sectionColor = [COLORS.accent, COLORS.blue, COLORS.warn, "#7B61FF"][i % 4];
+              const heading = (sec.heading || "").toString().toUpperCase();
+              return (
+                <div key={i} style={{ padding: "16px 20px", background: COLORS.surface, borderWidth: "1px 1px 1px 3px", borderStyle: "solid", borderColor: `${COLORS.border} ${COLORS.border} ${COLORS.border} ${sectionColor}`, borderRadius: 10, marginBottom: 10 }}>
+                  <div style={{ fontFamily: FONT, fontSize: 11, color: sectionColor, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 8, display: "block" }}>{heading}</div>
+                  <div style={{ fontSize: 13, color: COLORS.text, lineHeight: 1.6, whiteSpace: "pre-line" }}>{sec.content || ""}</div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

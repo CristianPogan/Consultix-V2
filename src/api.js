@@ -151,6 +151,11 @@ export const api = {
   aiSdr: {
     generateSample: (params) => req('POST', '/ai-sdr/generate-sample', params),
   },
+  aiCouncil: {
+    chat: (params) => req('POST', '/ai-council/chat', params),
+    getSystemPrompt: () => req('GET', '/ai-council/system-prompt'),
+    saveSystemPrompt: (systemPrompt) => req('POST', '/ai-council/system-prompt', { systemPrompt }),
+  },
   crm: {
     pipeline: (params) => {
       const q = new URLSearchParams();

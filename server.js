@@ -17,6 +17,7 @@ import statsRouter from './api/routes/stats.js';
 import organisationsRouter from './api/routes/organisations.js';
 import crmRouter from './api/routes/crm.js';
 import aiSdrRouter from './api/routes/ai-sdr.js';
+import aiCouncilRouter from './api/routes/ai-council.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +43,7 @@ app.use('/api/stats', authMiddleware, statsRouter);
 app.use('/api/organisations', authMiddleware, organisationsRouter);
 app.use('/api/crm', authMiddleware, crmRouter);
 app.use('/api/ai-sdr', authMiddleware, aiSdrRouter);
+app.use('/api/ai-council', authMiddleware, aiCouncilRouter);
 
 // Serve static files from the Vite build output
 app.use(express.static(path.join(__dirname, 'dist')));
