@@ -3274,6 +3274,8 @@ function DashboardView({ setActivePage, projectId }) {
       {/* Chart */}
       {(() => {
         const chartW = 820; const chartH = 200;
+        const CURRENT_TIME_PCT = 0.7; // Last data point (current time) at 70% of width; 30% buffer on right
+        const dataWidth = chartW * CURRENT_TIME_PCT;
         const activeMetrics = Object.entries(chartMetrics).filter(([_, v]) => v).map(([k]) => k);
         const allValues = activeMetrics.flatMap(k => CHART_SERIES[k].data || []);
         const maxVal = Math.max(...allValues, 1);
@@ -3329,7 +3331,7 @@ function DashboardView({ setActivePage, projectId }) {
                   const d = CHART_SERIES[key].data || [];
                   if (d.length === 0) return null;
                   const max = Math.max(...allValues, 1);
-                  const step = d.length > 1 ? (chartW / (d.length - 1)) : chartW;
+                  const step = d.length > 1 ? (dataWidth / (d.length - 1)) : dataWidth;
                   const pathPoints = d.map((v, i) => `${step * i},${chartH - (v / max) * (chartH - 10)}`).join(" L ");
                   return <path key={key} d={`M ${pathPoints}`} fill="none" stroke={CHART_SERIES[key].color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />;
                 })}
@@ -3337,17 +3339,17 @@ function DashboardView({ setActivePage, projectId }) {
                   const d = CHART_SERIES[key].data || [];
                   if (d.length === 0) return null;
                   const max = Math.max(...allValues, 1);
-                  const step = d.length > 1 ? (chartW / (d.length - 1)) : chartW;
+                  const step = d.length > 1 ? (dataWidth / (d.length - 1)) : dataWidth;
                   const x = step * (d.length - 1);
                   const y = chartH - (d[d.length - 1] / max) * (chartH - 10);
                   return <circle key={key + "_dot"} cx={x} cy={y} r="4" fill={CHART_SERIES[key].color} vectorEffect="non-scaling-stroke" />;
                 })}
               </svg>
-              {/* X-axis labels - real dates from API, positioned to align with data points */}
+              {/* X-axis labels - aligned to data points; last point (current time) at 70%, 30% buffer on right */}
               <div style={{ position: "absolute", left: 48, right: 0, bottom: 0, height: 30 }}>
                 {dates.map((dateStr, i) => {
                   const n = dates.length;
-                  const pct = n > 1 ? (i / (n - 1)) * 100 : 50;
+                  const pct = n > 1 ? (i / (n - 1)) * CURRENT_TIME_PCT * 100 : CURRENT_TIME_PCT * 50;
                   return (
                     <span key={i} style={{ position: "absolute", left: `${pct}%`, transform: "translateX(-50%)", fontSize: 9, color: COLORS.textDim, fontFamily: FONT, whiteSpace: "nowrap" }}>{formatDateLabel(dateStr, i)}</span>
                   );
