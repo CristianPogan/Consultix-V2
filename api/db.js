@@ -240,6 +240,32 @@ export async function saveIntegrationServiceOrder(orgId, leadSearchOrder, leadEn
   );
 }
 
+// =============================================================================
+// integration_costs — cost_label per integration (displayed in Lead Search Order)
+// =============================================================================
+
+async function ensureIntegrationCostsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS integration_costs (
+      integration_key TEXT PRIMARY KEY,
+      cost_label TEXT NOT NULL,
+      cost_tier INT DEFAULT 1
+    )
+  `);
+  await query(
+    `INSERT INTO integration_costs (integration_key, cost_label, cost_tier)
+     VALUES ('unipile', '€49/month', 5)
+     ON CONFLICT (integration_key)
+     DO UPDATE SET cost_label = EXCLUDED.cost_label, cost_tier = EXCLUDED.cost_tier`
+  ).catch(() => {});
+}
+
+export async function getIntegrationCosts() {
+  await ensureIntegrationCostsTable();
+  const res = await query('SELECT integration_key, cost_label, cost_tier FROM integration_costs');
+  return Object.fromEntries((res.rows || []).map(r => [r.integration_key, { cost_label: r.cost_label, cost_tier: r.cost_tier }]));
+}
+
 async function ensureAppUsersTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS app_users (

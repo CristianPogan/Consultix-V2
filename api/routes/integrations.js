@@ -5,9 +5,21 @@ import {
   saveIntegrationCredentials,
   getIntegrationServiceOrder,
   saveIntegrationServiceOrder,
+  getIntegrationCosts,
 } from '../db.js';
 
 const router = Router();
+
+// GET /api/integrations/costs - Get cost_label per integration (must be before :key)
+router.get('/costs', async (req, res) => {
+  try {
+    const costs = await getIntegrationCosts();
+    res.json({ costs });
+  } catch (err) {
+    console.error('Get integration costs error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/integrations/order/lead-search - Get lead search & enrichment order (must be before :key)
 router.get('/order/lead-search', async (req, res) => {

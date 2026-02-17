@@ -6946,7 +6946,7 @@ const INTEGRATIONS_META = [
   { key: "fathom", label: "Fathom", icon: "🎙️", desc: "AI meeting assistant — import call transcripts", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "fireflies", label: "Fireflies.ai", icon: "🔥", desc: "Meeting transcription & analysis", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "zoom", label: "Zoom", icon: "📹", desc: "Import recordings & transcripts", category: "call_recording", credentialFields: [{ name: "client_id", label: "Client ID", type: "text" }, { name: "client_secret", label: "Client Secret", type: "password" }] },
-  { key: "unipile", label: "Unipile", icon: "💼", desc: "LinkedIn company data & profile enrichment", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.05/lookup", costTier: 4, credentialFields: [{ name: "account_id", label: "Account ID", type: "text" }, { name: "access_token", label: "Access Token", type: "password" }, { name: "dsn", label: "DSN", type: "text", placeholder: "e.g. api12.unipile.com:14291" }] },
+  { key: "unipile", label: "Unipile", icon: "💼", desc: "LinkedIn company data & profile enrichment", category: "enrichment", orderTypes: ["lead_enrichment"], credentialFields: [{ name: "account_id", label: "Account ID", type: "text" }, { name: "access_token", label: "Access Token", type: "password" }, { name: "dsn", label: "DSN", type: "text", placeholder: "e.g. api12.unipile.com:14291" }] },
   { key: "instantly", label: "Instantly", icon: "📧", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
   { key: "smartlead", label: "SmartLead", icon: "📬", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
   { key: "heyreach", label: "HeyReach", icon: "🤝", desc: "LinkedIn outreach automation", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
@@ -6974,6 +6974,7 @@ function SettingsView() {
   const [configModal, setConfigModal] = useState(null);
   const [leadSearchOrder, setLeadSearchOrder] = useState({ leadSearch: LEAD_SEARCH_KEYS, leadEnrichment: LEAD_ENRICHMENT_KEYS });
   const [leadOrderSaving, setLeadOrderSaving] = useState(false);
+  const [integrationCosts, setIntegrationCosts] = useState({});
   
   useEffect(() => {
     async function loadSettings() {
@@ -7020,6 +7021,7 @@ function SettingsView() {
     if (activeTab === "lead_search_order") {
       loadIntegrationStatus();
       loadLeadSearchOrder();
+      api.integrations.getCosts().then(r => setIntegrationCosts(r.costs || {})).catch(() => {});
     }
   }, [activeTab]);
   
@@ -7290,9 +7292,10 @@ function SettingsView() {
             };
             const setLeadSearch = (arr) => setLeadSearchOrder(o => ({ ...o, leadSearch: arr }));
             const setLeadEnrich = (arr) => setLeadSearchOrder(o => ({ ...o, leadEnrichment: arr }));
-            const costBadge = (costLabel, costTier) => (
+            const getCost = (key) => integrationCosts[key] || { cost_label: metaByKey[key]?.costLabel, cost_tier: metaByKey[key]?.costTier || 1 };
+            const costBadge = (costLabel, costTier) => costLabel ? (
               <span style={{ padding: "4px 10px", borderRadius: 6, background: costTier >= 4 ? "rgba(255,100,100,0.15)" : costTier >= 3 ? "rgba(255,180,80,0.15)" : "rgba(100,200,100,0.15)", color: costTier >= 4 ? "#ff6b6b" : costTier >= 3 ? "#e6a23c" : "#67c23a", fontFamily: FONT, fontSize: 11, fontWeight: 600 }}>{costLabel}</span>
-            );
+            ) : null;
             return (
               <>
                 <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>LEAD SEARCH (find leads — first is primary, others fallback)</div>
@@ -7310,7 +7313,7 @@ function SettingsView() {
                             <div style={{ fontWeight: 600, fontSize: 13 }}>{meta.label} <span style={{ color: COLORS.textDim, fontWeight: 400, fontSize: 11 }}>— {idx === 0 ? "Primary" : `Fallback ${idx}`}</span></div>
                             <div style={{ fontSize: 11, color: COLORS.textDim }}>{meta.desc}</div>
                           </div>
-                          {meta.costLabel && costBadge(meta.costLabel, meta.costTier || 1)}
+                          {costBadge(getCost(key).cost_label, getCost(key).cost_tier)}
                         </div>
                         <div style={{ display: "flex", gap: 4 }}>
                           <button onClick={() => setLeadSearch(moveInList(leadSearchList, idx, -1))} disabled={idx === 0} style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, cursor: idx === 0 ? "not-allowed" : "pointer", opacity: idx === 0 ? 0.5 : 1 }}>↑</button>
@@ -7336,7 +7339,7 @@ function SettingsView() {
                             <div style={{ fontWeight: 600, fontSize: 13 }}>{meta.label} <span style={{ color: COLORS.textDim, fontWeight: 400, fontSize: 11 }}>— {idx === 0 ? "Primary" : `Fallback ${idx}`}</span></div>
                             <div style={{ fontSize: 11, color: COLORS.textDim }}>{meta.desc}</div>
                           </div>
-                          {meta.costLabel && costBadge(meta.costLabel, meta.costTier || 1)}
+                          {costBadge(getCost(key).cost_label, getCost(key).cost_tier)}
                         </div>
                         <div style={{ display: "flex", gap: 4 }}>
                           <button onClick={() => setLeadEnrich(moveInList(leadEnrichList, idx, -1))} disabled={idx === 0} style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, cursor: idx === 0 ? "not-allowed" : "pointer", opacity: idx === 0 ? 0.5 : 1 }}>↑</button>

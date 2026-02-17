@@ -180,6 +180,7 @@ export const api = {
     list: () => req('GET', '/integrations'),
     get: (key) => req('GET', `/integrations/${encodeURIComponent(key)}`),
     save: (key, credentials) => req('POST', `/integrations/${encodeURIComponent(key)}`, { credentials }),
+    getCosts: () => req('GET', '/integrations/costs'),
     getLeadSearchOrder: () => req('GET', '/integrations/order/lead-search'),
     saveLeadSearchOrder: (order) => req('POST', '/integrations/order/lead-search', order),
   },
