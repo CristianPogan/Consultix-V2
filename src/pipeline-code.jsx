@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { api, AuthError } from "./api.js";
 
 const MOCK_COMPANIES = [
