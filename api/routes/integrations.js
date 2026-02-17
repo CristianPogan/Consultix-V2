@@ -47,6 +47,90 @@ router.post('/anthropic/connect', async (req, res) => {
   }
 });
 
+// POST /api/integrations/openai/connect - Validate API key then save
+router.post('/openai/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://api.openai.com/v1/models', {
+      headers: { Authorization: `Bearer ${apiKey.trim()}` },
+    });
+    if (!testRes.ok) {
+      if (testRes.status === 401) return res.status(401).json({ error: 'Invalid API key' });
+      if (testRes.status === 403) return res.status(403).json({ error: 'API key lacks permission or billing issue' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'openai', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'openai', connected: true });
+  } catch (err) {
+    console.error('OpenAI connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/gemini/connect - Validate API key then save
+router.post('/gemini/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey.trim())}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: 'Hi' }] }] }),
+    });
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 400) return res.status(401).json({ error: 'Invalid API key' });
+      if (testRes.status === 403) return res.status(403).json({ error: 'API key lacks permission or billing issue' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'gemini', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'gemini', connected: true });
+  } catch (err) {
+    console.error('Gemini connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/grok/connect - Validate API key then save
+router.post('/grok/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey.trim()}`,
+      },
+      body: JSON.stringify({
+        model: 'grok-3-mini',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 5,
+      }),
+    });
+    if (!testRes.ok) {
+      const errText = await testRes.text();
+      if (testRes.status === 401) return res.status(401).json({ error: 'Invalid API key' });
+      if (testRes.status === 403) return res.status(403).json({ error: 'API key lacks permission or billing issue' });
+      return res.status(400).json({ error: errText || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'grok', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'grok', connected: true });
+  } catch (err) {
+    console.error('Grok connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/integrations/costs - Get cost_label per integration (must be before :key)
 router.get('/costs', async (req, res) => {
   try {

@@ -7151,7 +7151,10 @@ const INTEGRATIONS_META = [
   { key: "cleanlist", label: "Cleanlist", icon: "🧹", desc: "List cleaning & verification", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.012/verify", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "wiza", label: "Wiza", icon: "📊", desc: "Sales intelligence & lead data", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.04/lead", costTier: 4, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "leadsmagix", label: "Leads Magix", icon: "✨", desc: "B2B lead generation platform", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.025/lead", costTier: 3, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
-  { key: "anthropic", label: "Anthropic", icon: "🧠", desc: "Claude — AI SDR sample response generation", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/anthropic/connect" },
+  { key: "anthropic", label: "Anthropic", icon: "🧠", desc: "Claude — AI SDR & AI Council", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/anthropic/connect" },
+  { key: "openai", label: "OpenAI", icon: "🤖", desc: "GPT — Chat completions & embeddings", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/openai/connect" },
+  { key: "gemini", label: "Gemini", icon: "✨", desc: "Google Gemini — Multimodal AI", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/gemini/connect" },
+  { key: "grok", label: "Grok", icon: "🪐", desc: "xAI Grok — Reasoning & chat", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/grok/connect" },
 ];
 
 const ENRICHMENT_INTEGRATIONS = INTEGRATIONS_META.filter(i => i.category === "enrichment");
@@ -7392,6 +7395,30 @@ function SettingsView() {
           )}
           <p style={{ color: COLORS.textMuted, marginBottom: 20, fontSize: 13 }}>Connect your tools to power the platform. Call recording tools feed into content generation, outreach tools sync with campaigns.</p>
 
+          <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>LLM</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+            {INTEGRATIONS_META.filter(i => i.category === "llm").map(intg => {
+              const connected = !!integrationStatus[intg.key];
+              return (
+                <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 22 }}>{intg.icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{intg.label}</div>
+                      <div style={{ fontSize: 11, color: COLORS.textDim }}>{intg.desc}</div>
+                    </div>
+                  </div>
+                  <button onClick={async () => { const data = await api.integrations.get(intg.key).catch(() => ({})); setConfigModal({ ...intg, existingCredentials: data.credentials_json || {} }); }} style={{
+                    padding: "8px 18px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    background: connected ? "transparent" : COLORS.accent,
+                    color: connected ? COLORS.accent : COLORS.bg,
+                    border: connected ? `1px solid ${COLORS.accent}44` : "none",
+                  }}>{connected ? "Connected ✓" : "Connect"}</button>
+                </div>
+              );
+            })}
+          </div>
+
           <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>CALL RECORDING</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
             {INTEGRATIONS_META.filter(i => i.category === "call_recording").map(intg => {
@@ -7419,30 +7446,6 @@ function SettingsView() {
           <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>OUTREACH & CAMPAIGNS</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
             {INTEGRATIONS_META.filter(i => i.category === "outreach").map(intg => {
-              const connected = !!integrationStatus[intg.key];
-              return (
-                <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={{ fontSize: 22 }}>{intg.icon}</span>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{intg.label}</div>
-                      <div style={{ fontSize: 11, color: COLORS.textDim }}>{intg.desc}</div>
-                    </div>
-                  </div>
-                  <button onClick={async () => { const data = await api.integrations.get(intg.key).catch(() => ({})); setConfigModal({ ...intg, existingCredentials: data.credentials_json || {} }); }} style={{
-                    padding: "8px 18px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer",
-                    background: connected ? "transparent" : COLORS.accent,
-                    color: connected ? COLORS.accent : COLORS.bg,
-                    border: connected ? `1px solid ${COLORS.accent}44` : "none",
-                  }}>{connected ? "Connected ✓" : "Connect"}</button>
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>LLM</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-            {INTEGRATIONS_META.filter(i => i.category === "llm").map(intg => {
               const connected = !!integrationStatus[intg.key];
               return (
                 <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
