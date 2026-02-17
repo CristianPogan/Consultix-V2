@@ -1277,7 +1277,7 @@ export default function App() {
       {/* Main Content */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
 
-        {activePage === "dashboard" && <DashboardView setActivePage={setActivePage} />}
+        {activePage === "dashboard" && <DashboardView setActivePage={setActivePage} projectId={selectedAuditProject} />}
 
         {activePage === "leads" && (<>
           {/* Step Nav */}
@@ -3165,65 +3165,69 @@ function LeadListsView({ outreachQueue, enrichedContacts, personalizedEmails, ch
 
 
 
-function DashboardView({ setActivePage }) {
+function DashboardView({ setActivePage, projectId }) {
   const [chartRange, setChartRange] = useState("30D");
   const [chartMetrics, setChartMetrics] = useState({ outreach: true, responses: true, meetings: true, deals: false, revenue: false });
   const [dbStats, setDbStats] = useState(null);
+  const [chartData, setChartData] = useState(null);
   const [loadingStats, setLoadingStats] = useState(true);
+  const [loadingChart, setLoadingChart] = useState(true);
 
   useEffect(() => {
     async function loadStats() {
       try {
-        const stats = await api.stats.dashboard();
+        const stats = await api.stats.dashboard({ projectId: projectId || undefined });
         setDbStats(stats);
       } catch (err) {
         console.error("Failed to load stats:", err);
+        setDbStats(null);
       } finally {
         setLoadingStats(false);
       }
     }
     loadStats();
-  }, []);
+  }, [projectId]);
 
+  useEffect(() => {
+    async function loadChart() {
+      setLoadingChart(true);
+      try {
+        const data = await api.stats.chart({ projectId: projectId || undefined, range: chartRange });
+        setChartData(data);
+      } catch (err) {
+        console.error("Failed to load chart:", err);
+        setChartData(null);
+      } finally {
+        setLoadingChart(false);
+      }
+    }
+    loadChart();
+  }, [projectId, chartRange]);
+
+  // Chart series from DB (outreach, responses, meetings); deals/revenue remain placeholders
   const CHART_SERIES = {
-    outreach: { label: "Outreach Sent", color: "#3B82F6", data: { "7D": [42,38,55,61,48,52,44], "30D": [180,210,195,220,240,205,215,235,250,230,195,210,225,240,260,245,220,235,250,215,200,230,245,260,240,225,210,235,248,247], "90D": [620,680,710,750,690,740,780,810,770,720,760,800,830], "12M": [820,780,900,950,1020,1100,980,1050,1120,1200,1180,1247] } },
-    responses: { label: "Responses", color: "#8B5CF6", data: { "7D": [3,2,5,4,3,6,4], "30D": [12,15,11,18,14,16,13,19,15,12,17,14,16,20,18,15,13,17,14,16,19,15,12,18,16,14,20,17,15,89].map((_,i,a)=>i<29?Math.round(a[29]*(0.4+Math.random()*0.3)):a[i]), "90D": [42,48,55,52,60,58,65,62,70,68,75,80,89], "12M": [32,38,42,48,55,62,58,65,72,78,82,89] } },
-    meetings: { label: "Meetings Booked", color: "#C9A84C", data: { "7D": [1,0,2,1,1,2,1], "30D": [3,2,4,3,5,4,3,4,5,3,2,4,5,4,3,5,4,3,4,5,3,4,3,5,4,3,4,5,4,14].map((_,i,a)=>i<29?Math.round(a[29]*(0.1+Math.random()*0.3)):a[i]), "90D": [6,8,7,9,10,8,11,10,12,11,13,12,14], "12M": [4,5,6,7,8,9,8,10,11,12,13,14] } },
-    deals: { label: "Deals Closed", color: "#22C55E", data: { "7D": [0,0,1,0,0,0,1], "30D": [0,1,0,0,1,0,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0,0,3].map((_,i)=>i<29?Math.round(Math.random()*0.4):3), "90D": [1,1,2,1,2,1,2,2,3,2,3,2,3], "12M": [1,1,2,1,2,2,3,2,3,2,3,3] } },
-    revenue: { label: "Revenue (£K)", color: "#EC4899", data: { "7D": [0,0,4.1,0,0,0,5.2], "30D": [0,4.1,0,0,5.2,0,0,0,3.8,0,0,4.5,0,0,0,5.0,0,0,4.2,0,0,0,3.9,0,0,4.8,0,0,0,12.4].map((_,i)=>i<29?+(Math.random()*2).toFixed(1):12.4), "90D": [3.2,4.1,5.8,4.2,6.5,5.1,7.2,6.8,8.4,7.5,9.2,8.8,12.4], "12M": [2.1,3.5,4.8,5.2,7.1,8.4,6.9,9.2,10.5,11.8,11.2,12.4] } },
+    outreach: { label: "Outreach Sent", color: "#3B82F6", data: chartData?.outreach || [] },
+    responses: { label: "Responses", color: "#8B5CF6", data: chartData?.responses || [] },
+    meetings: { label: "Meetings Booked", color: "#C9A84C", data: chartData?.meetings || [] },
+    deals: { label: "Deals Closed", color: "#22C55E", data: [] },
+    revenue: { label: "Revenue (£K)", color: "#EC4899", data: [] },
   };
 
   const RANGE_LABELS = { "7D": "7 Days", "30D": "30 Days", "90D": "90 Days", "12M": "12 Months" };
 
-  // Use DB stats if available, fallback to mock
-  const STATS = dbStats ? [
-    { label: "Total Leads", value: dbStats.stats.totalLeads.toLocaleString(), icon: "🔍", sub: `${dbStats.stats.verifiedEmails} verified` },
-    { label: "Companies", value: dbStats.stats.totalCompanies.toLocaleString(), icon: "🏢", sub: null },
-    { label: "Lead Lists", value: dbStats.stats.totalLists.toLocaleString(), icon: "📋", sub: null },
-    { label: "Outreach Sent", value: dbStats.stats.outreachSent.toLocaleString(), icon: "📤", sub: null },
-    { label: "Responses", value: dbStats.stats.responses.toLocaleString(), icon: "💬", sub: dbStats.stats.outreachSent > 0 ? `${((dbStats.stats.responses / dbStats.stats.outreachSent) * 100).toFixed(1)}% reply rate` : null },
-    { label: "Meetings Booked", value: dbStats.stats.meetings.toLocaleString(), icon: "📅", sub: null },
-  ] : [
-    { label: "Outreach Sent", value: "1,247", icon: "📤", sub: null },
-    { label: "Responses", value: "89", icon: "💬", sub: "7.1% reply rate" },
-    { label: "Meetings Booked", value: "14", icon: "📅", sub: "15.7% book rate" },
-    { label: "Deals Closed", value: "3", icon: "🤝", sub: "21.4% close rate" },
-    { label: "Revenue", value: "£12,400", icon: "💰", sub: "£4,133 avg deal" },
-    { label: "Total Leads", value: "2,841", icon: "🔍", sub: "+340 this month" },
+  // Stats from database only (no hardcoded fallback)
+  const s = dbStats?.stats || {};
+  const n = (v) => typeof v === 'number' ? v.toLocaleString() : String(v ?? 0);
+  const STATS = [
+    { label: "Total Leads", value: n(s.totalLeads), icon: "🔍", sub: `${n(s.verifiedEmails)} verified` },
+    { label: "Companies", value: n(s.totalCompanies), icon: "🏢", sub: null },
+    { label: "Lead Lists", value: n(s.totalLists), icon: "📋", sub: null },
+    { label: "Outreach Sent", value: n(s.outreachSent), icon: "📤", sub: null },
+    { label: "Responses", value: n(s.responses), icon: "💬", sub: (s.outreachSent > 0 && s.responses != null) ? `${((s.responses / s.outreachSent) * 100).toFixed(1)}% reply rate` : null },
+    { label: "Meetings Booked", value: n(s.meetings), icon: "📅", sub: null },
   ];
 
-  const MOCK_ACTIVITY = [
-    { action: "Enriched 247 leads", detail: "Q1 SaaS VP Growth — North America", time: "2h ago", icon: "✉️" },
-    { action: "Generated audit deck", detail: "Hodge Insurance — AI Readiness", time: "5h ago", icon: "📊" },
-    { action: "New survey response", detail: "Mike Thompson — Operations", time: "8h ago", icon: "📋" },
-    { action: "Campaign synced to Instantly", detail: "156 contacts — Cold Email Sequence A", time: "1d ago", icon: "📧" },
-    { action: "Call analysed", detail: "Discovery call — SaaS VP Growth", time: "1d ago", icon: "📞" },
-    { action: "Lead list imported", detail: "LinkedIn export — 89 contacts", time: "2d ago", icon: "⬆️" },
-    { action: "Niche research saved", detail: "AI Automation for Insurance Agencies", time: "2d ago", icon: "🎯" },
-    { action: "Script generated", detail: "Cold Call — B2B SaaS Decision Makers", time: "3d ago", icon: "📝" },
-  ];
-  
-  const ACTIVITY = dbStats?.recentActivity?.length > 0 
+  const ACTIVITY = dbStats?.recentActivity?.length > 0
     ? dbStats.recentActivity.map(a => {
         const timeAgo = Math.round((Date.now() - new Date(a.time).getTime()) / (1000 * 60 * 60));
         return {
@@ -3233,7 +3237,7 @@ function DashboardView({ setActivePage }) {
           icon: a.action.includes('list') ? "📋" : a.action.includes('Company') ? "🏢" : "✨",
         };
       })
-    : MOCK_ACTIVITY;
+    : [];
 
   const QUICK_ACTIONS = [
     { label: "Run Discovery", icon: "⚡", page: "leads" },
@@ -3269,12 +3273,15 @@ function DashboardView({ setActivePage }) {
 
       {/* Chart */}
       {(() => {
-        const activeMetrics = Object.entries(chartMetrics).filter(([_, v]) => v).map(([k]) => k);
-        const data = activeMetrics.length > 0 ? CHART_SERIES[activeMetrics[0]].data[chartRange] : [];
-        const allValues = activeMetrics.flatMap(k => CHART_SERIES[k].data[chartRange] || []);
-        const maxVal = Math.max(...allValues, 1);
-        const points = data.length;
         const chartW = 820; const chartH = 200;
+        const activeMetrics = Object.entries(chartMetrics).filter(([_, v]) => v).map(([k]) => k);
+        const allValues = activeMetrics.flatMap(k => CHART_SERIES[k].data || []);
+        const maxVal = Math.max(...allValues, 1);
+
+        const xLabels = chartData?.labels || [];
+        const sampledLabels = xLabels.length > 8
+          ? xLabels.filter((_, i) => i % Math.ceil(xLabels.length / 5) === 0 || i === xLabels.length - 1)
+          : xLabels;
 
         return (
           <div style={{ padding: "20px 24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 20 }}>
@@ -3293,34 +3300,37 @@ function DashboardView({ setActivePage }) {
                 ))}
               </div>
             </div>
-            <div style={{ position: "relative", height: chartH + 30, minWidth: chartW + 48 + 20, overflow: "visible" }}>
+            <div style={{ position: "relative", height: chartH + 30, width: "100%", minWidth: 400, overflow: "auto" }}>
               {/* Y-axis labels */}
               {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => (
-                <div key={i} style={{ position: "absolute", left: 0, top: (1 - pct) * chartH, width: chartW + 48, display: "flex", alignItems: "center" }}>
+                <div key={i} style={{ position: "absolute", left: 0, top: (1 - pct) * chartH, width: "100%", maxWidth: chartW + 68, display: "flex", alignItems: "center" }}>
                   <span style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT, width: 40, textAlign: "right", paddingRight: 8 }}>{Math.round(maxVal * pct).toLocaleString()}</span>
                   <div style={{ flex: 1, minWidth: 0, height: 1, background: COLORS.border, opacity: 0.5 }} />
                 </div>
               ))}
-              {/* Lines */}
-              <svg style={{ position: "absolute", left: 48, top: 0, width: chartW, height: chartH, overflow: "visible" }} viewBox={`0 0 ${chartW} ${chartH}`}>
-                {activeMetrics.map(key => {
-                  const d = CHART_SERIES[key].data[chartRange] || [];
-                  const max = Math.max(...allValues, 1);
-                  const pathPoints = d.map((v, i) => `${(i / (d.length - 1)) * chartW},${chartH - (v / max) * (chartH - 10)}`).join(" L ");
-                  return <path key={key} d={`M ${pathPoints}`} fill="none" stroke={CHART_SERIES[key].color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />;
-                })}
-                {/* Dots on last point */}
-                {activeMetrics.map(key => {
-                  const d = CHART_SERIES[key].data[chartRange] || [];
+              {/* SVG chart - scales with container via viewBox */}
+              <svg style={{ position: "absolute", left: 48, top: 0, width: "100%", maxWidth: chartW, height: chartH, overflow: "visible" }} viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none">
+                {!loadingChart && activeMetrics.map(key => {
+                  const d = CHART_SERIES[key].data || [];
                   if (d.length === 0) return null;
                   const max = Math.max(...allValues, 1);
-                  const x = chartW; const y = chartH - (d[d.length - 1] / max) * (chartH - 10);
-                  return <circle key={key + "_dot"} cx={x} cy={y} r="4" fill={CHART_SERIES[key].color} />;
+                  const step = d.length > 1 ? (chartW / (d.length - 1)) : chartW;
+                  const pathPoints = d.map((v, i) => `${step * i},${chartH - (v / max) * (chartH - 10)}`).join(" L ");
+                  return <path key={key} d={`M ${pathPoints}`} fill="none" stroke={CHART_SERIES[key].color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />;
+                })}
+                {!loadingChart && activeMetrics.map(key => {
+                  const d = CHART_SERIES[key].data || [];
+                  if (d.length === 0) return null;
+                  const max = Math.max(...allValues, 1);
+                  const step = d.length > 1 ? (chartW / (d.length - 1)) : chartW;
+                  const x = step * (d.length - 1);
+                  const y = chartH - (d[d.length - 1] / max) * (chartH - 10);
+                  return <circle key={key + "_dot"} cx={x} cy={y} r="4" fill={CHART_SERIES[key].color} vectorEffect="non-scaling-stroke" />;
                 })}
               </svg>
-              {/* X-axis labels */}
-              <div style={{ position: "absolute", left: 48, bottom: 0, width: chartW, display: "flex", justifyContent: "space-between" }}>
-                {(chartRange === "7D" ? ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] : chartRange === "30D" ? ["Week 1","Week 2","Week 3","Week 4",""] : chartRange === "90D" ? ["Month 1","Month 2","Month 3",""] : ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]).map((l, i) => (
+              {/* X-axis labels - from API, real dates */}
+              <div style={{ position: "absolute", left: 48, bottom: 0, width: "100%", maxWidth: chartW, display: "flex", justifyContent: "space-between" }}>
+                {(sampledLabels.length > 0 ? sampledLabels : (chartRange === "7D" ? ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] : chartRange === "30D" ? ["Week 1","Week 2","Week 3","Week 4"] : chartRange === "90D" ? ["Week 1","Week 5","Week 9","Week 13"] : ["Jan","Apr","Jul","Oct"])).map((l, i) => (
                   <span key={i} style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT }}>{l}</span>
                 ))}
               </div>

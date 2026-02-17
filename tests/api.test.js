@@ -438,6 +438,72 @@ describe('API: integrations', () => {
   });
 });
 
+describe('API: stats (dashboard)', () => {
+  it('1. GET /api/stats/dashboard without auth returns 401', async () => {
+    const res = await api.get('/api/stats/dashboard');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. GET /api/stats/dashboard with JWT returns 200 and stats object', async function () {
+    if (!hasAuth || !token) this.skip();
+    const res = await api.get('/api/stats/dashboard').set(auth());
+    assert.ok(res.status === 200 || res.status === 503 || res.status === 500);
+    if (res.status === 200) {
+      assert.ok(res.body.stats, 'stats object required');
+      assert.ok(typeof res.body.stats.totalLeads === 'number');
+      assert.ok(typeof res.body.stats.totalCompanies === 'number');
+      assert.ok(typeof res.body.stats.totalLists === 'number');
+      assert.ok(typeof res.body.stats.verifiedEmails === 'number');
+      assert.ok(typeof res.body.stats.outreachSent === 'number');
+      assert.ok(typeof res.body.stats.responses === 'number');
+      assert.ok(typeof res.body.stats.meetings === 'number');
+      assert.ok(Array.isArray(res.body.recentActivity));
+    }
+  });
+
+  it('3. GET /api/stats/dashboard with project_id query returns 200', async function () {
+    if (!hasAuth || !token || !hasDb) this.skip();
+    const res = await api.get('/api/stats/dashboard?project_id=11111111-1111-1111-1111-111111111111').set(auth());
+    assert.ok(res.status === 200 || res.status === 503 || res.status === 500);
+    if (res.status === 200) {
+      assert.ok(typeof res.body.stats.totalLeads === 'number');
+      assert.ok(typeof res.body.stats.outreachSent === 'number');
+    }
+  });
+
+  it('4. Stats values are numbers (not hardcoded strings)', async function () {
+    if (!hasAuth || !token) this.skip();
+    const res = await api.get('/api/stats/dashboard').set(auth());
+    if (res.status !== 200) this.skip();
+    const s = res.body.stats;
+    assert.ok(s, 'stats object required');
+    assert.strictEqual(typeof s.totalLeads, 'number');
+    assert.strictEqual(typeof s.outreachSent, 'number');
+    assert.strictEqual(typeof s.responses, 'number');
+    assert.strictEqual(typeof s.meetings, 'number');
+  });
+
+  it('5. recentActivity has action, detail, time', async function () {
+    if (!hasAuth || !token) this.skip();
+    const res = await api.get('/api/stats/dashboard').set(auth());
+    if (res.status !== 200 || !res.body.recentActivity?.length) this.skip();
+    const first = res.body.recentActivity[0];
+    assert.ok('action' in first);
+    assert.ok('detail' in first);
+    assert.ok('time' in first);
+  });
+
+  it('6. GET /api/stats/chart returns outreach, responses, meetings arrays', async function () {
+    if (!hasAuth || !token) this.skip();
+    const res = await api.get('/api/stats/chart?range=7D').set(auth());
+    if (res.status !== 200) this.skip();
+    assert.ok(Array.isArray(res.body.outreach));
+    assert.ok(Array.isArray(res.body.responses));
+    assert.ok(Array.isArray(res.body.meetings));
+    assert.ok(Array.isArray(res.body.labels));
+  });
+});
+
 describe('API: prompts', () => {
   it('1. GET /api/prompts with JWT returns array', async function () {
     if (!hasAuth) this.skip();

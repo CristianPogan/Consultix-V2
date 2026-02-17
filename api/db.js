@@ -119,6 +119,41 @@ export async function ensureOrganisationsReady() {
   _organisationsReady = true;
 }
 
+// Ensure project-scoped stats columns exist (leads, lead_lists, companies)
+export async function ensureProjectStatsColumns() {
+  try {
+    await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS project_id TEXT').catch(() => {});
+    await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS outreach_sent_at TIMESTAMPTZ').catch(() => {});
+    await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS responded_at TIMESTAMPTZ').catch(() => {});
+    await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS meeting_booked_at TIMESTAMPTZ').catch(() => {});
+    await query('ALTER TABLE lead_lists ADD COLUMN IF NOT EXISTS project_id TEXT').catch(() => {});
+    await query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS project_id TEXT').catch(() => {});
+  } catch (_) {}
+}
+
+export async function updateLeadsOutreachSent(orgId, leadIds, platform) {
+  await ensureProjectStatsColumns();
+  if (!leadIds?.length) return;
+  const placeholders = leadIds.map((_, i) => `$${i + 2}`).join(', ');
+  await query(
+    `UPDATE leads SET outreach_sent_at = now() WHERE id IN (${placeholders}) AND org_id = $1`,
+    [orgId, ...leadIds]
+  );
+}
+
+export async function updateLeadsOutreachSentByEmails(orgId, emails, projectId) {
+  await ensureProjectStatsColumns();
+  const list = [...new Set((emails || []).filter(Boolean).map(e => String(e).trim().toLowerCase()))];
+  if (!list.length) return;
+  const params = projectId ? [orgId, projectId, list] : [orgId, list];
+  const cond = projectId ? 'org_id = $1 AND project_id = $2' : 'org_id = $1';
+  const emailParam = projectId ? 3 : 2;
+  await query(
+    `UPDATE leads SET outreach_sent_at = now() WHERE ${cond} AND LOWER(TRIM(email)) = ANY($${emailParam}::text[])`,
+    params
+  );
+}
+
 export async function listOrganisations(orgId) {
   await ensureOrganisationsReady();
   let rows = [];

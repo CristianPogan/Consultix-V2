@@ -11,6 +11,7 @@ import {
   addLeadsToHeyReach,
   addLeadsToInstantly,
 } from '../services/lead-services.js';
+import { updateLeadsOutreachSentByEmails } from '../db.js';
 
 const router = Router();
 
@@ -241,13 +242,19 @@ router.post('/personalize', async (req, res) => {
 // POST /api/lead-generation/outreach/heyreach
 router.post('/outreach/heyreach', async (req, res) => {
   try {
-    const { leads } = req.body;
+    const { leads, project_id } = req.body;
     
     if (!leads || !Array.isArray(leads) || leads.length === 0) {
       return res.status(400).json({ error: 'leads array is required' });
     }
 
     const result = await addLeadsToHeyReach(leads);
+    
+    const orgId = req.orgId;
+    if (orgId) {
+      const emails = leads.map(l => l.email).filter(Boolean);
+      if (emails.length) await updateLeadsOutreachSentByEmails(orgId, emails, project_id || null);
+    }
     
     res.json({ 
       success: true, 
@@ -262,13 +269,19 @@ router.post('/outreach/heyreach', async (req, res) => {
 // POST /api/lead-generation/outreach/instantly
 router.post('/outreach/instantly', async (req, res) => {
   try {
-    const { leads } = req.body;
+    const { leads, project_id } = req.body;
     
     if (!leads || !Array.isArray(leads) || leads.length === 0) {
       return res.status(400).json({ error: 'leads array is required' });
     }
 
     const results = await addLeadsToInstantly(leads);
+    
+    const orgId = req.orgId;
+    if (orgId) {
+      const emails = leads.map(l => l.email).filter(Boolean);
+      if (emails.length) await updateLeadsOutreachSentByEmails(orgId, emails, project_id || null);
+    }
     
     res.json({ 
       success: true, 

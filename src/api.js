@@ -185,7 +185,17 @@ export const api = {
     saveLeadSearchOrder: (order) => req('POST', '/integrations/order/lead-search', order),
   },
   stats: {
-    dashboard: () => req('GET', '/stats/dashboard'),
+    dashboard: (params) => {
+      const q = new URLSearchParams();
+      if (params?.projectId) q.set('project_id', params.projectId);
+      return req('GET', '/stats/dashboard' + (q.toString() ? `?${q}` : ''));
+    },
+    chart: (params) => {
+      const q = new URLSearchParams();
+      if (params?.projectId) q.set('project_id', params.projectId);
+      if (params?.range) q.set('range', params.range);
+      return req('GET', '/stats/chart' + (q.toString() ? `?${q}` : ''));
+    },
   },
   organisations: {
     list: () => req('GET', '/organisations'),
