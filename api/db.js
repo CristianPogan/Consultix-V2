@@ -144,6 +144,65 @@ export async function listOrganisations() {
   }));
 }
 
+// =============================================================================
+// integration_credentials — API keys & tokens per org (linked via org_id)
+// =============================================================================
+
+async function ensureIntegrationCredentialsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS integration_credentials (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL,
+      integration_key TEXT NOT NULL,
+      credentials_json JSONB NOT NULL DEFAULT '{}',
+      connected BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE(org_id, integration_key)
+    )
+  `);
+  await query('CREATE INDEX IF NOT EXISTS idx_integration_credentials_org ON integration_credentials(org_id)').catch(() => {});
+}
+
+export async function getIntegrationCredentials(orgId, integrationKey) {
+  await ensureIntegrationCredentialsTable();
+  const res = await query(
+    'SELECT integration_key, credentials_json, connected FROM integration_credentials WHERE org_id = $1 AND integration_key = $2',
+    [orgId, integrationKey]
+  );
+  return res.rows[0] || null;
+}
+
+export async function listIntegrationCredentials(orgId) {
+  await ensureIntegrationCredentialsTable();
+  const res = await query(
+    'SELECT integration_key, connected FROM integration_credentials WHERE org_id = $1 ORDER BY integration_key',
+    [orgId]
+  );
+  return res.rows;
+}
+
+export async function saveIntegrationCredentials(orgId, integrationKey, credentials = {}) {
+  await ensureIntegrationCredentialsTable();
+  await query(
+    `INSERT INTO integration_credentials (org_id, integration_key, credentials_json, connected, updated_at)
+     VALUES ($1, $2, $3::jsonb, true, now())
+     ON CONFLICT (org_id, integration_key)
+     DO UPDATE SET credentials_json = $3::jsonb, connected = true, updated_at = now()`,
+    [orgId, integrationKey, JSON.stringify(credentials)]
+  );
+  return { integration_key: integrationKey, connected: true };
+}
+
+export async function disconnectIntegration(orgId, integrationKey) {
+  await ensureIntegrationCredentialsTable();
+  await query(
+    `UPDATE integration_credentials SET credentials_json = '{}'::jsonb, connected = false, updated_at = now()
+     WHERE org_id = $1 AND integration_key = $2`,
+    [orgId, integrationKey]
+  );
+}
+
 async function ensureAppUsersTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS app_users (

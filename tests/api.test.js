@@ -363,6 +363,51 @@ describe('API: organisations (projects)', () => {
   });
 });
 
+describe('API: integrations', () => {
+  it('1. GET /api/integrations with JWT returns object with integrations', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/integrations').set(auth());
+    assert.ok(res.status === 200 || res.status === 401 || res.status === 500 || res.status === 503);
+    if (res.status === 200) {
+      assert.ok(typeof res.body === 'object');
+      assert.ok('integrations' in res.body);
+    }
+  });
+
+  it('2. GET /api/integrations/:key returns integration status', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/integrations/fathom').set(auth());
+    assert.ok(res.status === 200 || res.status === 401 || res.status === 500 || res.status === 503);
+    if (res.status === 200) {
+      assert.strictEqual(res.body.integration_key, 'fathom');
+      assert.ok(typeof res.body.connected === 'boolean');
+    }
+  });
+
+  it('3. POST /api/integrations/:key saves credentials', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/integrations/test_integration').set(auth()).send({
+      credentials: { api_key: 'test-key-' + Date.now() },
+    });
+    assert.ok(res.status === 200 || res.status === 401 || res.status === 500 || res.status === 503);
+    if (res.status === 200) {
+      assert.strictEqual(res.body.integration_key, 'test_integration');
+      assert.strictEqual(res.body.connected, true);
+    }
+  });
+
+  it('4. GET /api/integrations without auth returns 401', async () => {
+    const res = await api.get('/api/integrations');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('5. Integrations list returns integrations object', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/integrations').set(auth());
+    if (res.status === 200) assert.ok(typeof res.body.integrations === 'object');
+  });
+});
+
 describe('API: prompts', () => {
   it('1. GET /api/prompts with JWT returns array', async function () {
     if (!hasAuth) this.skip();

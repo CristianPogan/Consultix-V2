@@ -176,6 +176,11 @@ export const api = {
     get: (type) => req('GET', `/settings/${type}`),
     save: (type, settings) => req('POST', `/settings/${type}`, { settings }),
   },
+  integrations: {
+    list: () => req('GET', '/integrations'),
+    get: (key) => req('GET', `/integrations/${encodeURIComponent(key)}`),
+    save: (key, credentials) => req('POST', `/integrations/${encodeURIComponent(key)}`, { credentials }),
+  },
   stats: {
     dashboard: () => req('GET', '/stats/dashboard'),
   },

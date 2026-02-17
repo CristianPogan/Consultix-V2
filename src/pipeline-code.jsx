@@ -6906,12 +6906,66 @@ function LinkedInCampaignsView() {
 
 
 
+// Integration metadata: key, label, icon, desc, category, credential fields for the config modal
+
+function IntegrationConfigModal({ intg, existingCredentials, onSave, onClose }) {
+  const [form, setForm] = useState(existingCredentials);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setForm(existingCredentials), [intg?.key, existingCredentials]);
+  const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
+  const labelStyle = { display: "block", fontFamily: FONT_BODY, fontSize: 13, color: COLORS.text, fontWeight: 500, marginBottom: 6 };
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={onClose}>
+      <div style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 24, maxWidth: 420, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <span style={{ fontSize: 28 }}>{intg.icon}</span>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 16 }}>Configure {intg.label}</div>
+            <div style={{ fontSize: 12, color: COLORS.textDim }}>{intg.desc}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 24 }}>
+          {(intg.credentialFields || []).map(f => (
+            <div key={f.name}>
+              <label style={labelStyle}>{f.label}</label>
+              <input type={f.type || "text"} value={form[f.name] || ""} onChange={e => setForm({ ...form, [f.name]: e.target.value })} placeholder={f.label} style={inputStyle} autoComplete="off" />
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+          <button onClick={onClose} style={{ padding: "10px 20px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+          <button onClick={async () => { setSaving(true); await onSave(form); setSaving(false); }} disabled={saving} style={{ padding: "10px 24px", background: saving ? COLORS.border : COLORS.accent, color: saving ? COLORS.textDim : COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? "Saving..." : "Save & Connect"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const INTEGRATIONS_META = [
+  { key: "fathom", label: "Fathom", icon: "🎙️", desc: "AI meeting assistant — import call transcripts", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "fireflies", label: "Fireflies.ai", icon: "🔥", desc: "Meeting transcription & analysis", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "zoom", label: "Zoom", icon: "📹", desc: "Import recordings & transcripts", category: "call_recording", credentialFields: [{ name: "client_id", label: "Client ID", type: "text" }, { name: "client_secret", label: "Client Secret", type: "password" }] },
+  { key: "linkedin_api", label: "LinkedIn", icon: "💼", desc: "Publish posts & pull profile data", category: "outreach", credentialFields: [{ name: "access_token", label: "Access Token", type: "password" }, { name: "refresh_token", label: "Refresh Token", type: "password" }] },
+  { key: "instantly", label: "Instantly", icon: "📧", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
+  { key: "smartlead", label: "SmartLead", icon: "📬", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
+  { key: "heyreach", label: "HeyReach", icon: "🤝", desc: "LinkedIn outreach automation", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
+  { key: "aimfox", label: "AimFox", icon: "🦊", desc: "LinkedIn outreach automation", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
+  { key: "bettercontact", label: "BetterContact", icon: "✉️", desc: "Email verification & list cleaning", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "zerobounce", label: "ZeroBounce", icon: "🛡️", desc: "Email verification & validation", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "findy", label: "Findy", icon: "🔍", desc: "Lead discovery & enrichment", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "cleanlist", label: "Cleanlist", icon: "🧹", desc: "List cleaning & verification", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "wiza", label: "Wiza", icon: "📊", desc: "Sales intelligence & lead data", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "leadsmagix", label: "Leads Magix", icon: "✨", desc: "B2B lead generation platform", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
+];
+
 function SettingsView() {
   const [activeTab, setActiveTab] = useState("brand_voice");
   const [submitted, setSubmitted] = useState(false);
   const [answers, setAnswers] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState({});
+  const [configModal, setConfigModal] = useState(null);
   
   useEffect(() => {
     async function loadSettings() {
@@ -6930,6 +6984,19 @@ function SettingsView() {
     loadSettings();
   }, []);
   
+  async function loadIntegrationStatus() {
+    try {
+      const res = await api.integrations.list();
+      setIntegrationStatus(res.integrations || {});
+    } catch (err) {
+      console.error("Failed to load integrations:", err);
+    }
+  }
+  
+  useEffect(() => {
+    if (activeTab === "integrations") loadIntegrationStatus();
+  }, [activeTab]);
+  
   async function saveBrandVoice() {
     setSaving(true);
     try {
@@ -6942,17 +7009,6 @@ function SettingsView() {
       setSaving(false);
     }
   }
-
-  const INTEGRATIONS = [
-    { key: "fathom", label: "Fathom", icon: "🎙️", desc: "AI meeting assistant — import call transcripts", connected: true },
-    { key: "fireflies", label: "Fireflies.ai", icon: "🔥", desc: "Meeting transcription & analysis", connected: false },
-    { key: "zoom", label: "Zoom", icon: "📹", desc: "Import recordings & transcripts", connected: false },
-    { key: "linkedin_api", label: "LinkedIn", icon: "💼", desc: "Publish posts & pull profile data", connected: true },
-    { key: "instantly", label: "Instantly", icon: "📧", desc: "Cold email campaigns", connected: true },
-    { key: "smartlead", label: "SmartLead", icon: "📬", desc: "Cold email campaigns", connected: false },
-    { key: "heyreach", label: "HeyReach", icon: "🤝", desc: "LinkedIn outreach automation", connected: true },
-    { key: "aimfox", label: "AimFox", icon: "🦊", desc: "LinkedIn outreach automation", connected: false },
-  ];
 
   const QUESTIONS = [
     { section: "About You", items: [
@@ -7090,48 +7146,95 @@ function SettingsView() {
       {/* Integrations Tab */}
       {activeTab === "integrations" && (
         <div>
+          {configModal && (
+            <IntegrationConfigModal
+              intg={configModal}
+              existingCredentials={configModal.existingCredentials || {}}
+              onSave={async (credentials) => {
+                try {
+                  await api.integrations.save(configModal.key, credentials);
+                  await loadIntegrationStatus();
+                  setConfigModal(null);
+                } catch (err) {
+                  console.error("Failed to save integration:", err);
+                  alert("Failed to save credentials. Please try again.");
+                }
+              }}
+              onClose={() => setConfigModal(null)}
+            />
+          )}
           <p style={{ color: COLORS.textMuted, marginBottom: 20, fontSize: 13 }}>Connect your tools to power the platform. Call recording tools feed into content generation, outreach tools sync with campaigns.</p>
 
           <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>CALL RECORDING</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-            {INTEGRATIONS.filter(i => ["fathom", "fireflies", "zoom"].includes(i.key)).map(intg => (
-              <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ fontSize: 22 }}>{intg.icon}</span>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{intg.label}</div>
-                    <div style={{ fontSize: 11, color: COLORS.textDim }}>{intg.desc}</div>
+            {INTEGRATIONS_META.filter(i => i.category === "call_recording").map(intg => {
+              const connected = !!integrationStatus[intg.key];
+              return (
+                <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 22 }}>{intg.icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{intg.label}</div>
+                      <div style={{ fontSize: 11, color: COLORS.textDim }}>{intg.desc}</div>
+                    </div>
                   </div>
+                  <button onClick={async () => { const data = await api.integrations.get(intg.key).catch(() => ({})); setConfigModal({ ...intg, existingCredentials: data.credentials_json || {} }); }} style={{
+                    padding: "8px 18px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    background: connected ? "transparent" : COLORS.accent,
+                    color: connected ? COLORS.accent : COLORS.bg,
+                    border: connected ? `1px solid ${COLORS.accent}44` : "none",
+                  }}>{connected ? "Connected ✓" : "Connect"}</button>
                 </div>
-                <button style={{
-                  padding: "8px 18px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer",
-                  background: intg.connected ? "transparent" : COLORS.accent,
-                  color: intg.connected ? COLORS.accent : COLORS.bg,
-                  border: intg.connected ? `1px solid ${COLORS.accent}44` : "none",
-                }}>{intg.connected ? "Connected ✓" : "Connect"}</button>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>OUTREACH & CAMPAIGNS</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-            {INTEGRATIONS.filter(i => ["linkedin_api", "instantly", "smartlead", "heyreach", "aimfox"].includes(i.key)).map(intg => (
-              <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ fontSize: 22 }}>{intg.icon}</span>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{intg.label}</div>
-                    <div style={{ fontSize: 11, color: COLORS.textDim }}>{intg.desc}</div>
+            {INTEGRATIONS_META.filter(i => i.category === "outreach").map(intg => {
+              const connected = !!integrationStatus[intg.key];
+              return (
+                <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 22 }}>{intg.icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{intg.label}</div>
+                      <div style={{ fontSize: 11, color: COLORS.textDim }}>{intg.desc}</div>
+                    </div>
                   </div>
+                  <button onClick={async () => { const data = await api.integrations.get(intg.key).catch(() => ({})); setConfigModal({ ...intg, existingCredentials: data.credentials_json || {} }); }} style={{
+                    padding: "8px 18px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    background: connected ? "transparent" : COLORS.accent,
+                    color: connected ? COLORS.accent : COLORS.bg,
+                    border: connected ? `1px solid ${COLORS.accent}44` : "none",
+                  }}>{connected ? "Connected ✓" : "Connect"}</button>
                 </div>
-                <button style={{
-                  padding: "8px 18px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer",
-                  background: intg.connected ? "transparent" : COLORS.accent,
-                  color: intg.connected ? COLORS.accent : COLORS.bg,
-                  border: intg.connected ? `1px solid ${COLORS.accent}44` : "none",
-                }}>{intg.connected ? "Connected ✓" : "Connect"}</button>
-              </div>
-            ))}
+              );
+            })}
+          </div>
+
+          <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>ENRICHMENT & LEAD DATA</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+            {INTEGRATIONS_META.filter(i => i.category === "enrichment").map(intg => {
+              const connected = !!integrationStatus[intg.key];
+              return (
+                <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 22 }}>{intg.icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{intg.label}</div>
+                      <div style={{ fontSize: 11, color: COLORS.textDim }}>{intg.desc}</div>
+                    </div>
+                  </div>
+                  <button onClick={async () => { const data = await api.integrations.get(intg.key).catch(() => ({})); setConfigModal({ ...intg, existingCredentials: data.credentials_json || {} }); }} style={{
+                    padding: "8px 18px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    background: connected ? "transparent" : COLORS.accent,
+                    color: connected ? COLORS.accent : COLORS.bg,
+                    border: connected ? `1px solid ${COLORS.accent}44` : "none",
+                  }}>{connected ? "Connected ✓" : "Connect"}</button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

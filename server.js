@@ -11,6 +11,7 @@ import leadsRouter from './api/routes/leads.js';
 import promptsRouter from './api/routes/prompts.js';
 import leadGenerationRouter from './api/routes/lead-generation.js';
 import settingsRouter from './api/routes/settings.js';
+import integrationsRouter from './api/routes/integrations.js';
 import statsRouter from './api/routes/stats.js';
 import organisationsRouter from './api/routes/organisations.js';
 
@@ -33,6 +34,7 @@ app.use('/api/leads', authMiddleware, leadsRouter);
 app.use('/api/prompts', authMiddleware, promptsRouter);
 app.use('/api/lead-generation', authMiddleware, leadGenerationRouter);
 app.use('/api/settings', authMiddleware, settingsRouter);
+app.use('/api/integrations', authMiddleware, integrationsRouter);
 app.use('/api/stats', authMiddleware, statsRouter);
 app.use('/api/organisations', authMiddleware, organisationsRouter);
 
