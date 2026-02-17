@@ -3,9 +3,41 @@ import {
   listIntegrationCredentials,
   getIntegrationCredentials,
   saveIntegrationCredentials,
+  getIntegrationServiceOrder,
+  saveIntegrationServiceOrder,
 } from '../db.js';
 
 const router = Router();
+
+// GET /api/integrations/order/lead-search - Get lead search & enrichment order (must be before :key)
+router.get('/order/lead-search', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    const row = await getIntegrationServiceOrder(orgId);
+    res.json({
+      leadSearch: row?.lead_search_order || [],
+      leadEnrichment: row?.lead_enrichment_order || [],
+    });
+  } catch (err) {
+    console.error('Get lead search order error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/order/lead-search - Save lead search & enrichment order
+router.post('/order/lead-search', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { leadSearch, leadEnrichment } = req.body;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    await saveIntegrationServiceOrder(orgId, leadSearch, leadEnrichment);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Save lead search order error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/integrations - List all integration status for org
 router.get('/', async (req, res) => {

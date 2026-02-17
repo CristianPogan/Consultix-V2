@@ -6928,7 +6928,7 @@ function IntegrationConfigModal({ intg, existingCredentials, onSave, onClose }) 
           {(intg.credentialFields || []).map(f => (
             <div key={f.name}>
               <label style={labelStyle}>{f.label}</label>
-              <input type={f.type || "text"} value={form[f.name] || ""} onChange={e => setForm({ ...form, [f.name]: e.target.value })} placeholder={f.label} style={inputStyle} autoComplete="off" />
+              <input type={f.type || "text"} value={form[f.name] || ""} onChange={e => setForm({ ...form, [f.name]: e.target.value })} placeholder={f.placeholder || f.label} style={inputStyle} autoComplete="off" />
             </div>
           ))}
         </div>
@@ -6941,22 +6941,28 @@ function IntegrationConfigModal({ intg, existingCredentials, onSave, onClose }) 
   );
 }
 
+// orderType: lead_search = find leads, lead_enrichment = verify/enrich. costTier 1=cheapest, 5=most expensive
 const INTEGRATIONS_META = [
   { key: "fathom", label: "Fathom", icon: "🎙️", desc: "AI meeting assistant — import call transcripts", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "fireflies", label: "Fireflies.ai", icon: "🔥", desc: "Meeting transcription & analysis", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "zoom", label: "Zoom", icon: "📹", desc: "Import recordings & transcripts", category: "call_recording", credentialFields: [{ name: "client_id", label: "Client ID", type: "text" }, { name: "client_secret", label: "Client Secret", type: "password" }] },
-  { key: "linkedin_api", label: "LinkedIn", icon: "💼", desc: "Publish posts & pull profile data", category: "outreach", credentialFields: [{ name: "access_token", label: "Access Token", type: "password" }, { name: "refresh_token", label: "Refresh Token", type: "password" }] },
+  { key: "unipile", label: "Unipile", icon: "💼", desc: "LinkedIn company data & profile enrichment", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.05/lookup", costTier: 4, credentialFields: [{ name: "account_id", label: "Account ID", type: "text" }, { name: "access_token", label: "Access Token", type: "password" }, { name: "dsn", label: "DSN", type: "text", placeholder: "e.g. api12.unipile.com:14291" }] },
   { key: "instantly", label: "Instantly", icon: "📧", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
   { key: "smartlead", label: "SmartLead", icon: "📬", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
   { key: "heyreach", label: "HeyReach", icon: "🤝", desc: "LinkedIn outreach automation", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
   { key: "aimfox", label: "AimFox", icon: "🦊", desc: "LinkedIn outreach automation", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
-  { key: "bettercontact", label: "BetterContact", icon: "✉️", desc: "Email verification & list cleaning", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "zerobounce", label: "ZeroBounce", icon: "🛡️", desc: "Email verification & validation", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "findy", label: "Findy", icon: "🔍", desc: "Lead discovery & enrichment", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "cleanlist", label: "Cleanlist", icon: "🧹", desc: "List cleaning & verification", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "wiza", label: "Wiza", icon: "📊", desc: "Sales intelligence & lead data", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "leadsmagix", label: "Leads Magix", icon: "✨", desc: "B2B lead generation platform", category: "enrichment", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
+  { key: "icypeas", label: "IcyPeas", icon: "🧊", desc: "Find people & email search", category: "enrichment", orderTypes: ["lead_search", "lead_enrichment"], costLabel: "~$0.02/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "bettercontact", label: "BetterContact", icon: "✉️", desc: "Email verification & list cleaning", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.01/verify", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "zerobounce", label: "ZeroBounce", icon: "🛡️", desc: "Email verification & validation", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.008/verify", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "findy", label: "Findy", icon: "🔍", desc: "Lead discovery & enrichment", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.03/lead", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "cleanlist", label: "Cleanlist", icon: "🧹", desc: "List cleaning & verification", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.012/verify", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "wiza", label: "Wiza", icon: "📊", desc: "Sales intelligence & lead data", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.04/lead", costTier: 4, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "leadsmagix", label: "Leads Magix", icon: "✨", desc: "B2B lead generation platform", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.025/lead", costTier: 3, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
 ];
+
+const ENRICHMENT_INTEGRATIONS = INTEGRATIONS_META.filter(i => i.category === "enrichment");
+const LEAD_SEARCH_KEYS = ENRICHMENT_INTEGRATIONS.filter(i => (i.orderTypes || []).includes("lead_search")).map(i => i.key);
+const LEAD_ENRICHMENT_KEYS = ENRICHMENT_INTEGRATIONS.filter(i => (i.orderTypes || []).includes("lead_enrichment")).map(i => i.key);
 
 function SettingsView() {
   const [activeTab, setActiveTab] = useState("brand_voice");
@@ -6966,6 +6972,8 @@ function SettingsView() {
   const [saving, setSaving] = useState(false);
   const [integrationStatus, setIntegrationStatus] = useState({});
   const [configModal, setConfigModal] = useState(null);
+  const [leadSearchOrder, setLeadSearchOrder] = useState({ leadSearch: LEAD_SEARCH_KEYS, leadEnrichment: LEAD_ENRICHMENT_KEYS });
+  const [leadOrderSaving, setLeadOrderSaving] = useState(false);
   
   useEffect(() => {
     async function loadSettings() {
@@ -6995,6 +7003,24 @@ function SettingsView() {
   
   useEffect(() => {
     if (activeTab === "integrations") loadIntegrationStatus();
+  }, [activeTab]);
+  
+  async function loadLeadSearchOrder() {
+    try {
+      const res = await api.integrations.getLeadSearchOrder();
+      if (res.leadSearch?.length || res.leadEnrichment?.length) {
+        setLeadSearchOrder({ leadSearch: res.leadSearch || LEAD_SEARCH_KEYS, leadEnrichment: res.leadEnrichment || LEAD_ENRICHMENT_KEYS });
+      }
+    } catch (err) {
+      console.error("Failed to load lead search order:", err);
+    }
+  }
+  
+  useEffect(() => {
+    if (activeTab === "lead_search_order") {
+      loadIntegrationStatus();
+      loadLeadSearchOrder();
+    }
   }, [activeTab]);
   
   async function saveBrandVoice() {
@@ -7061,6 +7087,7 @@ function SettingsView() {
           { key: "brand_voice", label: "🎯 Brand Voice" },
           { key: "buyer_persona", label: "👤 Buyer Persona" },
           { key: "integrations", label: "🔌 Integrations" },
+          { key: "lead_search_order", label: "📋 Lead Search Order" },
         ].map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
             padding: "10px 20px", background: "transparent", border: "none",
@@ -7236,6 +7263,107 @@ function SettingsView() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Lead Search Order Tab */}
+      {activeTab === "lead_search_order" && (
+        <div>
+          <p style={{ color: COLORS.textMuted, marginBottom: 20, fontSize: 13 }}>Order your connected enrichment services. The first service in each list is used first; others are fallbacks. Put cheaper services first — expensive ones are best as last fallbacks.</p>
+          
+          {(() => {
+            const connectedKeys = Object.keys(integrationStatus).filter(k => integrationStatus[k]);
+            const metaByKey = Object.fromEntries(ENRICHMENT_INTEGRATIONS.map(i => [i.key, i]));
+            const mergeWithConnected = (savedOrder, keysForType) => {
+              const inOrder = savedOrder.filter(k => connectedKeys.includes(k) && keysForType.includes(k));
+              const newConnected = keysForType.filter(k => connectedKeys.includes(k) && !inOrder.includes(k));
+              return [...inOrder, ...newConnected];
+            };
+            const leadSearchList = mergeWithConnected(leadSearchOrder.leadSearch, LEAD_SEARCH_KEYS);
+            const leadEnrichList = mergeWithConnected(leadSearchOrder.leadEnrichment, LEAD_ENRICHMENT_KEYS);
+            const moveInList = (list, fromIdx, direction) => {
+              const arr = [...list];
+              const toIdx = fromIdx + direction;
+              if (toIdx < 0 || toIdx >= arr.length) return arr;
+              [arr[fromIdx], arr[toIdx]] = [arr[toIdx], arr[fromIdx]];
+              return arr;
+            };
+            const setLeadSearch = (arr) => setLeadSearchOrder(o => ({ ...o, leadSearch: arr }));
+            const setLeadEnrich = (arr) => setLeadSearchOrder(o => ({ ...o, leadEnrichment: arr }));
+            const costBadge = (costLabel, costTier) => (
+              <span style={{ padding: "4px 10px", borderRadius: 6, background: costTier >= 4 ? "rgba(255,100,100,0.15)" : costTier >= 3 ? "rgba(255,180,80,0.15)" : "rgba(100,200,100,0.15)", color: costTier >= 4 ? "#ff6b6b" : costTier >= 3 ? "#e6a23c" : "#67c23a", fontFamily: FONT, fontSize: 11, fontWeight: 600 }}>{costLabel}</span>
+            );
+            return (
+              <>
+                <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>LEAD SEARCH (find leads — first is primary, others fallback)</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 24 }}>
+                  {leadSearchList.length === 0 ? (
+                    <div style={{ padding: 16, background: COLORS.surface, border: `1px dashed ${COLORS.border}`, borderRadius: 10, color: COLORS.textDim, fontSize: 13 }}>No lead search integrations connected. Connect IcyPeas, Findy, Wiza, or Leads Magix in Integrations.</div>
+                  ) : leadSearchList.map((key, idx) => {
+                    const meta = metaByKey[key];
+                    if (!meta) return null;
+                    return (
+                      <div key={key} style={{ padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 18 }}>{meta.icon}</span>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{meta.label} <span style={{ color: COLORS.textDim, fontWeight: 400, fontSize: 11 }}>— {idx === 0 ? "Primary" : `Fallback ${idx}`}</span></div>
+                            <div style={{ fontSize: 11, color: COLORS.textDim }}>{meta.desc}</div>
+                          </div>
+                          {meta.costLabel && costBadge(meta.costLabel, meta.costTier || 1)}
+                        </div>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button onClick={() => setLeadSearch(moveInList(leadSearchList, idx, -1))} disabled={idx === 0} style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, cursor: idx === 0 ? "not-allowed" : "pointer", opacity: idx === 0 ? 0.5 : 1 }}>↑</button>
+                          <button onClick={() => setLeadSearch(moveInList(leadSearchList, idx, 1))} disabled={idx === leadSearchList.length - 1} style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, cursor: idx === leadSearchList.length - 1 ? "not-allowed" : "pointer", opacity: idx === leadSearchList.length - 1 ? 0.5 : 1 }}>↓</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>LEAD ENRICHMENT (verify & enrich — first is primary, others fallback)</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 24 }}>
+                  {leadEnrichList.length === 0 ? (
+                    <div style={{ padding: 16, background: COLORS.surface, border: `1px dashed ${COLORS.border}`, borderRadius: 10, color: COLORS.textDim, fontSize: 13 }}>No lead enrichment integrations connected. Connect BetterContact, ZeroBounce, Unipile, Cleanlist, or IcyPeas in Integrations.</div>
+                  ) : leadEnrichList.map((key, idx) => {
+                    const meta = metaByKey[key];
+                    if (!meta) return null;
+                    return (
+                      <div key={key} style={{ padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 18 }}>{meta.icon}</span>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{meta.label} <span style={{ color: COLORS.textDim, fontWeight: 400, fontSize: 11 }}>— {idx === 0 ? "Primary" : `Fallback ${idx}`}</span></div>
+                            <div style={{ fontSize: 11, color: COLORS.textDim }}>{meta.desc}</div>
+                          </div>
+                          {meta.costLabel && costBadge(meta.costLabel, meta.costTier || 1)}
+                        </div>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button onClick={() => setLeadEnrich(moveInList(leadEnrichList, idx, -1))} disabled={idx === 0} style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, cursor: idx === 0 ? "not-allowed" : "pointer", opacity: idx === 0 ? 0.5 : 1 }}>↑</button>
+                          <button onClick={() => setLeadEnrich(moveInList(leadEnrichList, idx, 1))} disabled={idx === leadEnrichList.length - 1} style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, cursor: idx === leadEnrichList.length - 1 ? "not-allowed" : "pointer", opacity: idx === leadEnrichList.length - 1 ? 0.5 : 1 }}>↓</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <button onClick={async () => {
+                  setLeadOrderSaving(true);
+                  try {
+                    await api.integrations.saveLeadSearchOrder({ leadSearch: leadSearchList, leadEnrichment: leadEnrichList });
+                    setLeadSearchOrder({ leadSearch: leadSearchList, leadEnrichment: leadEnrichList });
+                  } catch (err) {
+                    console.error("Failed to save order:", err);
+                    alert("Failed to save. Please try again.");
+                  } finally {
+                    setLeadOrderSaving(false);
+                  }
+                }} disabled={leadOrderSaving} style={{ padding: "12px 28px", background: leadOrderSaving ? COLORS.border : COLORS.accent, color: leadOrderSaving ? COLORS.textDim : COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: leadOrderSaving ? "not-allowed" : "pointer" }}>
+                  {leadOrderSaving ? "Saving..." : "Save Order"}
+                </button>
+              </>
+            );
+          })()}
         </div>
       )}
 

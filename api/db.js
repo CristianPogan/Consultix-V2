@@ -203,6 +203,43 @@ export async function disconnectIntegration(orgId, integrationKey) {
   );
 }
 
+// =============================================================================
+// integration_service_order — lead search & enrichment order per org
+// =============================================================================
+
+async function ensureIntegrationServiceOrderTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS integration_service_order (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL UNIQUE,
+      lead_search_order JSONB NOT NULL DEFAULT '[]',
+      lead_enrichment_order JSONB NOT NULL DEFAULT '[]',
+      updated_at TIMESTAMPTZ DEFAULT now()
+    )
+  `);
+  await query('CREATE INDEX IF NOT EXISTS idx_integration_service_order_org ON integration_service_order(org_id)').catch(() => {});
+}
+
+export async function getIntegrationServiceOrder(orgId) {
+  await ensureIntegrationServiceOrderTable();
+  const res = await query(
+    'SELECT lead_search_order, lead_enrichment_order FROM integration_service_order WHERE org_id = $1',
+    [orgId]
+  );
+  return res.rows[0] || null;
+}
+
+export async function saveIntegrationServiceOrder(orgId, leadSearchOrder, leadEnrichmentOrder) {
+  await ensureIntegrationServiceOrderTable();
+  await query(
+    `INSERT INTO integration_service_order (org_id, lead_search_order, lead_enrichment_order, updated_at)
+     VALUES ($1, $2::jsonb, $3::jsonb, now())
+     ON CONFLICT (org_id)
+     DO UPDATE SET lead_search_order = $2::jsonb, lead_enrichment_order = $3::jsonb, updated_at = now()`,
+    [orgId, JSON.stringify(leadSearchOrder || []), JSON.stringify(leadEnrichmentOrder || [])]
+  );
+}
+
 async function ensureAppUsersTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS app_users (
