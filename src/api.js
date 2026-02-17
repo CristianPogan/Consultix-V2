@@ -179,4 +179,7 @@ export const api = {
   stats: {
     dashboard: () => req('GET', '/stats/dashboard'),
   },
+  organisations: {
+    list: () => req('GET', '/organisations'),
+  },
 };

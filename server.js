@@ -12,6 +12,7 @@ import promptsRouter from './api/routes/prompts.js';
 import leadGenerationRouter from './api/routes/lead-generation.js';
 import settingsRouter from './api/routes/settings.js';
 import statsRouter from './api/routes/stats.js';
+import organisationsRouter from './api/routes/organisations.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +34,7 @@ app.use('/api/prompts', authMiddleware, promptsRouter);
 app.use('/api/lead-generation', authMiddleware, leadGenerationRouter);
 app.use('/api/settings', authMiddleware, settingsRouter);
 app.use('/api/stats', authMiddleware, statsRouter);
+app.use('/api/organisations', authMiddleware, organisationsRouter);
 
 // Serve static files from the Vite build output
 app.use(express.static(path.join(__dirname, 'dist')));

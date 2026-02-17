@@ -477,12 +477,8 @@ export default function App() {
   const [expandedContact, setExpandedContact] = useState(null);
   const [showPersonalizeModal, setShowPersonalizeModal] = useState(false);
   const [activePage, setActivePage] = useState("dashboard");
-  const [selectedAuditProject, setSelectedAuditProject] = useState(1);
-  const auditProjects = [
-    { id: 1, name: "Hastingwood Securities AI Audit", client: "Hastingwood Securities", created: "2026-01-15" },
-    { id: 2, name: "Acme Corp Digital Transformation", client: "Acme Corp", created: "2026-01-20" },
-    { id: 3, name: "TechStart AI Assessment", client: "TechStart", created: "2026-02-01" },
-  ];
+  const [auditProjects, setAuditProjects] = useState([]);
+  const [selectedAuditProject, setSelectedAuditProject] = useState(null);
   const [promptText, setPromptText] = useState(DEFAULT_PROMPT);
   const [selectedPromptKey, setSelectedPromptKey] = useState("default");
   const [previewEmails, setPreviewEmails] = useState(null);
@@ -513,6 +509,16 @@ export default function App() {
         setSavedPrompts(merged);
       }).catch(() => setSavedPrompts(defs || SAVED_PROMPTS));
     }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api.organisations.list()
+      .then(projects => {
+        const list = Array.isArray(projects) ? projects : [];
+        setAuditProjects(list);
+        setSelectedAuditProject(prev => (prev == null && list.length > 0 ? String(list[0].id) : prev));
+      })
+      .catch(() => setAuditProjects([]));
   }, []);
 
   const runDiscovery = async () => {
@@ -1094,12 +1100,13 @@ export default function App() {
           {/* Project Selector — Above everything */}
           <div style={{ padding: "0 6px", marginBottom: 12 }}>
             <div style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, padding: "0 4px", marginBottom: 6 }}>PROJECT</div>
-            <select value={selectedAuditProject} onChange={e => setSelectedAuditProject(parseInt(e.target.value))} style={{
+            <select value={selectedAuditProject ?? ""} onChange={e => setSelectedAuditProject(e.target.value || null)} style={{
               width: "100%", padding: "8px 10px",
               background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6,
               color: COLORS.text, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, outline: "none", cursor: "pointer",
             }}>
-              {auditProjects.map(p => <option key={p.id} value={p.id}>{p.client}</option>)}
+              <option value="" style={{ background: COLORS.surface, color: COLORS.textDim }}>{auditProjects.length === 0 ? "Loading..." : "Select project..."}</option>
+              {auditProjects.map(p => <option key={p.id} value={String(p.id)}>{p.client}</option>)}
             </select>
           </div>
 
@@ -1348,8 +1355,8 @@ export default function App() {
         {activePage === "appointments" && <AppointmentsView />}
         {activePage === "unibox" && <UniboxView />}
 
-        {activePage === "audit" && <AuditView project={auditProjects.find(p => p.id === selectedAuditProject)} projects={auditProjects} selectedProject={selectedAuditProject} setSelectedProject={setSelectedAuditProject} />}
-        {activePage === "implementation" && <ImplementationView project={auditProjects.find(p => p.id === selectedAuditProject)} />}
+        {activePage === "audit" && <AuditView project={auditProjects.find(p => String(p.id) === String(selectedAuditProject))} projects={auditProjects} selectedProject={selectedAuditProject} setSelectedProject={setSelectedAuditProject} />}
+        {activePage === "implementation" && <ImplementationView project={auditProjects.find(p => String(p.id) === String(selectedAuditProject))} />}
         {activePage === "workflows" && <WorkflowsLibraryView />}
         {activePage === "council" && <AICouncilView />}
 
@@ -3862,6 +3869,8 @@ function UniboxView() {
 function ImplementationView({ project }) {
   const [expandedPhase, setExpandedPhase] = useState(0);
 
+  if (!project) return <div style={{ padding: 28, color: COLORS.textDim, fontFamily: FONT_BODY }}>Select a project from the sidebar.</div>;
+
   const phases = [
     {
       name: "Phase 1: Foundation", timeline: "Month 1-2", status: "in_progress", progress: 35, color: "#eab308", cost: "£35-45K",
@@ -4166,6 +4175,8 @@ function AuditView({ project, projects, selectedProject, setSelectedProject }) {
     { id: 2, name: "CEO Interview - Strategic Vision", speaker: "James Richardson", role: "CEO", department: "Leadership", duration: 60, tags: ["strategy", "leadership"] },
     { id: 3, name: "Estate Manager Interview", speaker: "Mike Thompson", role: "Estate Manager", department: "Operations", duration: 50, tags: ["operations", "estates"] },
   ]);
+
+  if (!project) return <div style={{ padding: 28, color: COLORS.textDim, fontFamily: FONT_BODY }}>Select a project from the sidebar.</div>;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>

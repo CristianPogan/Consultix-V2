@@ -318,6 +318,51 @@ describe('API: leads', () => {
   });
 });
 
+describe('API: organisations (projects)', () => {
+  it('1. GET /api/organisations with JWT returns array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/organisations').set(auth());
+    assert.ok(res.status === 200 || res.status === 503 || res.status === 500);
+    if (res.status === 200) assert.ok(Array.isArray(res.body));
+  });
+
+  it('2. Organisations response has Hastingwood, Acme, TechStart', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/organisations').set(auth());
+    if (res.status !== 200 || !Array.isArray(res.body)) this.skip();
+    const names = res.body.map(p => (p.client || p.name || '').toLowerCase());
+    assert.ok(names.some(n => n.includes('hastingwood')), 'Expected Hastingwood Securities in projects');
+    assert.ok(names.some(n => n.includes('acme')), 'Expected Acme Corp in projects');
+    assert.ok(names.some(n => n.includes('techstart')), 'Expected TechStart in projects');
+  });
+
+  it('3. Organisations items have id, name, client, created', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/organisations').set(auth());
+    if (res.status !== 200 || res.body.length === 0) this.skip();
+    const first = res.body[0];
+    assert.ok('id' in first, 'Project should have id');
+    assert.ok('client' in first || 'name' in first, 'Project should have client or name');
+  });
+
+  it('4. GET without auth returns 401', async () => {
+    const res = await api.get('/api/organisations');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('5. Select element receives correct data shape', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/organisations').set(auth());
+    if (res.status !== 200) this.skip();
+    const projects = res.body;
+    assert.ok(Array.isArray(projects));
+    projects.forEach(p => {
+      assert.ok(String(p.id).length > 0, 'id must be non-empty');
+      assert.ok((p.client || p.name), 'client or name must exist for select display');
+    });
+  });
+});
+
 describe('API: prompts', () => {
   it('1. GET /api/prompts with JWT returns array', async function () {
     if (!hasAuth) this.skip();

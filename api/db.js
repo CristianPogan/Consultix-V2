@@ -76,6 +76,68 @@ export async function ensureOrgExists(orgId) {
   }
 }
 
+// Projects stored as organisations — seed default projects (table may have UUID or TEXT id)
+const DEFAULT_PROJECTS = [
+  { id: '11111111-1111-1111-1111-111111111111', name: 'Hastingwood Securities', full_name: 'Hastingwood Securities AI Audit', slug: 'hastingwood-securities', created: '2026-01-15' },
+  { id: '22222222-2222-2222-2222-222222222222', name: 'Acme Corp', full_name: 'Acme Corp Digital Transformation', slug: 'acme-corp', created: '2026-01-20' },
+  { id: '33333333-3333-3333-3333-333333333333', name: 'TechStart', full_name: 'TechStart AI Assessment', slug: 'techstart', created: '2026-02-01' },
+];
+
+async function ensureOrganisationsTable() {
+  try {
+    await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS full_name TEXT').catch(() => {});
+    await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()').catch(() => {});
+  } catch (_) {}
+}
+
+async function seedDefaultProjects() {
+  try {
+    for (const p of DEFAULT_PROJECTS) {
+      await query(
+        `INSERT INTO organisations (id, name, slug, full_name, created_at)
+         VALUES ($1::uuid, $2, $3, $4, $5::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           slug = EXCLUDED.slug,
+           full_name = COALESCE(EXCLUDED.full_name, organisations.full_name),
+           created_at = COALESCE(EXCLUDED.created_at::timestamptz, organisations.created_at),
+           updated_at = now()`,
+        [p.id, p.name, p.slug, p.full_name || p.name, p.created]
+      ).catch(() => {});
+    }
+  } catch (_) {}
+}
+
+let _organisationsReady = false;
+export async function ensureOrganisationsReady() {
+  if (_organisationsReady) return;
+  await ensureOrganisationsTable();
+  await seedDefaultProjects();
+  _organisationsReady = true;
+}
+
+export async function listOrganisations() {
+  await ensureOrganisationsReady();
+  let rows = [];
+  try {
+    const res = await query(
+      `SELECT id, name, slug, full_name, created_at FROM organisations ORDER BY id`
+    );
+    rows = res?.rows || [];
+  } catch (e) {
+    try {
+      const res = await query(`SELECT id, name, slug FROM organisations ORDER BY id`);
+      rows = res?.rows || [];
+    } catch (_) {
+      return [];
+    }
+  }
+  return rows.map(r => ({
+    ...r,
+    full_name: r.full_name ?? r.name,
+  }));
+}
+
 async function ensureAppUsersTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS app_users (
