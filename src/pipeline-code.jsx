@@ -3577,9 +3577,25 @@ function CRMPipelineView({ projectId }) {
   );
 }
 
+const CALENDAR_INTEGRATION_KEYS = ["calendly", "calcom", "google_calendar"];
+
 function AppointmentsView() {
   const [activeTab, setActiveTab] = useState("calls");
+  const [integrationStatus, setIntegrationStatus] = useState({});
   const TODAY = "Thursday, February 13, 2025";
+
+  useEffect(() => {
+    api.integrations.list().then((r) => setIntegrationStatus(r.integrations || {})).catch(() => {});
+  }, []);
+
+  const calendarBadges = CALENDAR_INTEGRATION_KEYS.map((k) => {
+    const s = integrationStatus[k];
+    const connected = typeof s === "object" ? !!s?.connected : !!s;
+    const signedIn = typeof s === "object" ? s?.signedIn : connected;
+    const ok = k === "google_calendar" ? connected && signedIn : connected;
+    const label = k === "calendly" ? "Calendly" : k === "calcom" ? "Cal.com" : "Google Calendar";
+    return { key: k, label, ok };
+  }).filter((b) => b.ok);
 
   const CALLS = [
     { id: 1, time: "10:00 AM", duration: "30 min", name: "Robert Chang", title: "Director of Sales", company: "PipelineHQ", type: "Discovery", link: "https://zoom.us/j/123456", intel: ["Series A SaaS, 85 employees, £4M ARR", "Director of Sales for 18 months, previously at Oracle", "Replied to cold email — pain point: manual lead qualification", "Company hiring 2 AEs — scaling sales org", "Uses HubSpot CRM + Outreach.io currently"] },
@@ -3605,11 +3621,19 @@ function AppointmentsView() {
           </h2>
           <p style={{ color: COLORS.textMuted, margin: "6px 0 0", fontSize: 13 }}>{TODAY} · {CALLS.length} calls today</p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ padding: "6px 12px", borderRadius: 6, background: COLORS.green + "15", border: `1px solid ${COLORS.green}33`, display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.green }} />
-            <span style={{ fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.green }}>Calendly Connected</span>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {calendarBadges.length > 0 ? (
+            calendarBadges.map((b) => (
+              <div key={b.key} style={{ padding: "6px 12px", borderRadius: 6, background: COLORS.green + "15", border: `1px solid ${COLORS.green}33`, display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.green }} />
+                <span style={{ fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.green }}>{b.label} Connected</span>
+              </div>
+            ))
+          ) : (
+            <div style={{ padding: "6px 12px", borderRadius: 6, background: COLORS.surface, border: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textDim }}>No calendar connected</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -7155,6 +7179,9 @@ const INTEGRATIONS_META = [
   { key: "openai", label: "OpenAI", icon: "🤖", desc: "GPT — Chat completions & embeddings", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/openai/connect" },
   { key: "gemini", label: "Gemini", icon: "✨", desc: "Google Gemini — Multimodal AI", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/gemini/connect" },
   { key: "grok", label: "Grok", icon: "🪐", desc: "xAI Grok — Reasoning & chat", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/grok/connect" },
+  { key: "calendly", label: "Calendly", icon: "📅", desc: "Scheduling & meetings", category: "calendar", credentialFields: [{ name: "client_id", label: "Client ID", type: "text" }, { name: "client_secret", label: "Client Secret", type: "password" }, { name: "webhook_signing_key", label: "Webhook Signing Key", type: "password" }], connectEndpoint: "/calendly/connect" },
+  { key: "calcom", label: "Cal.com", icon: "📆", desc: "Open-source scheduling", category: "calendar", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/calcom/connect" },
+  { key: "google_calendar", label: "Google Calendar", icon: "📆", desc: "Google Calendar sync", category: "calendar", credentialFields: [{ name: "client_id", label: "Client ID", type: "text" }, { name: "client_secret", label: "Client Secret", type: "password" }], connectEndpoint: "/google-calendar/connect" },
 ];
 
 const ENRICHMENT_INTEGRATIONS = INTEGRATIONS_META.filter(i => i.category === "enrichment");
@@ -7486,6 +7513,39 @@ function SettingsView() {
                     color: connected ? COLORS.accent : COLORS.bg,
                     border: connected ? `1px solid ${COLORS.accent}44` : "none",
                   }}>{connected ? "Connected ✓" : "Connect"}</button>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>CALENDAR</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+            {INTEGRATIONS_META.filter(i => i.category === "calendar").map(intg => {
+              const status = integrationStatus[intg.key];
+              const connected = typeof status === "object" ? !!status?.connected : !!status;
+              const signedIn = typeof status === "object" ? status?.signedIn : connected;
+              const isGoogle = intg.key === "google_calendar";
+              const showSignIn = isGoogle && connected && !signedIn;
+              return (
+                <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 22 }}>{intg.icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{intg.label}</div>
+                      <div style={{ fontSize: 11, color: COLORS.textDim }}>{intg.desc}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {showSignIn && (
+                      <button onClick={async () => { try { const { redirectUrl } = await api.integrations.getGoogleCalendarAuthUrl(); if (redirectUrl) window.location.href = redirectUrl; } catch (e) { alert(e.message || "Failed to get Google sign-in URL"); } }} style={{ padding: "8px 16px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer", background: "#4285F4", color: "#fff", border: "none" }}>Sign in with Google</button>
+                    )}
+                    <button onClick={async () => { const data = await api.integrations.get(intg.key).catch(() => ({})); setConfigModal({ ...intg, existingCredentials: data.credentials_json || {} }); }} style={{
+                      padding: "8px 18px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                      background: (connected && (isGoogle ? signedIn : true)) ? "transparent" : COLORS.accent,
+                      color: (connected && (isGoogle ? signedIn : true)) ? COLORS.accent : COLORS.bg,
+                      border: (connected && (isGoogle ? signedIn : true)) ? `1px solid ${COLORS.accent}44` : "none",
+                    }}>{(connected && (isGoogle ? signedIn : true)) ? "Connected ✓" : connected && showSignIn ? "Configure" : "Connect"}</button>
+                  </div>
                 </div>
               );
             })}

@@ -17,6 +17,10 @@ export function verifyToken(token) {
 }
 
 export function authMiddleware(req, res, next) {
+  // OAuth callbacks are hit by redirects (no Authorization header)
+  if (req.method === 'GET' && req.path === '/api/integrations/google-calendar/callback') {
+    return next();
+  }
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing or invalid Authorization header. Use: Authorization: Bearer <token>' });

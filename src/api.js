@@ -204,6 +204,7 @@ export const api = {
     get: (key) => req('GET', `/integrations/${encodeURIComponent(key)}`),
     save: (key, credentials) => req('POST', `/integrations/${encodeURIComponent(key)}`, { credentials }),
     connect: (path, credentials) => req('POST', `/integrations${path}`, { credentials }),
+    getGoogleCalendarAuthUrl: () => req('GET', '/integrations/google-calendar/auth'),
     getCosts: () => req('GET', '/integrations/costs'),
     getLeadSearchOrder: () => req('GET', '/integrations/order/lead-search'),
     saveLeadSearchOrder: (order) => req('POST', '/integrations/order/lead-search', order),

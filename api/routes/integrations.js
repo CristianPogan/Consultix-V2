@@ -131,6 +131,130 @@ router.post('/grok/connect', async (req, res) => {
   }
 });
 
+// POST /api/integrations/calendly/connect - Save Calendly OAuth credentials (client_id, client_secret, webhook_signing_key)
+router.post('/calendly/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    const clientId = credentials?.client_id;
+    const clientSecret = credentials?.client_secret;
+    const webhookKey = credentials?.webhook_signing_key;
+    if (!clientId || !clientSecret || !webhookKey || typeof clientId !== 'string' || typeof clientSecret !== 'string' || typeof webhookKey !== 'string') {
+      return res.status(400).json({ error: 'Client ID, Client Secret, and Webhook Signing Key required' });
+    }
+    await saveIntegrationCredentials(orgId, 'calendly', {
+      client_id: clientId.trim(),
+      client_secret: clientSecret.trim(),
+      webhook_signing_key: webhookKey.trim(),
+    });
+    res.json({ integration_key: 'calendly', connected: true });
+  } catch (err) {
+    console.error('Calendly connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/calcom/connect - Validate API key then save
+router.post('/calcom/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://api.cal.com/v2/me', {
+      headers: { Authorization: `Bearer ${apiKey.trim()}` },
+    });
+    if (!testRes.ok) {
+      if (testRes.status === 401) return res.status(401).json({ error: 'Invalid API key' });
+      if (testRes.status === 403) return res.status(403).json({ error: 'API key lacks permission' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'calcom', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'calcom', connected: true });
+  } catch (err) {
+    console.error('Cal.com connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/google-calendar/connect - Save OAuth credentials; user completes sign-in via /google-calendar/auth
+router.post('/google-calendar/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    const clientId = credentials?.client_id;
+    const clientSecret = credentials?.client_secret;
+    if (!clientId || !clientSecret || typeof clientId !== 'string' || typeof clientSecret !== 'string') {
+      return res.status(400).json({ error: 'Client ID and Client Secret required' });
+    }
+    await saveIntegrationCredentials(orgId, 'google_calendar', {
+      client_id: clientId.trim(),
+      client_secret: clientSecret.trim(),
+    });
+    res.json({ integration_key: 'google_calendar', connected: true });
+  } catch (err) {
+    console.error('Google Calendar connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/integrations/google-calendar/auth - Return Google OAuth URL for Sign in with Google (SPA uses window.location)
+router.get('/google-calendar/auth', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    const row = await getIntegrationCredentials(orgId, 'google_calendar');
+    const clientId = row?.credentials_json?.client_id;
+    if (!clientId) return res.status(400).json({ error: 'Configure Google Calendar (Client ID & Secret) in Settings > Integrations first' });
+    const redirectUri = `${req.protocol}://${req.get('host')}/api/integrations/google-calendar/callback`;
+    const scope = encodeURIComponent('https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events');
+    const state = Buffer.from(JSON.stringify({ orgId })).toString('base64');
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`;
+    res.json({ redirectUrl: url });
+  } catch (err) {
+    console.error('Google Calendar auth error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/integrations/google-calendar/callback - OAuth callback, exchange code for tokens
+router.get('/google-calendar/callback', async (req, res) => {
+  try {
+    const { code, state, error } = req.query;
+    if (error) return res.redirect(`/?google_calendar_error=${encodeURIComponent(error)}`);
+    if (!code || !state) return res.redirect('/?google_calendar_error=missing_params');
+    let orgId;
+    try { orgId = JSON.parse(Buffer.from(state, 'base64').toString()).orgId; } catch (_) { return res.redirect('/?google_calendar_error=invalid_state'); }
+    const row = await getIntegrationCredentials(orgId, 'google_calendar');
+    const clientSecret = row?.credentials_json?.client_secret;
+    if (!clientSecret) return res.redirect('/?google_calendar_error=no_credentials');
+    const redirectUri = `${req.protocol}://${req.get('host')}/api/integrations/google-calendar/callback`;
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code, client_id: row.credentials_json.client_id, client_secret: clientSecret,
+        redirect_uri: redirectUri, grant_type: 'authorization_code',
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok) return res.redirect(`/?google_calendar_error=${encodeURIComponent(tokenData.error_description || tokenData.error || 'token_exchange_failed')}`);
+    await saveIntegrationCredentials(orgId, 'google_calendar', {
+      ...row.credentials_json,
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      token_expiry: tokenData.expires_in ? Date.now() + tokenData.expires_in * 1000 : null,
+    });
+    res.redirect('/?google_calendar_connected=1');
+  } catch (err) {
+    console.error('Google Calendar callback error:', err);
+    res.redirect(`/?google_calendar_error=${encodeURIComponent(err.message)}`);
+  }
+});
+
 // GET /api/integrations/costs - Get cost_label per integration (must be before :key)
 router.get('/costs', async (req, res) => {
   try {
@@ -181,7 +305,16 @@ router.get('/', async (req, res) => {
     }
 
     const rows = await listIntegrationCredentials(orgId);
-    const statusMap = Object.fromEntries(rows.map((r) => [r.integration_key, r.connected]));
+    const statusMap = {};
+    for (const r of rows) {
+      if (r.integration_key === 'google_calendar') {
+        const row = await getIntegrationCredentials(orgId, 'google_calendar');
+        const signedIn = !!(row?.credentials_json?.access_token);
+        statusMap[r.integration_key] = { connected: r.connected, signedIn };
+      } else {
+        statusMap[r.integration_key] = r.connected;
+      }
+    }
     res.json({ integrations: statusMap });
   } catch (err) {
     console.error('List integrations error:', err);
@@ -200,11 +333,14 @@ router.get('/:key', async (req, res) => {
 
     const row = await getIntegrationCredentials(orgId, key);
     if (!row) {
-      return res.json({ integration_key: key, connected: false, credentials_json: {} });
+      return res.json({ integration_key: key, connected: false, signedIn: false, credentials_json: {} });
     }
+    const creds = row.credentials_json || {};
+    const signedIn = key === 'google_calendar' ? !!creds.access_token : null;
     res.json({
       integration_key: row.integration_key,
       connected: row.connected,
+      signedIn: signedIn ?? undefined,
       credentials_json: row.credentials_json,
     });
   } catch (err) {
