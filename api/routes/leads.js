@@ -88,20 +88,60 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/leads/:id — update lead (e.g. personalisation_json)
+// PUT /api/leads/:id — update lead (personalisation_json, stage, deal_value, crm_notes)
 router.put('/:id', async (req, res) => {
   try {
     const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     const { id } = req.params;
-    const { personalisation_json } = req.body || {};
+    const { personalisation_json, stage, deal_value, crm_notes } = req.body || {};
+
+    const updates = [];
+    const values = [];
+    let p = 1;
+
+    if (personalisation_json !== undefined) {
+      updates.push(`personalisation_json = COALESCE($${p++}::jsonb, personalisation_json)`);
+      values.push(personalisation_json ? JSON.stringify(personalisation_json) : null);
+    }
+
+    if (stage !== undefined) {
+      const stages = ['New', 'Contacted', 'Replied', 'Meeting Booked', 'Proposal Sent', 'Won', 'Lost'];
+      const s = stages.includes(stage) ? stage : null;
+      if (s) {
+        const n = p;
+        updates.push(`outreach_sent_at = CASE WHEN $${n} IN ('Contacted','Replied','Meeting Booked','Proposal Sent','Won','Lost') THEN COALESCE(outreach_sent_at, now()) ELSE NULL END`);
+        updates.push(`responded_at = CASE WHEN $${n} IN ('Replied','Meeting Booked','Proposal Sent','Won','Lost') THEN COALESCE(responded_at, now()) ELSE NULL END`);
+        updates.push(`meeting_booked_at = CASE WHEN $${n} IN ('Meeting Booked','Proposal Sent','Won','Lost') THEN COALESCE(meeting_booked_at, now()) ELSE NULL END`);
+        updates.push(`proposal_sent_at = CASE WHEN $${n} IN ('Proposal Sent','Won','Lost') THEN COALESCE(proposal_sent_at, now()) ELSE NULL END`);
+        updates.push(`won_at = CASE WHEN $${n} = 'Won' THEN now() ELSE NULL END`);
+        updates.push(`lost_at = CASE WHEN $${n} = 'Lost' THEN now() ELSE NULL END`);
+        values.push(s);
+        p++;
+      }
+    }
+
+    if (deal_value !== undefined) {
+      updates.push(`deal_value = $${p++}`);
+      values.push(deal_value != null && !isNaN(Number(deal_value)) ? Number(deal_value) : null);
+    }
+
+    if (crm_notes !== undefined) {
+      updates.push(`crm_notes = $${p++}`);
+      values.push(typeof crm_notes === 'string' ? crm_notes : null);
+    }
+
+    if (updates.length === 0) return res.status(400).json({ error: 'No updates provided' });
+
+    updates.push('updated_at = now()');
+    values.push(id, orgId);
+
     const result = await query(
-      `UPDATE leads SET personalisation_json = COALESCE($2::jsonb, personalisation_json), updated_at = now()
-       WHERE id = $1 AND org_id = $3 RETURNING id, personalisation_json`,
-      [id, personalisation_json ? JSON.stringify(personalisation_json) : null, orgId]
+      `UPDATE leads SET ${updates.join(', ')} WHERE id = $${p} AND org_id = $${p + 1} RETURNING id`,
+      values
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
-    res.json({ id: result.rows[0].id, personalisation_json: result.rows[0].personalisation_json });
+    res.json({ id: result.rows[0].id });
   } catch (err) {
     console.error('leads PUT', err);
     res.status(500).json({ error: err.message });

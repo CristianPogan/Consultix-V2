@@ -131,6 +131,41 @@ export async function ensureProjectStatsColumns() {
   } catch (_) {}
 }
 
+// Ensure project_settings table for project-scoped settings (e.g. ai_sdr)
+export async function ensureProjectSettingsTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS project_settings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id TEXT NOT NULL,
+        project_id TEXT NOT NULL DEFAULT '',
+        user_id UUID,
+        settings_type TEXT NOT NULL,
+        settings_data JSONB NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        updated_at TIMESTAMPTZ DEFAULT now()
+      )
+    `);
+    await query('CREATE INDEX IF NOT EXISTS idx_project_settings_lookup ON project_settings (org_id, project_id, settings_type)').catch(() => {});
+    await query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_project_settings_unique
+      ON project_settings (org_id, project_id, COALESCE(user_id::text, ''), settings_type)
+    `).catch(() => {});
+  } catch (_) {}
+}
+
+// Ensure CRM pipeline columns exist on leads
+export async function ensureCRMPipelineColumns() {
+  try {
+    await ensureProjectStatsColumns();
+    await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS deal_value NUMERIC').catch(() => {});
+    await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS proposal_sent_at TIMESTAMPTZ').catch(() => {});
+    await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS won_at TIMESTAMPTZ').catch(() => {});
+    await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS lost_at TIMESTAMPTZ').catch(() => {});
+    await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS crm_notes TEXT').catch(() => {});
+  } catch (_) {}
+}
+
 export async function updateLeadsOutreachSent(orgId, leadIds, platform) {
   await ensureProjectStatsColumns();
   if (!leadIds?.length) return;

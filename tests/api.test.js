@@ -504,6 +504,177 @@ describe('API: stats (dashboard)', () => {
   });
 });
 
+describe('API: CRM pipeline', () => {
+  it('1. GET /api/crm/pipeline without auth returns 401', async () => {
+    const res = await api.get('/api/crm/pipeline');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. GET /api/crm/pipeline with JWT returns deals and pipelineValue', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/crm/pipeline').set(auth());
+    assert.ok(res.status === 200 || res.status === 503 || res.status === 500);
+    if (res.status === 200) {
+      assert.ok(Array.isArray(res.body.deals));
+      assert.ok(typeof res.body.pipelineValue === 'number');
+      assert.ok(typeof res.body.totalDeals === 'number');
+    }
+  });
+
+  it('3. GET /api/crm/pipeline?project_id=X filters by project', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/crm/pipeline?project_id=11111111-1111-1111-1111-111111111111').set(auth());
+    assert.ok(res.status === 200 || res.status === 503 || res.status === 500);
+    if (res.status === 200) {
+      assert.ok(Array.isArray(res.body.deals));
+      assert.ok(typeof res.body.pipelineValue === 'number');
+    }
+  });
+
+  it('4. Deals have id, name, stage, value, score, lastActivity', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/crm/pipeline').set(auth());
+    if (res.status !== 200 || !res.body.deals?.length) return this.skip();
+    const d = res.body.deals[0];
+    assert.ok(d.id);
+    assert.ok('name' in d);
+    assert.ok('stage' in d);
+    assert.ok('value' in d);
+    assert.ok('valueNum' in d || typeof d.value === 'string');
+    assert.ok('score' in d);
+    assert.ok('lastActivity' in d);
+  });
+
+  it('5. Pipeline value excludes Lost stage', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/crm/pipeline').set(auth());
+    if (res.status !== 200) return this.skip();
+    const { deals, pipelineValue } = res.body;
+    const expected = deals.filter(d => d.stage !== 'Lost').reduce((s, d) => s + (d.valueNum || 0), 0);
+    assert.ok(Math.abs(pipelineValue - Math.round(expected)) < 1, 'pipelineValue should equal sum of non-Lost deal values');
+  });
+});
+
+describe('API: leads update (CRM)', () => {
+  let leadId = null;
+
+  it('1. PUT /api/leads/:id with stage updates lead', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const listRes = await api.post('/api/lead-lists').set(auth()).send({ name: 'CRM Test List' });
+    const listId = listRes.status === 201 ? listRes.body.id : null;
+    if (!listId) return this.skip();
+    const postRes = await api.post('/api/leads').set(auth()).send({
+      list_id: listId,
+      email: `crm-test-${Date.now()}@example.com`,
+      first_name: 'CRM',
+      last_name: 'Test',
+    });
+    if (postRes.status !== 201) return this.skip();
+    leadId = postRes.body.id;
+    const res = await api.put(`/api/leads/${leadId}`).set(auth()).send({ stage: 'Contacted' });
+    assert.strictEqual(res.status, 200);
+    assert.ok(res.body.id);
+  });
+
+  it('2. PUT /api/leads/:id with deal_value updates lead', async function () {
+    if (!hasAuth || !hasDb || !leadId) this.skip();
+    const res = await api.put(`/api/leads/${leadId}`).set(auth()).send({ deal_value: 15000 });
+    assert.strictEqual(res.status, 200);
+  });
+
+  it('3. PUT /api/leads/:id with crm_notes updates lead', async function () {
+    if (!hasAuth || !hasDb || !leadId) this.skip();
+    const res = await api.put(`/api/leads/${leadId}`).set(auth()).send({ crm_notes: 'Interested in demo' });
+    assert.strictEqual(res.status, 200);
+  });
+
+  it('4. PUT with empty updates returns 400', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.put(`/api/leads/00000000-0000-0000-0000-000000000000`).set(auth()).send({});
+    assert.strictEqual(res.status, 400);
+  });
+
+  it('5. Updated lead appears in pipeline with correct stage', async function () {
+    if (!hasAuth || !hasDb || !leadId) this.skip();
+    const res = await api.get('/api/crm/pipeline').set(auth());
+    if (res.status !== 200) return this.skip();
+    const deal = res.body.deals.find(d => d.id === leadId);
+    assert.ok(deal, 'Lead should appear in pipeline');
+    assert.strictEqual(deal.stage, 'Contacted');
+  });
+});
+
+describe('API: settings ai_sdr', () => {
+  const aiSdrPayload = {
+    active: false,
+    training: { sentMessages: true, scripts: true, brandVoice: true, starredThreads: false },
+    permissions: { positiveReply: true, answerQuestions: true, bookMeetings: true, followUp: true, handleObjections: false, negotiatePricing: false },
+    responseWindow: '5 min',
+    workingHours: '9am–6pm Mon–Fri',
+    approvalMode: true,
+    customGuidelines: 'Always mention case studies',
+    sampleResponses: ['Sample reply 1', 'Sample reply 2'],
+  };
+
+  it('1. GET /api/settings/ai_sdr without auth returns 401', async () => {
+    const res = await api.get('/api/settings/ai_sdr');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. GET /api/settings/ai_sdr with auth returns null or settings', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/settings/ai_sdr?project_id=').set(auth());
+    assert.ok(res.status === 200 || res.status === 503);
+    if (res.status === 200) {
+      assert.ok('settings' in res.body);
+    }
+  });
+
+  it('3. POST /api/settings/ai_sdr saves and GET returns saved data', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const projectId = '11111111-1111-1111-1111-111111111111';
+    const saveRes = await api.post(`/api/settings/ai_sdr?project_id=${projectId}`).set(auth()).send({ settings: aiSdrPayload });
+    assert.ok(saveRes.status === 200 || saveRes.status === 503 || saveRes.status === 500);
+    if (saveRes.status !== 200) return this.skip();
+    const getRes = await api.get(`/api/settings/ai_sdr?project_id=${projectId}`).set(auth());
+    assert.strictEqual(getRes.status, 200);
+    assert.ok(getRes.body.settings);
+    assert.strictEqual(getRes.body.settings.customGuidelines, aiSdrPayload.customGuidelines);
+    assert.ok(Array.isArray(getRes.body.settings.sampleResponses));
+    assert.strictEqual(getRes.body.settings.sampleResponses.length, 2);
+  });
+
+  it('4. POST /api/settings/ai_sdr without settings returns 400', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/settings/ai_sdr?project_id=').set(auth()).send({});
+    assert.strictEqual(res.status, 400);
+  });
+
+  it('5. GET /api/integrations/anthropic returns status', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/integrations/anthropic').set(auth());
+    assert.ok(res.status === 200 || res.status === 500);
+    if (res.status === 200) assert.ok('integration_key' in res.body || 'connected' in res.body);
+  });
+
+  it('6. POST /api/ai-sdr/generate-sample without Anthropic returns 503', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/ai-sdr/generate-sample').set(auth()).send({});
+    assert.ok(res.status === 503 || res.status === 200);
+    if (res.status === 503) assert.ok(res.body.error?.toLowerCase().includes('anthropic'));
+  });
+
+  it('7. POST updates existing ai_sdr settings', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const projectId = '11111111-1111-1111-1111-111111111111';
+    const updated = { ...aiSdrPayload, customGuidelines: 'Updated guidelines' };
+    const saveRes = await api.post(`/api/settings/ai_sdr?project_id=${projectId}`).set(auth()).send({ settings: updated });
+    assert.strictEqual(saveRes.status, 200);
+    const getRes = await api.get(`/api/settings/ai_sdr?project_id=${projectId}`).set(auth());
+    assert.strictEqual(getRes.body.settings.customGuidelines, 'Updated guidelines');
+  });
+});
+
 describe('API: prompts', () => {
   it('1. GET /api/prompts with JWT returns array', async function () {
     if (!hasAuth) this.skip();

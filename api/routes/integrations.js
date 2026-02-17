@@ -10,6 +10,43 @@ import {
 
 const router = Router();
 
+// POST /api/integrations/anthropic/connect - Validate API key then save (must be before :key)
+router.post('/anthropic/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') {
+      return res.status(400).json({ error: 'API key required' });
+    }
+    const testRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey.trim(),
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 10,
+        messages: [{ role: 'user', content: 'Hi' }],
+      }),
+    });
+    if (!testRes.ok) {
+      const err = await testRes.text();
+      if (testRes.status === 401) return res.status(401).json({ error: 'Invalid API key' });
+      if (testRes.status === 403) return res.status(403).json({ error: 'API key lacks permission or billing issue' });
+      return res.status(400).json({ error: err || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'anthropic', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'anthropic', connected: true });
+  } catch (err) {
+    console.error('Anthropic connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/integrations/costs - Get cost_label per integration (must be before :key)
 router.get('/costs', async (req, res) => {
   try {

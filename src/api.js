@@ -148,6 +148,16 @@ export const api = {
     create: (data) => req('POST', '/leads', data),
     update: (id, data) => req('PUT', `/leads/${id}`, data),
   },
+  aiSdr: {
+    generateSample: (params) => req('POST', '/ai-sdr/generate-sample', params),
+  },
+  crm: {
+    pipeline: (params) => {
+      const q = new URLSearchParams();
+      if (params?.projectId) q.set('project_id', params.projectId);
+      return req('GET', '/crm/pipeline' + (q.toString() ? `?${q}` : ''));
+    },
+  },
   prompts: {
     list: () => req('GET', '/prompts'),
     create: (data) => req('POST', '/prompts', data),
@@ -173,13 +183,22 @@ export const api = {
     sendToInstantly: (leads) => req('POST', '/lead-generation/outreach/instantly', { leads }),
   },
   settings: {
-    get: (type) => req('GET', `/settings/${type}`),
-    save: (type, settings) => req('POST', `/settings/${type}`, { settings }),
+    get: (type, params) => {
+      const q = new URLSearchParams();
+      if (params?.projectId) q.set('project_id', params.projectId);
+      return req('GET', `/settings/${type}` + (q.toString() ? `?${q}` : ''));
+    },
+    save: (type, settings, params) => {
+      const body = { settings };
+      if (params?.projectId != null) body.projectId = params.projectId;
+      return req('POST', `/settings/${type}` + (params?.projectId != null ? `?project_id=${encodeURIComponent(params.projectId)}` : ''), body);
+    },
   },
   integrations: {
     list: () => req('GET', '/integrations'),
     get: (key) => req('GET', `/integrations/${encodeURIComponent(key)}`),
     save: (key, credentials) => req('POST', `/integrations/${encodeURIComponent(key)}`, { credentials }),
+    connect: (path, credentials) => req('POST', `/integrations${path}`, { credentials }),
     getCosts: () => req('GET', '/integrations/costs'),
     getLeadSearchOrder: () => req('GET', '/integrations/order/lead-search'),
     saveLeadSearchOrder: (order) => req('POST', '/integrations/order/lead-search', order),

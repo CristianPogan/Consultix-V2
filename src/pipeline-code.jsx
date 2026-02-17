@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { api, AuthError } from "./api.js";
 
 const MOCK_COMPANIES = [
@@ -1384,9 +1384,9 @@ export default function App() {
           />
         )}
 
-        {activePage === "crm" && <CRMPipelineView />}
+        {activePage === "crm" && <CRMPipelineView projectId={selectedAuditProject} />}
         {activePage === "appointments" && <AppointmentsView />}
-        {activePage === "unibox" && <UniboxView />}
+        {activePage === "unibox" && <UniboxView projectId={selectedAuditProject} />}
 
         {activePage === "audit" && <AuditView project={auditProjects.find(p => String(p.id) === String(selectedAuditProject))} projects={auditProjects} selectedProject={selectedAuditProject} setSelectedProject={setSelectedAuditProject} />}
         {activePage === "implementation" && <ImplementationView project={auditProjects.find(p => String(p.id) === String(selectedAuditProject))} />}
@@ -3391,32 +3391,70 @@ function DashboardView({ setActivePage, projectId }) {
   );
 }
 
-function CRMPipelineView() {
+function CRMPipelineView({ projectId }) {
   const STAGES = ["New", "Contacted", "Replied", "Meeting Booked", "Proposal Sent", "Won", "Lost"];
   const STAGE_COLORS = { New: COLORS.blue, Contacted: "#8B5CF6", Replied: COLORS.accent, "Meeting Booked": "#F59E0B", "Proposal Sent": "#EC4899", Won: COLORS.green, Lost: COLORS.danger };
 
-  const [deals, setDeals] = useState([
-    { id: 1, name: "Sarah Chen", title: "VP Growth", company: "ScaleFlow", score: 94, stage: "Meeting Booked", source: "Q1 SaaS VP Growth", lastActivity: "Replied to follow-up 2h ago", value: "£18,000", email: "sarah@scaleflow.io" },
-    { id: 2, name: "Marcus Webb", title: "CTO", company: "DataPulse", score: 91, stage: "Proposal Sent", source: "Q1 SaaS VP Growth", lastActivity: "Opened proposal 5h ago", value: "£25,000", email: "marcus@datapulse.com" },
-    { id: 3, name: "Emily Rodriguez", title: "Head of Ops", company: "NexGen AI", score: 88, stage: "Won", source: "LinkedIn Import", lastActivity: "Signed contract", value: "£15,000", email: "emily@nexgenai.co" },
-    { id: 4, name: "James Patel", title: "CEO", company: "InsureTech Pro", score: 85, stage: "Contacted", source: "Insurance Niche", lastActivity: "Email delivered 1d ago", value: "£22,000", email: "james@insuretechpro.com" },
-    { id: 5, name: "Lisa Thompson", title: "VP Sales", company: "CloudMetrics", score: 92, stage: "New", source: "Q1 SaaS VP Growth", lastActivity: "Enriched 3h ago", value: "£20,000", email: "lisa@cloudmetrics.io" },
-    { id: 6, name: "David Kim", title: "COO", company: "SynthWave", score: 87, stage: "Replied", source: "Q1 SaaS VP Growth", lastActivity: "Interested, asked for case study", value: "£12,000", email: "david@synthwave.dev" },
-    { id: 7, name: "Nina Okoro", title: "Head of Product", company: "FinLeap", score: 90, stage: "New", source: "LinkedIn Import", lastActivity: "Imported today", value: "£18,000", email: "nina@finleap.io" },
-    { id: 8, name: "Tom Bradley", title: "CRO", company: "GrowthLoop", score: 79, stage: "Contacted", source: "Q1 SaaS VP Growth", lastActivity: "LinkedIn request sent 2d ago", value: "£30,000", email: "tom@growthloop.com" },
-    { id: 9, name: "Anna Schulz", title: "VP Eng", company: "AutoPilot AI", score: 82, stage: "Lost", source: "Q1 SaaS VP Growth", lastActivity: "No budget this quarter", value: "£15,000", email: "anna@autopilotai.com" },
-    { id: 10, name: "Robert Chang", title: "Director of Sales", company: "PipelineHQ", score: 86, stage: "Meeting Booked", source: "Insurance Niche", lastActivity: "Meeting tomorrow 10am", value: "£20,000", email: "robert@pipelinehq.io" },
-  ]);
+  const [deals, setDeals] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [viewMode, setViewMode] = useState("kanban");
   const [note, setNote] = useState("");
+
+  const pipelineValue = useMemo(() =>
+    deals.filter(d => d.stage !== "Lost").reduce((sum, d) => sum + (d.valueNum || 0), 0),
+    [deals]
+  );
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      try {
+        const data = await api.crm.pipeline({ projectId: projectId || undefined });
+        setDeals(data.deals || []);
+      } catch (err) {
+        console.error("CRM pipeline load error:", err);
+        setDeals([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [projectId]);
+
+  const updateDealStage = async (dealId, newStage) => {
+    try {
+      await api.leads.update(dealId, { stage: newStage });
+      setDeals(prev => prev.map(d => d.id === dealId ? { ...d, stage: newStage } : d));
+      if (selectedDeal?.id === dealId) setSelectedDeal(prev => prev ? { ...prev, stage: newStage } : null);
+    } catch (err) {
+      console.error("Failed to update deal stage:", err);
+    }
+  };
+
+  const saveNotes = async (dealId, notes) => {
+    try {
+      await api.leads.update(dealId, { crm_notes: notes });
+      setDeals(prev => prev.map(d => d.id === dealId ? { ...d, crm_notes: notes } : d));
+    } catch (err) {
+      console.error("Failed to save notes:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedDeal) setNote(selectedDeal.crm_notes || "");
+  }, [selectedDeal?.id]);
+
+  const handleNoteBlur = () => {
+    if (selectedDeal && note !== (selectedDeal.crm_notes || "")) saveNotes(selectedDeal.id, note);
+  };
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       <div style={{ padding: "18px 28px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
         <div>
           <h2 style={{ fontFamily: FONT, fontSize: 20, fontWeight: 600, margin: 0 }}>CRM <span style={{ color: COLORS.accent }}>Pipeline</span></h2>
-          <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 2 }}>{deals.length} deals · £{deals.filter(d => d.stage !== "Lost").reduce((s, d) => s + parseInt(d.value.replace(/[^0-9]/g, "")), 0).toLocaleString()} pipeline value</div>
+          <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 2 }}>{loading ? "..." : `${deals.length} deals · £${Math.round(pipelineValue).toLocaleString()} pipeline value`}</div>
         </div>
         <div style={{ display: "flex", gap: 6, background: COLORS.bg, borderRadius: 8, padding: 3, border: `1px solid ${COLORS.border}` }}>
           <button onClick={() => setViewMode("kanban")} style={{ padding: "6px 14px", borderRadius: 6, border: "none", fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer", background: viewMode === "kanban" ? COLORS.accent : "transparent", color: viewMode === "kanban" ? COLORS.bg : COLORS.textMuted }}>Kanban</button>
@@ -3448,7 +3486,7 @@ function CRMPipelineView() {
                           <div style={{ fontSize: 10, color: COLORS.textDim }}>{deal.title} · {deal.company}</div>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
                             <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.accent, fontFamily: FONT }}>{deal.value}</span>
-                            <span style={{ padding: "1px 6px", borderRadius: 4, fontSize: 9, fontWeight: 600, background: deal.score >= 90 ? COLORS.green + "15" : COLORS.blue + "15", color: deal.score >= 90 ? COLORS.green : COLORS.blue }}>{deal.score}</span>
+                            <span style={{ padding: "1px 6px", borderRadius: 4, fontSize: 9, fontWeight: 600, background: deal.score != null ? (deal.score >= 90 ? COLORS.green + "15" : COLORS.blue + "15") : "transparent", color: deal.score != null ? (deal.score >= 90 ? COLORS.green : COLORS.blue) : COLORS.textDim }}>{deal.score ?? "—"}</span>
                           </div>
                           <div style={{ fontSize: 9, color: COLORS.textDim, marginTop: 6 }}>{deal.lastActivity}</div>
                         </div>
@@ -3473,7 +3511,7 @@ function CRMPipelineView() {
                     <td style={{ padding: "10px 14px", fontSize: 12 }}>{deal.company}</td>
                     <td style={{ padding: "10px 14px" }}><span style={{ padding: "3px 8px", borderRadius: 4, fontSize: 9, fontWeight: 600, background: STAGE_COLORS[deal.stage] + "15", color: STAGE_COLORS[deal.stage] }}>{deal.stage}</span></td>
                     <td style={{ padding: "10px 14px", fontSize: 12, fontWeight: 600, fontFamily: FONT, color: COLORS.accent }}>{deal.value}</td>
-                    <td style={{ padding: "10px 14px" }}><span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: deal.score >= 90 ? COLORS.green + "15" : COLORS.blue + "15", color: deal.score >= 90 ? COLORS.green : COLORS.blue }}>{deal.score}</span></td>
+                    <td style={{ padding: "10px 14px" }}><span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: deal.score != null ? (deal.score >= 90 ? COLORS.green + "15" : COLORS.blue + "15") : "transparent", color: deal.score != null ? (deal.score >= 90 ? COLORS.green : COLORS.blue) : COLORS.textDim }}>{deal.score ?? "—"}</span></td>
                     <td style={{ padding: "10px 14px", fontSize: 11, color: COLORS.textDim }}>{deal.source}</td>
                     <td style={{ padding: "10px 14px", fontSize: 10, color: COLORS.textDim }}>{deal.lastActivity}</td>
                   </tr>
@@ -3497,12 +3535,12 @@ function CRMPipelineView() {
               </div>
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, letterSpacing: "0.06em", marginBottom: 6 }}>STAGE</div>
-                <select value={selectedDeal.stage} onChange={e => { const ns = e.target.value; setDeals(prev => prev.map(d => d.id === selectedDeal.id ? { ...d, stage: ns } : d)); setSelectedDeal({ ...selectedDeal, stage: ns }); }} style={{ width: "100%", padding: "8px 10px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>
+                <select value={selectedDeal.stage} onChange={e => { const ns = e.target.value; updateDealStage(selectedDeal.id, ns); }} style={{ width: "100%", padding: "8px 10px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>
                   {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-                <div style={{ padding: "8px 10px", background: COLORS.bg, borderRadius: 6 }}><div style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600 }}>ICP SCORE</div><div style={{ fontSize: 16, fontWeight: 700, fontFamily: FONT, color: selectedDeal.score >= 90 ? COLORS.green : COLORS.blue }}>{selectedDeal.score}</div></div>
+                <div style={{ padding: "8px 10px", background: COLORS.bg, borderRadius: 6 }}><div style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600 }}>ICP SCORE</div><div style={{ fontSize: 16, fontWeight: 700, fontFamily: FONT, color: selectedDeal.score != null ? (selectedDeal.score >= 90 ? COLORS.green : COLORS.blue) : COLORS.textDim }}>{selectedDeal.score ?? "—"}</div></div>
                 <div style={{ padding: "8px 10px", background: COLORS.bg, borderRadius: 6 }}><div style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600 }}>SOURCE</div><div style={{ fontSize: 11, color: COLORS.text, marginTop: 2 }}>{selectedDeal.source}</div></div>
               </div>
               <div style={{ marginBottom: 14 }}>
@@ -3512,7 +3550,7 @@ function CRMPipelineView() {
               </div>
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, letterSpacing: "0.06em", marginBottom: 6 }}>NOTES</div>
-                <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Add notes about this deal..." rows={3} style={{ width: "100%", padding: "8px 10px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 12, resize: "vertical", outline: "none", boxSizing: "border-box" }} />
+                <textarea value={note} onChange={e => setNote(e.target.value)} onBlur={handleNoteBlur} placeholder="Add notes about this deal..." rows={3} style={{ width: "100%", padding: "8px 10px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 12, resize: "vertical", outline: "none", boxSizing: "border-box" }} />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, letterSpacing: "0.06em" }}>ACTIVITY</div>
@@ -3654,13 +3692,84 @@ function AppointmentsView() {
   );
 }
 
-function UniboxView() {
+const sampleItem = (text, feedback) => (typeof text === "string" ? { text, feedback: feedback ?? null } : { text: text?.text || "", feedback: text?.feedback ?? null });
+
+const DEFAULT_AI_SDR = {
+  active: false,
+  training: { sentMessages: true, scripts: true, brandVoice: true, starredThreads: false },
+  permissions: { positiveReply: true, answerQuestions: true, bookMeetings: true, followUp: true, handleObjections: false, negotiatePricing: false },
+  responseWindow: "5 min",
+  workingHours: "9am–6pm Mon–Fri",
+  approvalMode: true,
+  customGuidelines: "",
+  sampleResponses: [
+    sampleItem("Hey Sarah, great to hear the team is interested! I've got availability Thursday at 2pm or Friday at 10am — either work for a quick 15-min intro?"),
+    sampleItem("Thanks for the kind words! We just wrapped up a similar project with a Series B SaaS company. Happy to walk you through it — do you have 15 min this week?"),
+  ],
+};
+
+function UniboxView({ projectId }) {
   const [uniboxTab, setUniboxTab] = useState("inbox");
-  const [sdrActive, setSdrActive] = useState(false);
-  const [sdrPerms, setSdrPerms] = useState({ positiveReply: true, answerQuestions: true, bookMeetings: true, followUp: true, handleObjections: false, negotiatePricing: false });
-  const [sdrTraining, setSdrTraining] = useState({ sentMessages: true, scripts: true, brandVoice: true, starredThreads: false });
-  const [sdrResponseWindow, setSdrResponseWindow] = useState("5 min");
-  const [sdrApprovalMode, setSdrApprovalMode] = useState(true);
+  const [sdrActive, setSdrActive] = useState(DEFAULT_AI_SDR.active);
+  const [sdrPerms, setSdrPerms] = useState(DEFAULT_AI_SDR.permissions);
+  const [sdrTraining, setSdrTraining] = useState(DEFAULT_AI_SDR.training);
+  const [sdrResponseWindow, setSdrResponseWindow] = useState(DEFAULT_AI_SDR.responseWindow);
+  const [sdrApprovalMode, setSdrApprovalMode] = useState(DEFAULT_AI_SDR.approvalMode);
+  const [sdrCustomGuidelines, setSdrCustomGuidelines] = useState(DEFAULT_AI_SDR.customGuidelines);
+  const [sdrSampleResponses, setSdrSampleResponses] = useState([...DEFAULT_AI_SDR.sampleResponses]);
+  const [sdrGenerating, setSdrGenerating] = useState(false);
+  const [sdrWorkingHours, setSdrWorkingHours] = useState(DEFAULT_AI_SDR.workingHours);
+  const [sdrSettingsLoaded, setSdrSettingsLoaded] = useState(false);
+
+  const sdrParams = { projectId: projectId || "" };
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await api.settings.get("ai_sdr", sdrParams);
+        if (res?.settings) {
+          const s = res.settings;
+          setSdrActive(s.active ?? DEFAULT_AI_SDR.active);
+          setSdrTraining({ ...DEFAULT_AI_SDR.training, ...s.training });
+          setSdrPerms({ ...DEFAULT_AI_SDR.permissions, ...s.permissions });
+          setSdrResponseWindow(s.responseWindow ?? DEFAULT_AI_SDR.responseWindow);
+          setSdrApprovalMode(s.approvalMode ?? DEFAULT_AI_SDR.approvalMode);
+          setSdrCustomGuidelines(s.customGuidelines ?? "");
+          setSdrSampleResponses(Array.isArray(s.sampleResponses)
+            ? s.sampleResponses.map(x => sampleItem(x))
+            : [...DEFAULT_AI_SDR.sampleResponses]);
+          setSdrWorkingHours(s.workingHours ?? DEFAULT_AI_SDR.workingHours);
+        } else {
+          await api.settings.save("ai_sdr", DEFAULT_AI_SDR, sdrParams);
+        }
+      } catch (err) {
+        console.error("AI SDR settings load error:", err);
+      } finally {
+        setSdrSettingsLoaded(true);
+      }
+    }
+    load();
+  }, [projectId]);
+
+  const saveSdrSettings = async (updates) => {
+    const payload = {
+      active: sdrActive,
+      training: sdrTraining,
+      permissions: sdrPerms,
+      responseWindow: sdrResponseWindow,
+      approvalMode: sdrApprovalMode,
+      customGuidelines: sdrCustomGuidelines,
+      sampleResponses: sdrSampleResponses,
+      workingHours: sdrWorkingHours,
+      ...updates,
+    };
+    try {
+      await api.settings.save("ai_sdr", payload, sdrParams);
+    } catch (err) {
+      console.error("AI SDR settings save error:", err);
+    }
+  };
+
   const [conversations, setConversations] = useState([
     { id: 1, name: "Sarah Chen", company: "ScaleFlow", channel: "email", subject: "Re: AI Automation for your sales team", preview: "Thanks for sending this over. I've shared it with our VP of Sales and we'd love to explore this further...", time: "2h ago", unread: true, stage: "Replied" },
     { id: 2, name: "David Kim", company: "SynthWave", channel: "linkedin", subject: "Your connection request", preview: "Hey! Thanks for reaching out. I saw your post about AI audits — we've actually been looking at something similar...", time: "5h ago", unread: true, stage: "Replied" },
@@ -3717,7 +3826,7 @@ function UniboxView() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: sdrActive ? COLORS.green : COLORS.textDim }}>{sdrActive ? "Active" : "Inactive"}</span>
-              <div onClick={() => setSdrActive(!sdrActive)} style={{ width: 52, height: 28, borderRadius: 14, cursor: "pointer", background: sdrActive ? COLORS.green : COLORS.borderActive, position: "relative", transition: "background 0.25s" }}>
+              <div onClick={() => { const v = !sdrActive; setSdrActive(v); saveSdrSettings({ active: v }); }} style={{ width: 52, height: 28, borderRadius: 14, cursor: "pointer", background: sdrActive ? COLORS.green : COLORS.borderActive, position: "relative", transition: "background 0.25s" }}>
                 <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: sdrActive ? 27 : 3, transition: "left 0.25s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
               </div>
             </div>
@@ -3734,7 +3843,7 @@ function UniboxView() {
                 ].map(src => (
                   <div key={src.key} style={{ padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div><div style={{ fontSize: 12, fontWeight: 600 }}>{src.label}</div><div style={{ fontSize: 10, color: COLORS.textDim }}>{src.desc}</div></div>
-                    <div onClick={() => setSdrTraining({ ...sdrTraining, [src.key]: !sdrTraining[src.key] })} style={{ width: 40, height: 22, borderRadius: 11, cursor: "pointer", background: sdrTraining[src.key] ? COLORS.accent : COLORS.borderActive, position: "relative", transition: "background 0.25s", flexShrink: 0, marginLeft: 10 }}>
+                    <div onClick={() => { const next = { ...sdrTraining, [src.key]: !sdrTraining[src.key] }; setSdrTraining(next); saveSdrSettings({ training: next }); }} style={{ width: 40, height: 22, borderRadius: 11, cursor: "pointer", background: sdrTraining[src.key] ? COLORS.accent : COLORS.borderActive, position: "relative", transition: "background 0.25s", flexShrink: 0, marginLeft: 10 }}>
                       <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: sdrTraining[src.key] ? 21 : 3, transition: "left 0.25s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                     </div>
                   </div>
@@ -3742,19 +3851,35 @@ function UniboxView() {
               </div>
               <div style={{ marginTop: 12 }}>
                 <div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, letterSpacing: "0.06em", marginBottom: 6 }}>CUSTOM GUIDELINES</div>
-                <textarea placeholder="e.g. 'Always mention case studies', 'Book meetings Tue/Thu only', 'Never discount on first call'" rows={3} style={{ width: "100%", padding: "10px 12px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 12, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.5 }} />
+                <textarea value={sdrCustomGuidelines} onChange={e => setSdrCustomGuidelines(e.target.value)} onBlur={e => saveSdrSettings({ customGuidelines: e.target.value })} placeholder="e.g. 'Always mention case studies', 'Book meetings Tue/Thu only', 'Never discount on first call'" rows={3} style={{ width: "100%", padding: "10px 12px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 12, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.5 }} />
               </div>
               <div style={{ marginTop: 14 }}>
                 <div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, letterSpacing: "0.06em", marginBottom: 8 }}>SAMPLE RESPONSES</div>
-                {["Hey Sarah, great to hear the team is interested! I've got availability Thursday at 2pm or Friday at 10am — either work for a quick 15-min intro?", "Thanks for the kind words! We just wrapped up a similar project with a Series B SaaS company. Happy to walk you through it — do you have 15 min this week?"].map((sample, si) => (
+                {sdrSampleResponses.map((sample, si) => (
                   <div key={si} style={{ padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, marginBottom: 6 }}>
-                    <div style={{ fontSize: 11, color: COLORS.text, lineHeight: 1.5, marginBottom: 6 }}>{sample}</div>
+                    <div style={{ fontSize: 11, color: COLORS.text, lineHeight: 1.5, marginBottom: 6 }}>{typeof sample === "string" ? sample : sample.text}</div>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <button style={{ padding: "3px 10px", borderRadius: 4, border: `1px solid ${COLORS.green}33`, background: COLORS.green + "10", color: COLORS.green, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>👍 Good</button>
-                      <button style={{ padding: "3px 10px", borderRadius: 4, border: `1px solid ${COLORS.danger}33`, background: COLORS.danger + "10", color: COLORS.danger, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>👎 Refine</button>
+                      <button onClick={async () => { const next = sdrSampleResponses.map((s, i) => i === si ? sampleItem(typeof s === "string" ? s : s.text, "good") : sampleItem(s)); setSdrSampleResponses(next); saveSdrSettings({ sampleResponses: next }); }} style={{ padding: "3px 10px", borderRadius: 4, border: `1px solid ${COLORS.green}33`, background: COLORS.green + "10", color: COLORS.green, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>👍 Good</button>
+                      <button onClick={async () => {
+                        setSdrGenerating(true);
+                        try {
+                          const t = typeof sample === "string" ? sample : sample.text;
+                          const { text } = await api.aiSdr.generateSample({ guidelines: sdrCustomGuidelines, refineText: t });
+                          if (text) { const next = sdrSampleResponses.map((s, i) => i === si ? sampleItem(text, "refine") : sampleItem(s)); setSdrSampleResponses(next); saveSdrSettings({ sampleResponses: next }); }
+                        } catch (err) { alert(err.message || "Failed to refine. Connect Anthropic in Settings > Integrations."); }
+                        setSdrGenerating(false);
+                      }} disabled={sdrGenerating} style={{ padding: "3px 10px", borderRadius: 4, border: `1px solid ${COLORS.danger}33`, background: COLORS.danger + "10", color: COLORS.danger, fontSize: 10, fontWeight: 600, cursor: sdrGenerating ? "not-allowed" : "pointer", fontFamily: FONT }}>{sdrGenerating ? "…" : "👎 Refine"}</button>
                     </div>
                   </div>
                 ))}
+                <button onClick={async () => {
+                  setSdrGenerating(true);
+                  try {
+                    const { text } = await api.aiSdr.generateSample({ guidelines: sdrCustomGuidelines });
+                    if (text) { const next = [...sdrSampleResponses, sampleItem(text)]; setSdrSampleResponses(next); saveSdrSettings({ sampleResponses: next }); }
+                  } catch (err) { alert(err.message || "Failed to generate. Connect Anthropic in Settings > Integrations."); }
+                  setSdrGenerating(false);
+                }} disabled={sdrGenerating} style={{ marginTop: 6, padding: "8px 14px", borderRadius: 6, border: `1px dashed ${COLORS.border}`, background: "transparent", color: COLORS.accent, fontSize: 11, fontWeight: 600, cursor: sdrGenerating ? "not-allowed" : "pointer", fontFamily: FONT }}>{sdrGenerating ? "Generating…" : "+ Generate sample"}</button>
               </div>
             </div>
             <div>
@@ -3770,19 +3895,19 @@ function UniboxView() {
                 ].map(perm => (
                   <div key={perm.key} style={{ padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <span style={{ fontSize: 12, color: COLORS.text }}>{perm.label}</span>
-                    <div onClick={() => setSdrPerms({ ...sdrPerms, [perm.key]: !sdrPerms[perm.key] })} style={{ width: 40, height: 22, borderRadius: 11, cursor: "pointer", background: sdrPerms[perm.key] ? COLORS.accent : COLORS.borderActive, position: "relative", transition: "background 0.25s", flexShrink: 0 }}>
+                    <div onClick={() => { const next = { ...sdrPerms, [perm.key]: !sdrPerms[perm.key] }; setSdrPerms(next); saveSdrSettings({ permissions: next }); }} style={{ width: 40, height: 22, borderRadius: 11, cursor: "pointer", background: sdrPerms[perm.key] ? COLORS.accent : COLORS.borderActive, position: "relative", transition: "background 0.25s", flexShrink: 0 }}>
                       <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: sdrPerms[perm.key] ? 21 : 3, transition: "left 0.25s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                     </div>
                   </div>
                 ))}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-                <div><div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, marginBottom: 6 }}>RESPONSE WINDOW</div><select value={sdrResponseWindow} onChange={e => setSdrResponseWindow(e.target.value)} style={{ width: "100%", padding: "8px 10px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 12, fontFamily: FONT_BODY, color: COLORS.text, cursor: "pointer" }}><option>5 min</option><option>30 min</option><option>1 hour</option></select></div>
-                <div><div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, marginBottom: 6 }}>WORKING HOURS</div><div style={{ padding: "8px 10px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 12, color: COLORS.text }}>9am–6pm Mon–Fri</div></div>
+                <div><div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, marginBottom: 6 }}>RESPONSE WINDOW</div><select value={sdrResponseWindow} onChange={e => { const v = e.target.value; setSdrResponseWindow(v); saveSdrSettings({ responseWindow: v }); }} style={{ width: "100%", padding: "8px 10px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 12, fontFamily: FONT_BODY, color: COLORS.text, cursor: "pointer" }}><option>5 min</option><option>30 min</option><option>1 hour</option></select></div>
+                <div><div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, marginBottom: 6 }}>WORKING HOURS</div><div style={{ padding: "8px 10px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 12, color: COLORS.text }}>{sdrWorkingHours}</div></div>
               </div>
               <div style={{ padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                 <div><div style={{ fontSize: 12, fontWeight: 600 }}>Review before sending</div><div style={{ fontSize: 10, color: COLORS.textDim }}>Drafts go to approval queue</div></div>
-                <div onClick={() => setSdrApprovalMode(!sdrApprovalMode)} style={{ width: 40, height: 22, borderRadius: 11, cursor: "pointer", background: sdrApprovalMode ? COLORS.accent : COLORS.borderActive, position: "relative", transition: "background 0.25s", flexShrink: 0, marginLeft: 10 }}>
+                <div onClick={() => { const v = !sdrApprovalMode; setSdrApprovalMode(v); saveSdrSettings({ approvalMode: v }); }} style={{ width: 40, height: 22, borderRadius: 11, cursor: "pointer", background: sdrApprovalMode ? COLORS.accent : COLORS.borderActive, position: "relative", transition: "background 0.25s", flexShrink: 0, marginLeft: 10 }}>
                   <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: sdrApprovalMode ? 21 : 3, transition: "left 0.25s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                 </div>
               </div>
@@ -7017,6 +7142,7 @@ const INTEGRATIONS_META = [
   { key: "cleanlist", label: "Cleanlist", icon: "🧹", desc: "List cleaning & verification", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.012/verify", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "wiza", label: "Wiza", icon: "📊", desc: "Sales intelligence & lead data", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.04/lead", costTier: 4, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "leadsmagix", label: "Leads Magix", icon: "✨", desc: "B2B lead generation platform", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.025/lead", costTier: 3, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
+  { key: "anthropic", label: "Anthropic", icon: "🧠", desc: "Claude — AI SDR sample response generation", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/anthropic/connect" },
 ];
 
 const ENRICHMENT_INTEGRATIONS = INTEGRATIONS_META.filter(i => i.category === "enrichment");
@@ -7240,12 +7366,16 @@ function SettingsView() {
               existingCredentials={configModal.existingCredentials || {}}
               onSave={async (credentials) => {
                 try {
-                  await api.integrations.save(configModal.key, credentials);
+                  if (configModal.connectEndpoint) {
+                    await api.integrations.connect(configModal.connectEndpoint, credentials);
+                  } else {
+                    await api.integrations.save(configModal.key, credentials);
+                  }
                   await loadIntegrationStatus();
                   setConfigModal(null);
                 } catch (err) {
                   console.error("Failed to save integration:", err);
-                  alert("Failed to save credentials. Please try again.");
+                  alert(err.message || "Failed to save credentials. Please try again.");
                 }
               }}
               onClose={() => setConfigModal(null)}
@@ -7280,6 +7410,30 @@ function SettingsView() {
           <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>OUTREACH & CAMPAIGNS</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
             {INTEGRATIONS_META.filter(i => i.category === "outreach").map(intg => {
+              const connected = !!integrationStatus[intg.key];
+              return (
+                <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 22 }}>{intg.icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{intg.label}</div>
+                      <div style={{ fontSize: 11, color: COLORS.textDim }}>{intg.desc}</div>
+                    </div>
+                  </div>
+                  <button onClick={async () => { const data = await api.integrations.get(intg.key).catch(() => ({})); setConfigModal({ ...intg, existingCredentials: data.credentials_json || {} }); }} style={{
+                    padding: "8px 18px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    background: connected ? "transparent" : COLORS.accent,
+                    color: connected ? COLORS.accent : COLORS.bg,
+                    border: connected ? `1px solid ${COLORS.accent}44` : "none",
+                  }}>{connected ? "Connected ✓" : "Connect"}</button>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>LLM</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+            {INTEGRATIONS_META.filter(i => i.category === "llm").map(intg => {
               const connected = !!integrationStatus[intg.key];
               return (
                 <div key={intg.key} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>

@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { authMiddleware } from './api/auth.js';
-import { ensureProjectStatsColumns } from './api/db.js';
+import { ensureProjectStatsColumns, ensureCRMPipelineColumns, ensureProjectSettingsTable } from './api/db.js';
 import authRouter from './api/routes/auth.js';
 import icpProfilesRouter from './api/routes/icp-profiles.js';
 import leadListsRouter from './api/routes/lead-lists.js';
@@ -15,6 +15,8 @@ import settingsRouter from './api/routes/settings.js';
 import integrationsRouter from './api/routes/integrations.js';
 import statsRouter from './api/routes/stats.js';
 import organisationsRouter from './api/routes/organisations.js';
+import crmRouter from './api/routes/crm.js';
+import aiSdrRouter from './api/routes/ai-sdr.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,6 +40,8 @@ app.use('/api/settings', authMiddleware, settingsRouter);
 app.use('/api/integrations', authMiddleware, integrationsRouter);
 app.use('/api/stats', authMiddleware, statsRouter);
 app.use('/api/organisations', authMiddleware, organisationsRouter);
+app.use('/api/crm', authMiddleware, crmRouter);
+app.use('/api/ai-sdr', authMiddleware, aiSdrRouter);
 
 // Serve static files from the Vite build output
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -49,6 +53,8 @@ app.get('*', (req, res) => {
 
 if (process.env.NODE_ENV !== 'test') {
   ensureProjectStatsColumns().catch(() => {});
+  ensureCRMPipelineColumns().catch(() => {});
+  ensureProjectSettingsTable().catch(() => {});
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
