@@ -1100,13 +1100,12 @@ export default function App() {
           {/* Project Selector — Above everything */}
           <div style={{ padding: "0 6px", marginBottom: 12 }}>
             <div style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, padding: "0 4px", marginBottom: 6 }}>PROJECT</div>
-            <select value={selectedAuditProject ?? ""} onChange={e => setSelectedAuditProject(e.target.value || null)} style={{
+            <select value={selectedAuditProject ?? (auditProjects[0]?.id ? String(auditProjects[0].id) : "")} onChange={e => setSelectedAuditProject(e.target.value || null)} style={{
               width: "100%", padding: "8px 10px",
               background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6,
               color: COLORS.text, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, outline: "none", cursor: "pointer",
             }}>
-              <option value="" style={{ background: COLORS.surface, color: COLORS.textDim }}>{auditProjects.length === 0 ? "Loading..." : "Select project..."}</option>
-              {auditProjects.map(p => <option key={p.id} value={String(p.id)}>{p.client}</option>)}
+              {auditProjects.length === 0 ? <option value="" disabled>Loading...</option> : auditProjects.map(p => <option key={p.id} value={String(p.id)}>{p.client}</option>)}
             </select>
           </div>
 

@@ -87,6 +87,7 @@ async function ensureOrganisationsTable() {
   try {
     await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS full_name TEXT').catch(() => {});
     await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()').catch(() => {});
+    await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS is_project BOOLEAN DEFAULT false').catch(() => {});
   } catch (_) {}
 }
 
@@ -94,13 +95,14 @@ async function seedDefaultProjects() {
   try {
     for (const p of DEFAULT_PROJECTS) {
       await query(
-        `INSERT INTO organisations (id, name, slug, full_name, created_at)
-         VALUES ($1::uuid, $2, $3, $4, $5::timestamptz)
+        `INSERT INTO organisations (id, name, slug, full_name, created_at, is_project)
+         VALUES ($1::uuid, $2, $3, $4, $5::timestamptz, true)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            slug = EXCLUDED.slug,
            full_name = COALESCE(EXCLUDED.full_name, organisations.full_name),
            created_at = COALESCE(EXCLUDED.created_at::timestamptz, organisations.created_at),
+           is_project = true,
            updated_at = now()`,
         [p.id, p.name, p.slug, p.full_name || p.name, p.created]
       ).catch(() => {});
@@ -118,15 +120,19 @@ export async function ensureOrganisationsReady() {
 
 export async function listOrganisations() {
   await ensureOrganisationsReady();
+  const projectIds = DEFAULT_PROJECTS.map(p => p.id);
   let rows = [];
   try {
     const res = await query(
-      `SELECT id, name, slug, full_name, created_at FROM organisations ORDER BY id`
+      `SELECT id, name, slug, full_name, created_at FROM organisations WHERE is_project = true ORDER BY id`
     );
     rows = res?.rows || [];
   } catch (e) {
     try {
-      const res = await query(`SELECT id, name, slug FROM organisations ORDER BY id`);
+      const res = await query(
+        `SELECT id, name, slug, full_name, created_at FROM organisations WHERE id IN ($1::uuid, $2::uuid, $3::uuid) ORDER BY id`,
+        projectIds
+      );
       rows = res?.rows || [];
     } catch (_) {
       return [];
