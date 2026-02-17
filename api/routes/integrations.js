@@ -131,6 +131,67 @@ router.post('/grok/connect', async (req, res) => {
   }
 });
 
+// POST /api/integrations/openrouter/connect - Validate API key then save
+router.post('/openrouter/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey.trim()}`,
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-3.5-turbo',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 5,
+      }),
+    });
+    if (!testRes.ok) {
+      const err = await testRes.text();
+      if (testRes.status === 401) return res.status(401).json({ error: 'Invalid API key' });
+      if (testRes.status === 403) return res.status(403).json({ error: 'API key lacks permission or billing issue' });
+      return res.status(400).json({ error: err || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'openrouter', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'openrouter', connected: true });
+  } catch (err) {
+    console.error('OpenRouter connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/neverbounce/connect - Validate API key then save
+router.post('/neverbounce/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch(`https://api.neverbounce.com/v4/account/info?key=${encodeURIComponent(apiKey.trim())}`);
+    if (!testRes.ok) {
+      const err = await testRes.text();
+      if (testRes.status === 401) return res.status(401).json({ error: 'Invalid API key' });
+      if (testRes.status === 403) return res.status(403).json({ error: 'API key lacks permission' });
+      return res.status(400).json({ error: err || 'Failed to validate API key' });
+    }
+    const data = await testRes.json().catch(() => ({}));
+    if (data.status === 'auth_failure' || data.error) {
+      return res.status(401).json({ error: data.error || 'Invalid API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'neverbounce', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'neverbounce', connected: true });
+  } catch (err) {
+    console.error('NeverBounce connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/integrations/calendly/connect - Save Calendly OAuth credentials (client_id, client_secret, webhook_signing_key)
 router.post('/calendly/connect', async (req, res) => {
   try {
