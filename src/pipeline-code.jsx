@@ -1087,8 +1087,9 @@ export default function App() {
           </div>
         </div>
 
-        {/* Nav Items */}
-        <div style={{ padding: "12px 10px", flex: 1, overflow: "auto" }}>
+        {/* Nav Items - All scrollable together */}
+        <div style={{ flex: 1, overflow: "auto", paddingBottom: 40 }}>
+          <div style={{ padding: "12px 10px", paddingBottom: 40 }}>
 
           {/* Project Selector — Above everything */}
           <div style={{ padding: "0 6px", marginBottom: 12 }}>
@@ -1102,17 +1103,38 @@ export default function App() {
             </select>
           </div>
 
-          <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, padding: "8px 10px", marginBottom: 4 }}>
-            WORKSPACE
-          </div>
           {[
             { key: "dashboard", label: "Dashboard", icon: "🏠", desc: "Overview & metrics" },
+          ].map(page => (
+            <button key={page.key} onClick={() => setActivePage(page.key)} style={{ width: "100%", padding: "10px 12px", marginBottom: 2, background: activePage === page.key ? COLORS.accentBg : "transparent", border: activePage === page.key ? `1px solid ${COLORS.accent}22` : "1px solid transparent", borderRadius: 8, color: activePage === page.key ? COLORS.accent : COLORS.textMuted, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 10, transition: "all 0.15s" }}>
+              <span style={{ fontSize: 16 }}>{page.icon}</span>
+              <div><div style={{ fontWeight: 600, fontSize: 13 }}>{page.label}</div><div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, marginTop: 1 }}>{page.desc}</div></div>
+            </button>
+          ))}
+
+          <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, padding: "16px 10px 8px", marginBottom: 4 }}>
+            CRM
+          </div>
+          {[
             { key: "crm", label: "CRM Pipeline", icon: "📊", desc: "Track & manage deals" },
             { key: "appointments", label: "Appointments", icon: "📅", desc: "Calls & calendar" },
-            { key: "audit", label: "AI Audits", icon: "🔍", desc: "Client assessments" },
-            { key: "implementation", label: "Implementation", icon: "📋", desc: "Project timeline" },
+            { key: "unibox", label: "Unibox", icon: "📥", desc: "Unified inbox & AI SDR" },
+          ].map(page => (
+            <button key={page.key} onClick={() => setActivePage(page.key)} style={{ width: "100%", padding: "10px 12px", marginBottom: 2, background: activePage === page.key ? COLORS.accentBg : "transparent", border: activePage === page.key ? `1px solid ${COLORS.accent}22` : "1px solid transparent", borderRadius: 8, color: activePage === page.key ? COLORS.accent : COLORS.textMuted, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 10, transition: "all 0.15s" }}>
+              <span style={{ fontSize: 16 }}>{page.icon}</span>
+              <div><div style={{ fontWeight: 600, fontSize: 13 }}>{page.label}</div><div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, marginTop: 1 }}>{page.desc}</div></div>
+            </button>
+          ))}
+
+          <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, padding: "16px 10px 8px", marginBottom: 4 }}>
+            SOLUTIONS
+          </div>
+          {[
+            { key: "audit", label: "Strategy", icon: "🔍", desc: "AI audits & analysis" },
+            { key: "implementation", label: "Implementation", icon: "📋", desc: "Project delivery" },
             { key: "workflows", label: "Workflows", icon: "⚙️", desc: "Automation library" },
             { key: "council", label: "AI Council", icon: "🧠", desc: "Strategic advisor" },
+            { key: "sol_assistant", label: "AI Assistant", icon: "🤖", desc: "Ask anything" },
           ].map(page => (
             <button key={page.key} onClick={() => setActivePage(page.key)} style={{ width: "100%", padding: "10px 12px", marginBottom: 2, background: activePage === page.key ? COLORS.accentBg : "transparent", border: activePage === page.key ? `1px solid ${COLORS.accent}22` : "1px solid transparent", borderRadius: 8, color: activePage === page.key ? COLORS.accent : COLORS.textMuted, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 10, transition: "all 0.15s" }}>
               <span style={{ fontSize: 16 }}>{page.icon}</span>
@@ -1124,13 +1146,12 @@ export default function App() {
             CAMPAIGNS
           </div>
           {[
+            { key: "niche_researcher", label: "Niche Researcher", icon: "🎯", desc: "Find your ideal niche" },
             { key: "leads", label: "Leads", icon: "⚡", desc: "Build & send campaigns" },
             { key: "leadlists", label: "Lead Lists", icon: "📋", desc: "View scraped data" },
-            { key: "niche_researcher", label: "Niche Researcher", icon: "🎯", desc: "Find your ideal niche" },
             { key: "campaigns_messaging", label: "Messaging", icon: "📝", desc: "AI copywriting workshop" },
             { key: "campaigns_email", label: "Cold Email", icon: "📧", desc: "Instantly / SmartLead" },
             { key: "campaigns_linkedin", label: "LinkedIn", icon: "💼", desc: "HeyReach / AimFox" },
-            { key: "unibox", label: "Unibox", icon: "📥", desc: "Unified inbox & AI SDR" },
           ].map(page => (
             <button key={page.key} onClick={() => setActivePage(page.key)} style={{ width: "100%", padding: "10px 12px", marginBottom: 2, background: activePage === page.key ? COLORS.accentBg : "transparent", border: activePage === page.key ? `1px solid ${COLORS.accent}22` : "1px solid transparent", borderRadius: 8, color: activePage === page.key ? COLORS.accent : COLORS.textMuted, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 10, transition: "all 0.15s" }}>
               <span style={{ fontSize: 16 }}>{page.icon}</span>
@@ -1164,50 +1185,52 @@ export default function App() {
               <div><div style={{ fontWeight: 600, fontSize: 13 }}>{page.label}</div><div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, marginTop: 1 }}>{page.desc}</div></div>
             </button>
           ))}
-        </div>
-        {icpForm.listName && step > 0 && activePage === "leads" && (
-          <div style={{ padding: "14px 18px", borderTop: `1px solid ${COLORS.border}` }}>
-            <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 4 }}>ACTIVE LIST</div>
-            <div style={{ fontFamily: FONT, fontSize: 12, color: COLORS.accent, wordBreak: "break-word" }}>{icpForm.listName}</div>
-          </div>
-        )}
+          
+          {icpForm.listName && step > 0 && activePage === "leads" && (
+            <div style={{ padding: "4px 8px", marginTop: 16, marginBottom: 8, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6 }}>
+              <div style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 2 }}>ACTIVE LIST</div>
+              <div style={{ fontFamily: FONT, fontSize: 11, color: COLORS.accent, wordBreak: "break-word" }}>{icpForm.listName}</div>
+            </div>
+          )}
 
-        {/* Settings & Account Footer */}
-        <div style={{ padding: "10px 18px", borderTop: `1px solid ${COLORS.border}`, marginTop: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
-          <button
-            onClick={() => setActivePage("settings")}
-            style={{
-              width: "100%", padding: "10px 12px",
-              background: activePage === "settings" ? COLORS.accentBg : "transparent",
-              border: activePage === "settings" ? `1px solid ${COLORS.accent}22` : "1px solid transparent",
-              borderRadius: 8,
-              color: activePage === "settings" ? COLORS.accent : COLORS.textMuted,
-              fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500,
-              cursor: "pointer", textAlign: "left",
-              display: "flex", alignItems: "center", gap: 10,
-              transition: "all 0.15s",
-            }}
-          >
-            <span style={{ fontSize: 16 }}>⚙️</span>
-            <div style={{ fontWeight: 600, fontSize: 13 }}>Settings</div>
-          </button>
-          <button
-            onClick={() => setActivePage("account")}
-            style={{
-              width: "100%", padding: "10px 12px",
-              background: activePage === "account" ? COLORS.accentBg : "transparent",
-              border: activePage === "account" ? `1px solid ${COLORS.accent}22` : "1px solid transparent",
-              borderRadius: 8,
-              color: activePage === "account" ? COLORS.accent : COLORS.textMuted,
-              fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500,
-              cursor: "pointer", textAlign: "left",
-              display: "flex", alignItems: "center", gap: 10,
-              transition: "all 0.15s",
-            }}
-          >
-            <span style={{ fontSize: 16 }}>👤</span>
-            <div style={{ fontWeight: 600, fontSize: 13 }}>Account</div>
-          </button>
+          {/* Settings & Account Footer */}
+          <div style={{ paddingTop: 16, marginTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
+            <button
+              onClick={() => setActivePage("settings")}
+              style={{
+                width: "100%", padding: "10px 12px",
+                background: activePage === "settings" ? COLORS.accentBg : "transparent",
+                border: activePage === "settings" ? `1px solid ${COLORS.accent}22` : "1px solid transparent",
+                borderRadius: 8,
+                color: activePage === "settings" ? COLORS.accent : COLORS.textMuted,
+                fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500,
+                cursor: "pointer", textAlign: "left",
+                display: "flex", alignItems: "center", gap: 10,
+                transition: "all 0.15s",
+              }}
+            >
+              <span style={{ fontSize: 16 }}>⚙️</span>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>Settings</div>
+            </button>
+            <button
+              onClick={() => setActivePage("account")}
+              style={{
+                width: "100%", padding: "10px 12px",
+                background: activePage === "account" ? COLORS.accentBg : "transparent",
+                border: activePage === "account" ? `1px solid ${COLORS.accent}22` : "1px solid transparent",
+                borderRadius: 8,
+                color: activePage === "account" ? COLORS.accent : COLORS.textMuted,
+                fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500,
+                cursor: "pointer", textAlign: "left",
+                display: "flex", alignItems: "center", gap: 10,
+                transition: "all 0.15s",
+              }}
+            >
+              <span style={{ fontSize: 16 }}>👤</span>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>Account</div>
+            </button>
+          </div>
+          </div>
         </div>
       </div>
 
@@ -1340,6 +1363,7 @@ export default function App() {
         {activePage === "niche_researcher" && <NicheResearcherView />}
         {activePage === "sales_scripts" && <SalesScriptGeneratorView />}
         {activePage === "sales_analyser" && <SalesCallAnalyserView />}
+        {activePage === "sol_assistant" && <SolutionAIAssistantView />}
         {activePage === "settings" && <SettingsView />}
         {activePage === "account" && <AccountView />}
       </div>
@@ -9005,6 +9029,93 @@ function ContentPlaceholder({ title, accent, icon, description, features }) {
         <div style={{ fontSize: 13, color: COLORS.textMuted, lineHeight: 1.6 }}>
           Want to shape this feature? We're building based on user feedback. The {title.toLowerCase()} module will integrate directly with your lead gen pipeline for a unified workflow.
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SolutionAIAssistantView() {
+  const [messages, setMessages] = useState([
+    { role: "agent", text: "Hi! 👋 I'm your AI Assistant with full context on your Pipeline account.\n\nI can see your leads, CRM deals, campaigns, and more. Think of me as a team member who's read every document and knows every number.\n\nTry asking me things like:\n• \"How many leads did we discover today?\"\n• \"What's our email campaign performance?\"\n• \"Show me leads that need follow-up\"\n• \"Draft a follow-up email for a prospect\"\n\nWhat would you like to know?" }
+  ]);
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const chatEndRef = useRef(null);
+  
+  useEffect(() => { 
+    if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: "smooth" }); 
+  }, [messages, isTyping]);
+
+  const CONTEXT_SOURCES = [
+    { label: "CRM", count: "23 deals", icon: "📊", color: COLORS.accent },
+    { label: "Leads", count: "—", icon: "⚡", color: COLORS.blue },
+    { label: "Campaigns", count: "—", icon: "📧", color: COLORS.warn },
+    { label: "Tasks", count: "—", icon: "📋", color: COLORS.green },
+  ];
+
+  const SUGGESTED = [
+    "What leads should I prioritise today?",
+    "Show me campaign performance",
+    "What tasks are pending?",
+    "Draft a follow-up email",
+  ];
+
+  const sendMessage = async () => {
+    if (!input.trim() || isTyping) return;
+    const userMsg = input;
+    const nm = [...messages, { role: "user", text: userMsg }];
+    setMessages(nm); setInput(""); setIsTyping(true);
+    await new Promise(r => setTimeout(r, 1800));
+    
+    // TODO: Integrate with OpenAI API for real responses using org context
+    const reply = "I understand you're asking about: \"" + userMsg + "\"\n\nI can help with that! Currently processing your request based on your account data...\n\nThis feature will be fully integrated with your CRM, leads, campaigns, and all Pipeline data to provide contextual answers. Would you like me to elaborate on any specific area?";
+    
+    setMessages([...nm, { role: "agent", text: reply }]);
+    setIsTyping(false);
+  };
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", padding: 0 }}>
+      <div style={{ padding: "16px 32px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 24 }}>🤖</span>
+          <div>
+            <div style={{ fontFamily: FONT, fontSize: 16, fontWeight: 700 }}>AI Assistant</div>
+            <div style={{ fontSize: 11, color: COLORS.textDim }}>Personal AI with full org context</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {CONTEXT_SOURCES.map(src => (
+            <span key={src.label} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", borderRadius: 4, fontSize: 8, background: src.color + "10", border: `1px solid ${src.color}22`, color: src.color, fontFamily: FONT, fontWeight: 600 }}>{src.icon} {src.label}: {src.count}</span>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 32px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {messages.map((msg, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
+            <div style={{ maxWidth: "70%", padding: "14px 18px", borderRadius: 14, background: msg.role === "user" ? COLORS.accent + "18" : COLORS.surface, border: `1px solid ${msg.role === "user" ? COLORS.accent + "33" : COLORS.border}`, borderBottomRightRadius: msg.role === "user" ? 4 : 14, borderBottomLeftRadius: msg.role === "agent" ? 4 : 14 }}>
+              {msg.role === "agent" && <div style={{ fontSize: 9, color: COLORS.accent, fontFamily: FONT, fontWeight: 600, letterSpacing: "0.06em", marginBottom: 4 }}>AI ASSISTANT</div>}
+              <div style={{ fontSize: 13, color: COLORS.text, lineHeight: 1.7, whiteSpace: "pre-line" }}>{msg.text}</div>
+            </div>
+          </div>
+        ))}
+        {isTyping && <div style={{ display: "flex" }}><div style={{ padding: "14px 18px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 14, borderBottomLeftRadius: 4 }}><div style={{ fontSize: 11, color: COLORS.textMuted }}>AI is thinking...</div></div></div>}
+        <div ref={chatEndRef} />
+      </div>
+
+      {messages.length < 3 && (
+        <div style={{ padding: "0 32px 10px", display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {SUGGESTED.map((s, i) => (
+            <button key={i} onClick={() => { setInput(s); }} style={{ padding: "6px 12px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 11, color: COLORS.textMuted, fontFamily: FONT_BODY, cursor: "pointer" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = COLORS.accent + "55"; e.currentTarget.style.color = COLORS.accent; }} onMouseLeave={e => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.textMuted; }}>{s}</button>
+          ))}
+        </div>
+      )}
+
+      <div style={{ padding: "14px 32px", borderTop: `1px solid ${COLORS.border}`, display: "flex", gap: 10 }}>
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !isTyping) sendMessage(); }} placeholder="Ask me anything about your business..." style={{ flex: 1, padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none" }} disabled={isTyping} />
+        <button onClick={sendMessage} disabled={isTyping || !input.trim()} style={{ padding: "12px 24px", background: input.trim() && !isTyping ? COLORS.accent : COLORS.border, color: input.trim() && !isTyping ? COLORS.bg : COLORS.textDim, border: "none", borderRadius: 10, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: input.trim() && !isTyping ? "pointer" : "default" }}>Send</button>
       </div>
     </div>
   );

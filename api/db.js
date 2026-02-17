@@ -7,7 +7,14 @@ const { Pool } = pg;
 // when rejectUnauthorized is true. Use false to avoid 500s on DB operations (connection remains encrypted).
 const sslOpt = { rejectUnauthorized: false };
 const config = process.env.DATABASE_URL
-  ? { connectionString: process.env.DATABASE_URL, ssl: sslOpt }
+  ? { 
+      connectionString: process.env.DATABASE_URL, 
+      ssl: sslOpt,
+      // Add connection pool settings to handle timeouts
+      max: 10, // maximum number of clients in the pool
+      idleTimeoutMillis: 30000, // close idle clients after 30 seconds
+      connectionTimeoutMillis: 10000, // return an error after 10 seconds if connection cannot be established
+    }
   : {
       host: process.env.DB_HOST || 'cbhnv71uilek74.cluster-czz5s0kz4scl.eu-west-1.rds.amazonaws.com',
       port: parseInt(process.env.DB_PORT || '5432', 10),
@@ -15,9 +22,18 @@ const config = process.env.DATABASE_URL
       user: process.env.DB_USER || 'u2bsp865bnr7av',
       password: process.env.DB_PASSWORD,
       ssl: sslOpt,
+      // Add connection pool settings
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
     };
 
 const pool = new Pool(config);
+
+// Handle pool errors to prevent app crash
+pool.on('error', (err) => {
+  console.error('Unexpected database pool error:', err);
+});
 
 export async function query(text, params) {
   const client = await pool.connect();
@@ -71,6 +87,7 @@ async function ensureAppUsersTable() {
       company TEXT,
       timezone TEXT DEFAULT 'Europe/London',
       profile_photo_url TEXT,
+      role TEXT DEFAULT 'org_member',
       created_at TIMESTAMPTZ DEFAULT now(),
       updated_at TIMESTAMPTZ DEFAULT now()
     )
@@ -80,6 +97,7 @@ async function ensureAppUsersTable() {
   await query('ALTER TABLE app_users ADD COLUMN IF NOT EXISTS company TEXT').catch(() => {});
   await query('ALTER TABLE app_users ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT \'Europe/London\'').catch(() => {});
   await query('ALTER TABLE app_users ADD COLUMN IF NOT EXISTS profile_photo_url TEXT').catch(() => {});
+  await query('ALTER TABLE app_users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT \'org_member\'').catch(() => {});
 }
 
 let _usersTableReady = false;
@@ -91,13 +109,13 @@ async function ensureUsersTableReady() {
 
 export async function findUserByEmail(email) {
   await ensureUsersTableReady();
-  const res = await query('SELECT id, email, password_hash, name, org_id, company, timezone, profile_photo_url FROM app_users WHERE LOWER(email) = LOWER($1)', [email]);
+  const res = await query('SELECT id, email, password_hash, name, org_id, company, timezone, profile_photo_url, role FROM app_users WHERE LOWER(email) = LOWER($1)', [email]);
   return res.rows[0] || null;
 }
 
 export async function findUserById(userId) {
   await ensureUsersTableReady();
-  const res = await query('SELECT id, email, name, org_id, company, timezone, profile_photo_url, created_at FROM app_users WHERE id = $1', [userId]);
+  const res = await query('SELECT id, email, name, org_id, company, timezone, profile_photo_url, role, created_at FROM app_users WHERE id = $1', [userId]);
   return res.rows[0] || null;
 }
 

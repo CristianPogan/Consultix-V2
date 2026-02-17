@@ -15,7 +15,8 @@
     "pretest": "npm run build",
     "test": "node --test tests/api.test.js",
     "test:api": "node --test tests/api.test.js",
-    "seed-signup-token": "node scripts/seed-signup-token.js"
+    "seed-signup-token": "node scripts/seed-signup-token.js",
+    "set-admin": "node scripts/set-admin-role.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

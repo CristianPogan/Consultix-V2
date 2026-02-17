@@ -1,11 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App, { AuthGate } from './pipeline-code.jsx';
+import AppWrapper from './app-wrapper.jsx';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <AuthGate>
-      <App />
-    </AuthGate>
+    <AppWrapper />
   </React.StrictMode>
 );
