@@ -226,14 +226,9 @@ router.get('/chart', async (req, res) => {
     const outreach = rows.map(r => r.outreach);
     const responses = rows.map(r => r.responses);
     const meetings = rows.map(r => r.meetings);
-    const labels = rows.map((r, i) => {
-      const d = new Date(r.bucket_date);
-      if (range === '7D' || range === '30D') return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
-      if (range === '90D') return `Week ${i + 1}`;
-      return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
-    });
+    const dates = rows.map(r => r.bucket_date);
 
-    res.json({ outreach, responses, meetings, labels, startDate: rows[0]?.bucket_date, endDate: rows[rows.length - 1]?.bucket_date });
+    res.json({ outreach, responses, meetings, dates, startDate: rows[0]?.bucket_date, endDate: rows[rows.length - 1]?.bucket_date });
   } catch (err) {
     console.error('Chart stats error:', err);
     res.status(500).json({ error: err.message });

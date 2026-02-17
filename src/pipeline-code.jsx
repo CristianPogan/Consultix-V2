@@ -3278,10 +3278,21 @@ function DashboardView({ setActivePage, projectId }) {
         const allValues = activeMetrics.flatMap(k => CHART_SERIES[k].data || []);
         const maxVal = Math.max(...allValues, 1);
 
-        const xLabels = chartData?.labels || [];
-        const sampledLabels = xLabels.length > 8
-          ? xLabels.filter((_, i) => i % Math.ceil(xLabels.length / 5) === 0 || i === xLabels.length - 1)
-          : xLabels;
+        const dates = chartData?.dates || [];
+        const today = new Date();
+        const formatDateLabel = (dateStr, i) => {
+          if (!dateStr) return '';
+          const [y, m, d] = dateStr.split('-').map(Number);
+          const dte = new Date(y, m - 1, d);
+          const isToday = dte.getDate() === today.getDate() && dte.getMonth() === today.getMonth() && dte.getFullYear() === today.getFullYear();
+          if (chartRange === '7D' || chartRange === '30D') {
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const short = days[dte.getDay()];
+            return isToday ? 'Today' : (chartRange === '7D' ? short : `${m}/${d}`);
+          }
+          if (chartRange === '90D') return `W${i + 1}`;
+          return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][dte.getMonth()];
+        };
 
         return (
           <div style={{ padding: "20px 24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 20 }}>
@@ -3328,11 +3339,15 @@ function DashboardView({ setActivePage, projectId }) {
                   return <circle key={key + "_dot"} cx={x} cy={y} r="4" fill={CHART_SERIES[key].color} vectorEffect="non-scaling-stroke" />;
                 })}
               </svg>
-              {/* X-axis labels - from API, real dates, aligned with SVG */}
-              <div style={{ position: "absolute", left: 48, right: 0, bottom: 0, display: "flex", justifyContent: "space-between" }}>
-                {(sampledLabels.length > 0 ? sampledLabels : (chartRange === "7D" ? ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] : chartRange === "30D" ? ["Week 1","Week 2","Week 3","Week 4"] : chartRange === "90D" ? ["Week 1","Week 5","Week 9","Week 13"] : ["Jan","Apr","Jul","Oct"])).map((l, i) => (
-                  <span key={i} style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT }}>{l}</span>
-                ))}
+              {/* X-axis labels - real dates from API, positioned to align with data points */}
+              <div style={{ position: "absolute", left: 48, right: 0, bottom: 0, height: 30 }}>
+                {dates.map((dateStr, i) => {
+                  const n = dates.length;
+                  const pct = n > 1 ? (i / (n - 1)) * 100 : 50;
+                  return (
+                    <span key={i} style={{ position: "absolute", left: `${pct}%`, transform: "translateX(-50%)", fontSize: 9, color: COLORS.textDim, fontFamily: FONT, whiteSpace: "nowrap" }}>{formatDateLabel(dateStr, i)}</span>
+                  );
+                })}
               </div>
             </div>
           </div>

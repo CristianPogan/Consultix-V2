@@ -493,14 +493,14 @@ describe('API: stats (dashboard)', () => {
     assert.ok('time' in first);
   });
 
-  it('6. GET /api/stats/chart returns outreach, responses, meetings arrays', async function () {
+  it('6. GET /api/stats/chart returns outreach, responses, meetings, dates arrays', async function () {
     if (!hasAuth || !token) this.skip();
     const res = await api.get('/api/stats/chart?range=7D').set(auth());
     if (res.status !== 200) this.skip();
     assert.ok(Array.isArray(res.body.outreach));
     assert.ok(Array.isArray(res.body.responses));
     assert.ok(Array.isArray(res.body.meetings));
-    assert.ok(Array.isArray(res.body.labels));
+    assert.ok(Array.isArray(res.body.dates));
   });
 });
 
