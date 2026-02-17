@@ -3282,7 +3282,10 @@ function DashboardView({ setActivePage, projectId }) {
         const today = new Date();
         const formatDateLabel = (dateStr, i) => {
           if (!dateStr) return '';
-          const [y, m, d] = dateStr.split('-').map(Number);
+          // API returns ISO strings (2025-02-10T00:00:00.000Z) or plain dates (2025-02-10); extract YYYY-MM-DD
+          const datePart = String(dateStr).slice(0, 10);
+          const [y, m, d] = datePart.split('-').map(Number);
+          if (isNaN(y) || isNaN(m) || isNaN(d)) return '';
           const dte = new Date(y, m - 1, d);
           const isToday = dte.getDate() === today.getDate() && dte.getMonth() === today.getMonth() && dte.getFullYear() === today.getFullYear();
           if (chartRange === '7D' || chartRange === '30D') {
@@ -3291,7 +3294,8 @@ function DashboardView({ setActivePage, projectId }) {
             return isToday ? 'Today' : (chartRange === '7D' ? short : `${m}/${d}`);
           }
           if (chartRange === '90D') return `W${i + 1}`;
-          return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][dte.getMonth()];
+          if (chartRange === '12M') return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][dte.getMonth()];
+          return '';
         };
 
         return (
