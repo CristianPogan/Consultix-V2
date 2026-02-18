@@ -178,6 +178,7 @@ export const api = {
     // Enrichment
     enrichEmail: (person) => req('POST', '/lead-generation/enrich/email', person),
     verifyEmail: (email) => req('POST', '/lead-generation/verify/email', { email }),
+    enrichBulk: (params) => req('POST', '/lead-generation/enrich/bulk', params),
     scrapeWebsite: (url) => req('POST', '/lead-generation/scrape/website', { url }),
     getLinkedInCompany: (slug) => req('GET', `/lead-generation/linkedin/company/${slug}`),
     

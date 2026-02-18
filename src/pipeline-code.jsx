@@ -584,7 +584,15 @@ export default function App() {
 
     let allContacts = [];
     try {
-      const result = await api.leadGeneration.enrichBulk({
+      const enrichBulkFn = api?.leadGeneration?.enrichBulk;
+      if (typeof enrichBulkFn !== "function") {
+        addLog(`✗ Enrichment failed: api.leadGeneration.enrichBulk is not available`, "error");
+        if (typeof console !== "undefined") console.error("[Enrichment] api.leadGeneration:", api?.leadGeneration);
+        setIsProcessing(false);
+        return;
+      }
+      addLog(`→ Calling enrich/bulk for ${selected.length} companies…`, "info");
+      const result = await enrichBulkFn({
         companies: selected.map(c => ({
           id: c.id,
           name: c.name,
