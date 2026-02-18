@@ -15,7 +15,7 @@ import {
   findCompaniesAiArkSemantic,
   findCompaniesAiArkLookalike,
 } from '../services/lead-services.js';
-import { updateLeadsOutreachSentByEmails, getIntegrationCredentials, getIntegrationServiceOrder, searchCompaniesForDiscovery, getCompanyEnrichmentStatus, isEnrichmentFresh, getLeadsByCompanyId, upsertCompanyForEnrichment, query, ensureOrgExists } from '../db.js';
+import { updateLeadsOutreachSentByEmails, getIntegrationCredentials, getApiKeyFromCredentials, getIntegrationServiceOrder, searchCompaniesForDiscovery, getCompanyEnrichmentStatus, isEnrichmentFresh, getLeadsByCompanyId, upsertCompanyForEnrichment, query, ensureOrgExists } from '../db.js';
 
 const router = Router();
 
@@ -35,7 +35,7 @@ router.get('/discover/status', async (req, res) => {
 
     for (const key of order) {
       const creds = await getIntegrationCredentials(orgId, key);
-      const hasKey = creds?.connected && creds?.credentials_json?.api_key;
+      const hasKey = getApiKeyFromCredentials(creds);
       if (hasKey) connected.push(key);
     }
 
@@ -92,7 +92,7 @@ router.post('/discover', async (req, res) => {
       const seedDomain = domains[0];
       if (seedDomain) {
         const creds = await getIntegrationCredentials(orgId, 'ai_ark');
-        const apiKey = creds?.connected && creds?.credentials_json?.api_key;
+        const apiKey = getApiKeyFromCredentials(creds);
         if (apiKey) {
           try {
             const results = await findCompaniesAiArkLookalike(apiKey, seedDomain, {
@@ -133,7 +133,10 @@ router.post('/discover', async (req, res) => {
 
         if (key === 'ai_ark') {
           const creds = await getIntegrationCredentials(orgId, 'ai_ark');
-          const apiKey = creds?.connected && creds?.credentials_json?.api_key;
+          const apiKey = getApiKeyFromCredentials(creds);
+          if (!apiKey && creds?.connected) {
+            console.warn('[Discover] AI Ark creds exist but no API key — creds keys:', Object.keys(creds?.credentials_json || {}));
+          }
           if (apiKey) {
             try {
               console.log('[Discover] AI Ark semantic request:', { industry: criteria.industry, keywords: kwList, companySize: criteria.employeeSizes, regions: criteria.regions });
@@ -157,8 +160,11 @@ router.post('/discover', async (req, res) => {
           }
         } else if (key === 'icypeas') {
           const creds = await getIntegrationCredentials(orgId, 'icypeas');
-          const apiKey = creds?.connected && creds?.credentials_json?.api_key;
+          const apiKey = getApiKeyFromCredentials(creds);
           if (!apiKey) {
+            if (creds?.connected) {
+              console.warn('[Discover] IcyPeas creds exist but no API key — creds keys:', Object.keys(creds?.credentials_json || {}));
+            }
             waterfallLog.push({ key: 'icypeas', tried: false, reason: 'no_api_key' });
             continue;
           }
@@ -384,7 +390,7 @@ async function findEmailWaterfall(orgId, { firstName, lastName, company, domain 
   for (const key of order) {
     if (!FIND_EMAIL_KEYS.includes(key)) continue;
     const creds = await getIntegrationCredentials(orgId, key);
-    const apiKey = creds?.connected && creds?.credentials_json?.api_key;
+    const apiKey = getApiKeyFromCredentials(creds);
     if (!apiKey) continue;
 
     try {
@@ -411,7 +417,7 @@ async function verifyEmailWaterfall(orgId, email) {
   for (const key of order) {
     if (!VERIFY_EMAIL_KEYS.includes(key)) continue;
     const creds = await getIntegrationCredentials(orgId, key);
-    const apiKey = creds?.connected && creds?.credentials_json?.api_key;
+    const apiKey = getApiKeyFromCredentials(creds);
     if (!apiKey) continue;
 
     try {
@@ -505,7 +511,7 @@ router.post('/enrich/bulk', async (req, res) => {
 
     // Pre-check: IcyPeas required for person discovery (no fallback in bulk flow)
     const icypeasCreds = await getIntegrationCredentials(orgId, 'icypeas');
-    const icypeasKey = icypeasCreds?.connected && icypeasCreds?.credentials_json?.api_key;
+    const icypeasKey = getApiKeyFromCredentials(icypeasCreds);
     if (!icypeasKey) {
       log('No IcyPeas integration — connect IcyPeas in Settings → Integrations to find contacts', 'error');
       return res.status(400).json({

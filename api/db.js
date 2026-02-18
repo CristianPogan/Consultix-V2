@@ -341,7 +341,21 @@ export async function getIntegrationCredentials(orgId, integrationKey) {
     'SELECT integration_key, credentials_json, connected FROM integration_credentials WHERE org_id = $1 AND integration_key = $2',
     [orgId, integrationKey]
   );
-  return res.rows[0] || null;
+  const row = res.rows[0] || null;
+  if (row && row.credentials_json != null) {
+    const raw = row.credentials_json;
+    row.credentials_json = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : (raw || {});
+  }
+  return row;
+}
+
+/** Extract API key from credentials row (handles api_key, apiKey) */
+export function getApiKeyFromCredentials(row) {
+  if (!row?.connected) return null;
+  const creds = row.credentials_json;
+  if (!creds || typeof creds !== 'object') return null;
+  const key = creds.api_key ?? creds.apiKey;
+  return typeof key === 'string' && key.trim() ? key.trim() : null;
 }
 
 export async function listIntegrationCredentials(orgId) {
@@ -355,14 +369,18 @@ export async function listIntegrationCredentials(orgId) {
 
 export async function saveIntegrationCredentials(orgId, integrationKey, credentials = {}) {
   await ensureIntegrationCredentialsTable();
+  const creds = credentials && typeof credentials === 'object' ? credentials : {};
+  const hasValidKey = !!(creds.api_key?.trim?.() || creds.apiKey?.trim?.());
+  const hasOauth = !!(creds.client_id?.trim?.() && (creds.client_secret?.trim?.() || creds.access_token));
+  const connected = hasValidKey || hasOauth;
   await query(
     `INSERT INTO integration_credentials (org_id, integration_key, credentials_json, connected, updated_at)
-     VALUES ($1, $2, $3::jsonb, true, now())
+     VALUES ($1, $2, $3::jsonb, $4, now())
      ON CONFLICT (org_id, integration_key)
-     DO UPDATE SET credentials_json = $3::jsonb, connected = true, updated_at = now()`,
-    [orgId, integrationKey, JSON.stringify(credentials)]
+     DO UPDATE SET credentials_json = $3::jsonb, connected = $4, updated_at = now()`,
+    [orgId, integrationKey, JSON.stringify(creds), connected]
   );
-  return { integration_key: integrationKey, connected: true };
+  return { integration_key: integrationKey, connected };
 }
 
 export async function disconnectIntegration(orgId, integrationKey) {
