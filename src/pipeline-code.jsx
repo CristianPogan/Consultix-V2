@@ -496,8 +496,9 @@ export default function App() {
     setIsProcessing(true);
     setProcessLog([]);
 
-    addLog("→ Running discovery (Postgres → AI Ark → IcyPeas waterfall)...", "system");
-    await sleep(400);
+    addLog("→ Running discovery cascade (DB → Lead Search providers)...", "system");
+    addLog(`→ Target: ${form?.maxLeads || 100} leads — DB first, then cascade for remaining`, "info");
+    await sleep(200);
     addLog(`→ ICP: ${form?.industry || "—"}, ${(form?.employeeSizes || ["51-200"]).join(", ")} employees`, "info");
     if (form?.keywords) addLog(`→ Keywords: ${form.keywords}`, "info");
     addLog(`→ Target roles: ${(form?.roles || []).join(", ")}`, "info");
@@ -539,18 +540,18 @@ export default function App() {
         addLog(`\n→ Postgres ran but returned no matching companies`, "info");
       }
       if (Array.isArray(waterfallLog) && waterfallLog.length > 0) {
-        addLog(`\n→ Waterfall (Lead Search order):`, "system");
+        addLog(`\n→ Cascade (Lead Search order):`, "system");
         for (const w of waterfallLog) {
-          const status = w.tried ? (w.count > 0 ? `${w.count} companies` : (w.error ? `failed: ${w.error}` : "0 companies")) : (w.reason || "skipped");
-          addLog(`  ${w.key}: ${status}`, "dim");
+          const status = w.tried ? (w.count > 0 ? `+${w.count} companies added` : (w.error ? `failed: ${w.error}` : "0 new companies")) : (w.reason || "skipped");
+          addLog(`  ${w.key}: ${status}`, w.tried && w.count > 0 ? "data" : "dim");
         }
       }
-      addLog(`→ Received ${companies.length} companies (source: ${source})`, "info");
+      addLog(`→ Total: ${companies.length} companies (source: ${source})`, "info");
 
       if (companies.length === 0) {
         addLog(`⚠ No companies found with current criteria`, "info");
-        addLog("→ Postgres: try Industry=B2B SaaS or Facilities Services; Regions=North America only; or fewer employee filters", "info");
-        addLog("→ Settings > Integrations: configure IcyPeas or AI Ark for waterfall fallback", "info");
+        addLog("→ DB: try broader Industry (e.g. B2B SaaS), fewer employee filters, or North America only", "info");
+        addLog("→ Settings > Integrations: connect IcyPeas, AI Ark, or other providers for cascade fallback", "info");
         addLog(`\n→ Run these cURL commands manually (replace YOUR_*_API_KEY):`, "system");
         const industry = form?.industry || "HVAC";
         const keywords = (form?.keywords || "").split(",").map(k => k.trim()).filter(Boolean) || [industry];
@@ -609,8 +610,8 @@ export default function App() {
     setIsProcessing(true);
     setProcessLog([]);
     const selected = discoveredLeads.filter(c => selectedLeads.has(c.id));
-    addLog("→ Checking Postgres enrichment status (skip if Enriched < 30 days)...", "system");
-    addLog("→ Using LEAD ENRICHMENT waterfall from Settings → Integrations", "info");
+    addLog("→ Checking DB enrichment cache (skip if enriched < 30 days)...", "system");
+    addLog("→ Using Lead Search cascade for person finding, Lead Enrichment cascade for email", "info");
 
     let allContacts = [];
     try {
@@ -7142,24 +7143,24 @@ function IntegrationConfigModal({ intg, existingCredentials, onSave, onClose }) 
 
 // orderType: lead_search = find leads, lead_enrichment = verify/enrich. costTier 1=cheapest, 5=most expensive
 const INTEGRATIONS_META = [
-  { key: "fathom", label: "Fathom", icon: "🎙️", desc: "AI meeting assistant — import call transcripts", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "fireflies", label: "Fireflies.ai", icon: "🔥", desc: "Meeting transcription & analysis", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "fathom", label: "Fathom", icon: "🎙️", desc: "AI meeting assistant — import call transcripts", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/fathom/connect" },
+  { key: "fireflies", label: "Fireflies.ai", icon: "🔥", desc: "Meeting transcription & analysis", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/fireflies/connect" },
   { key: "zoom", label: "Zoom", icon: "📹", desc: "Import recordings & transcripts", category: "call_recording", credentialFields: [{ name: "client_id", label: "Client ID", type: "text" }, { name: "client_secret", label: "Client Secret", type: "password" }] },
-  { key: "unipile", label: "Unipile", icon: "💼", desc: "LinkedIn campaigns & actions — execute outreach on LinkedIn (not used in lead enrichment waterfall)", category: "enrichment", orderTypes: [], credentialFields: [{ name: "account_id", label: "Account ID", type: "text" }, { name: "access_token", label: "Access Token", type: "password" }, { name: "dsn", label: "DSN", type: "text", placeholder: "e.g. api12.unipile.com:14291" }] },
-  { key: "instantly", label: "Instantly", icon: "📧", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
-  { key: "smartlead", label: "SmartLead", icon: "📬", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
-  { key: "heyreach", label: "HeyReach", icon: "🤝", desc: "LinkedIn outreach automation", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
-  { key: "aimfox", label: "AimFox", icon: "🦊", desc: "LinkedIn outreach automation", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
-  { key: "icypeas", label: "IcyPeas", icon: "🧊", desc: "Find people & email search", category: "enrichment", orderTypes: ["lead_search", "lead_enrichment"], costLabel: "~$0.02/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "bettercontact", label: "BetterContact", icon: "✉️", desc: "Email verification & list cleaning", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.01/verify", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "zerobounce", label: "ZeroBounce", icon: "🛡️", desc: "Email verification & validation", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.008/verify", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "unipile", label: "Unipile", icon: "💼", desc: "LinkedIn campaigns & actions — execute outreach on LinkedIn (not used in lead enrichment waterfall)", category: "enrichment", orderTypes: [], credentialFields: [{ name: "account_id", label: "Account ID", type: "text" }, { name: "access_token", label: "Access Token", type: "password" }, { name: "dsn", label: "DSN", type: "text", placeholder: "e.g. api12.unipile.com:14291" }], connectEndpoint: "/unipile/connect" },
+  { key: "instantly", label: "Instantly", icon: "📧", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }], connectEndpoint: "/instantly/connect" },
+  { key: "smartlead", label: "SmartLead", icon: "📬", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }], connectEndpoint: "/smartlead/connect" },
+  { key: "heyreach", label: "HeyReach", icon: "🤝", desc: "LinkedIn outreach automation", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }], connectEndpoint: "/heyreach/connect" },
+  { key: "aimfox", label: "AimFox", icon: "🦊", desc: "LinkedIn outreach automation", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }], connectEndpoint: "/aimfox/connect" },
+  { key: "icypeas", label: "IcyPeas", icon: "🧊", desc: "Find people & email search", category: "enrichment", orderTypes: ["lead_search", "lead_enrichment"], costLabel: "~$0.02/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/icypeas/connect" },
+  { key: "bettercontact", label: "BetterContact", icon: "✉️", desc: "Email verification & list cleaning", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.01/verify", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/bettercontact/connect" },
+  { key: "zerobounce", label: "ZeroBounce", icon: "🛡️", desc: "Email verification & validation", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.008/verify", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/zerobounce/connect" },
   { key: "neverbounce", label: "NeverBounce", icon: "✉️", desc: "Email verification & deliverability", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.008/verify", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/neverbounce/connect" },
   { key: "ai_ark", label: "AI Ark", icon: "🦅", desc: "B2B data enrichment — people & company lookup", category: "enrichment", orderTypes: ["lead_search", "lead_enrichment"], costLabel: "~$0.02/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/ai-ark/connect" },
-  { key: "findy", label: "Findy", icon: "🔍", desc: "Lead discovery & enrichment", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.03/lead", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "findymail", label: "FindyMail", icon: "✉️", desc: "Email finder & verification — find by name+domain, verify address", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.01/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "cleanlist", label: "Cleanlist", icon: "🧹", desc: "List cleaning & verification", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.012/verify", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "wiza", label: "Wiza", icon: "📊", desc: "Sales intelligence & lead data", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.04/lead", costTier: 4, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
-  { key: "leadsmagix", label: "Leads Magix", icon: "✨", desc: "B2B lead generation platform", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.025/lead", costTier: 3, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
+  { key: "findy", label: "Findy", icon: "🔍", desc: "Lead discovery & enrichment", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.03/lead", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/findy/connect" },
+  { key: "findymail", label: "FindyMail", icon: "✉️", desc: "Email finder & verification — find by name+domain, verify address", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.01/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/findymail/connect" },
+  { key: "cleanlist", label: "Cleanlist", icon: "🧹", desc: "List cleaning & verification", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.012/verify", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/cleanlist/connect" },
+  { key: "wiza", label: "Wiza", icon: "📊", desc: "Sales intelligence & lead data", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.04/lead", costTier: 4, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/wiza/connect" },
+  { key: "leadsmagix", label: "Leads Magix", icon: "✨", desc: "B2B lead generation platform", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.025/lead", costTier: 3, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }], connectEndpoint: "/leadsmagix/connect" },
   { key: "anthropic", label: "Anthropic", icon: "🧠", desc: "Claude — AI SDR & AI Council", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/anthropic/connect" },
   { key: "openai", label: "OpenAI", icon: "🤖", desc: "GPT — Chat completions & embeddings", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/openai/connect" },
   { key: "openrouter", label: "OpenRouter", icon: "🔀", desc: "Unified LLM gateway — access multiple models", category: "llm", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/openrouter/connect" },

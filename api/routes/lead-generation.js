@@ -3,10 +3,14 @@ import {
   findLeadsApifyApollo,
   findLeadsGoogleMaps,
   findPeopleIcyPeas,
+  findCompaniesIcyPeas,
   findEmailIcyPeas,
   verifyEmailNeverBounce,
   verifyEmailFindyMail,
   findEmailFindyMail,
+  verifyEmailBetterContact,
+  findEmailBetterContact,
+  verifyEmailZeroBounce,
   scrapeWebsite,
   getLinkedInCompanyProfile,
   generatePersonalization,
@@ -23,7 +27,7 @@ const router = Router();
 // LEAD DISCOVERY
 // ============================================================================
 
-// GET /api/lead-generation/discover/status — Check if any lead search integrations are configured
+// GET /api/lead-generation/discover/status — Check if discovery can run (Postgres always available + external integrations)
 router.get('/discover/status', async (req, res) => {
   try {
     const orgId = req.orgId;
@@ -39,10 +43,13 @@ router.get('/discover/status', async (req, res) => {
       if (hasKey) connected.push(key);
     }
 
+    // Discovery can always run: Postgres DB is queried first (10K+ imported leads),
+    // external integrations are cascade fallbacks for the remaining gap
     res.json({
-      canRun: connected.length > 0,
+      canRun: true,
       connectedIntegrations: connected,
       leadSearchOrder: order,
+      hasExternalProviders: connected.length > 0,
     });
   } catch (err) {
     console.error('Discover status error:', err);
@@ -80,6 +87,8 @@ router.post('/discover', async (req, res) => {
     const kwList = criteria.keywords ? criteria.keywords.split(',').map(k => k.trim()).filter(Boolean) : [];
     const industriesForApi = criteria.industry ? [criteria.industry] : ['B2B SaaS', 'Software as a Service', 'Internet Software'];
     const keywordsForApi = kwList.length ? [...industriesForApi, ...kwList] : industriesForApi;
+    // IcyPeas keyword filter is AND-based — send only industry to avoid over-filtering
+    const icypeasKeywords = criteria.industry ? [criteria.industry] : industriesForApi;
 
     let companies = [];
     let source = 'postgres';
@@ -110,7 +119,26 @@ router.post('/discover', async (req, res) => {
       }
     }
 
-    // 2. Semantic mode: Postgres first, then waterfall
+    const targetCount = criteria.maxLeads || 100;
+    const seenDomains = new Set();
+
+    const addCompanies = (newCompanies, providerSource) => {
+      let added = 0;
+      for (const c of newCompanies) {
+        if (companies.length >= targetCount) break;
+        const dedupeKey = (c.domain || c.name || '').toLowerCase().trim();
+        if (dedupeKey && seenDomains.has(dedupeKey)) continue;
+        if (dedupeKey) seenDomains.add(dedupeKey);
+        companies.push(c);
+        added++;
+      }
+      if (added > 0 && source === 'postgres' && providerSource !== 'postgres') {
+        source = companies.some(c => c._source === 'postgres') ? `postgres+${providerSource}` : providerSource;
+      }
+      return added;
+    };
+
+    // 2. Semantic mode: Postgres first, then cascade for remaining
     if (companies.length === 0) {
       console.log('[Discover] Postgres search:', { orgId, criteria });
       const pgResult = await searchCompaniesForDiscovery(orgId, criteria);
@@ -118,91 +146,121 @@ router.post('/discover', async (req, res) => {
       sqlQueries = pgResult.sqlQueries || [];
       console.log('[Discover] Postgres result:', { count: pgResults.length, sample: pgResults[0], queriesRun: sqlQueries.length });
       if (pgResults.length > 0) {
-        companies = pgResults.map((c, i) => ({ ...c, id: c.id || `pg-${i + 1}` }));
+        const pgNormalized = pgResults.map((c, i) => ({ ...c, id: c.id || `pg-${i + 1}`, _source: 'postgres' }));
+        addCompanies(pgNormalized, 'postgres');
         source = 'postgres';
       }
     }
 
-    // 3. Waterfall: try integrations in Lead Search Order
-    if (companies.length === 0) {
+    // 3. Cascade: iterate through Lead Search Order, filling remaining gap
+    if (companies.length < targetCount) {
       const orderRow = await getIntegrationServiceOrder(orgId);
       const order = orderRow?.lead_search_order || ['icypeas', 'ai_ark', 'findy', 'wiza', 'leadsmagix'];
+      const remaining = () => targetCount - companies.length;
 
       for (const key of order) {
-        if (companies.length > 0) break;
+        if (companies.length >= targetCount) break;
 
         if (key === 'ai_ark') {
           const creds = await getIntegrationCredentials(orgId, 'ai_ark');
           const apiKey = getApiKeyFromCredentials(creds);
-          if (!apiKey && creds?.connected) {
-            console.warn('[Discover] AI Ark creds exist but no API key — creds keys:', Object.keys(creds?.credentials_json || {}));
-          }
-          if (apiKey) {
-            try {
-              console.log('[Discover] AI Ark semantic request:', { industry: criteria.industry, keywords: kwList, companySize: criteria.employeeSizes, regions: criteria.regions });
-              const results = await findCompaniesAiArkSemantic(apiKey, {
-                industry: criteria.industry,
-                keywords: kwList,
-                companySize: criteria.employeeSizes.length ? criteria.employeeSizes : ['1-10', '11-50', '51-200', '201-500', '501-1,000', '1,001-5,000', '5,000+'],
-                regions: criteria.regions,
-                maxLeads: criteria.maxLeads || 100,
-              });
-              companies = (results || []).map((c, i) => normalizeCompany(c, i + 1));
-              console.log('[Discover] AI Ark semantic result:', { count: companies.length });
-              waterfallLog.push({ key: 'ai_ark', tried: true, count: companies.length });
-              if (companies.length > 0) source = 'ai_ark';
-            } catch (err) {
-              console.warn('[Discover] AI Ark semantic failed:', err.message);
-              waterfallLog.push({ key: 'ai_ark', tried: true, error: err.message });
-            }
-          } else {
+          if (!apiKey) {
             waterfallLog.push({ key: 'ai_ark', tried: false, reason: 'no_api_key' });
+            continue;
+          }
+          try {
+            console.log('[Discover] AI Ark semantic request (need %d more):', remaining(), { industry: criteria.industry, keywords: kwList, companySize: criteria.employeeSizes, regions: criteria.regions });
+            const results = await findCompaniesAiArkSemantic(apiKey, {
+              industry: criteria.industry,
+              keywords: kwList,
+              companySize: criteria.employeeSizes.length ? criteria.employeeSizes : ['1-10', '11-50', '51-200', '201-500', '501-1,000', '1,001-5,000', '5,000+'],
+              regions: criteria.regions,
+              maxLeads: remaining(),
+            });
+            const normalized = (results || []).map((c, i) => normalizeCompany(c, companies.length + i + 1));
+            const count = addCompanies(normalized, 'ai_ark');
+            console.log('[Discover] AI Ark semantic result:', { returned: results?.length || 0, added: count });
+            waterfallLog.push({ key: 'ai_ark', tried: true, count });
+            if (count > 0 && source === 'postgres') source = 'postgres+ai_ark';
+            else if (count > 0 && !source.includes('ai_ark')) source = source ? `${source}+ai_ark` : 'ai_ark';
+          } catch (err) {
+            console.warn('[Discover] AI Ark semantic failed:', err.message);
+            waterfallLog.push({ key: 'ai_ark', tried: true, error: err.message });
           }
         } else if (key === 'icypeas') {
           const creds = await getIntegrationCredentials(orgId, 'icypeas');
           const apiKey = getApiKeyFromCredentials(creds);
           if (!apiKey) {
-            if (creds?.connected) {
-              console.warn('[Discover] IcyPeas creds exist but no API key — creds keys:', Object.keys(creds?.credentials_json || {}));
-            }
             waterfallLog.push({ key: 'icypeas', tried: false, reason: 'no_api_key' });
             continue;
           }
           try {
             const icypeasLocations = expandRegionsForIcyPeas(criteria.regions);
+            let headcountMin = null, headcountMax = null;
+            if (criteria.employeeSizes?.length) {
+              const ranges = criteria.employeeSizes.map(s => EMPLOYEE_RANGE_TO_HEADCOUNT[s]).filter(Boolean);
+              if (ranges.length) {
+                headcountMin = Math.min(...ranges.map(r => r[0]));
+                const maxMap = { '1-10': 10, '11-50': 50, '51-200': 200, '201-500': 500, '501-1,000': 1000, '1,001-5,000': 5000, '5,000+': null };
+                const maxVals = criteria.employeeSizes.map(s => maxMap[s]).filter(v => v != null);
+                headcountMax = maxVals.length ? Math.max(...maxVals) : null;
+              }
+            }
             const icypeasCriteria = {
               apiKey,
-              jobTitles: criteria.roles.length ? criteria.roles : ['CEO', 'Founder', 'VP of Sales', 'Head of Growth', 'Marketing Director'],
+              industry: criteria.industry || null,
+              keywords: kwList.length ? kwList : (criteria.industry ? [criteria.industry] : ['B2B']),
               locations: icypeasLocations,
-              keywords: keywordsForApi,
-              limit: Math.min(criteria.maxLeads || 200, 200),
-              headcountMin: 1,
+              headcountMin,
+              headcountMax,
+              limit: Math.min(remaining(), 200),
             };
-            if (criteria.employeeSizes?.length) {
-              const mins = criteria.employeeSizes.map(s => (EMPLOYEE_RANGE_TO_HEADCOUNT[s] || [1])[0]).filter(Boolean);
-              if (mins.length) icypeasCriteria.headcountMin = Math.min(...mins);
-            }
-            console.log('[Discover] IcyPeas request:', { jobTitles: icypeasCriteria.jobTitles, locations: icypeasCriteria.locations, keywords: icypeasCriteria.keywords, limit: icypeasCriteria.limit });
-            const result = await findPeopleIcyPeas(icypeasCriteria);
-            console.log('[Discover] IcyPeas result:', { count: result.leads?.length ?? result.people?.length ?? 0, keys: Object.keys(result) });
-            const people = result.leads || result.people || result.data || (Array.isArray(result) ? result : []);
-            companies = peopleToCompanies(people, criteria.industry, criteria.regions);
-            waterfallLog.push({ key: 'icypeas', tried: true, count: companies.length });
-            if (companies.length > 0) source = 'icypeas';
+            console.log('[Discover] IcyPeas Find Companies request (need %d more):', remaining(), {
+              industry: icypeasCriteria.industry, keywords: icypeasCriteria.keywords,
+              locations: icypeasCriteria.locations, headcount: { min: headcountMin, max: headcountMax },
+              limit: icypeasCriteria.limit,
+            });
+            const result = await findCompaniesIcyPeas(icypeasCriteria);
+            const companyList = Array.isArray(result.leads) ? result.leads
+              : Array.isArray(result.companies) ? result.companies
+              : Array.isArray(result.data) ? result.data
+              : Array.isArray(result) ? result : [];
+            const normalized = companyList.map((c, i) => normalizeCompany({
+              id: c._id || c.id || `icypeas-${i}`,
+              name: c.name || c.companyName || 'Unknown',
+              domain: (c.website || c.domain || '').replace(/^https?:\/\//, '').split('/')[0] || null,
+              industry: c.industry || criteria.industry,
+              employees: c.numberOfEmployees || c.headcount || c.employees || 'N/A',
+              location: c.address || c.location || c.headquarters || 'Unknown',
+              icpScore: 92,
+            }, companies.length + i + 1));
+            const count = addCompanies(normalized, 'icypeas');
+            console.log('[Discover] IcyPeas result:', { total: result.total, returned: companyList.length, added: count });
+            waterfallLog.push({ key: 'icypeas', tried: true, count });
+            if (count > 0 && !source.includes('icypeas')) source = source ? `${source}+icypeas` : 'icypeas';
           } catch (err) {
             console.warn('[Discover] IcyPeas failed:', err.message);
             waterfallLog.push({ key: 'icypeas', tried: true, error: err.message });
           }
         } else if (key === 'findy' || key === 'wiza' || key === 'leadsmagix') {
-          waterfallLog.push({ key, tried: false, reason: 'not_implemented_for_discovery' });
+          const creds = await getIntegrationCredentials(orgId, key);
+          const apiKey = getApiKeyFromCredentials(creds);
+          if (!apiKey) {
+            waterfallLog.push({ key, tried: false, reason: 'no_api_key' });
+          } else {
+            waterfallLog.push({ key, tried: false, reason: 'api_stub_pending' });
+          }
         }
       }
     }
 
+    // Strip internal _source field before response
+    const cleanCompanies = companies.map(({ _source, ...rest }) => rest);
+
     res.json({
       success: true,
-      count: companies.length,
-      companies,
+      count: cleanCompanies.length,
+      companies: cleanCompanies,
       source,
       sqlQueries: sqlQueries || [],
       waterfallLog: waterfallLog || [],
@@ -223,18 +281,23 @@ const EMPLOYEE_RANGE_TO_HEADCOUNT = {
   '5,000+': [5000],
 };
 
-// Expand region names to IcyPeas-compatible locations (country codes + names; IcyPeas prefers alpha-2)
+// Expand region names to IcyPeas alpha-2 country codes (best results per API docs)
 function expandRegionsForIcyPeas(regions) {
   if (!regions?.length) return ['US'];
   const out = [];
   for (const r of regions) {
     const s = String(r || '').trim().toLowerCase();
-    if (s.includes('north america') || s === 'na') out.push('US', 'CA', 'MX', 'United States', 'Canada');
-    else if (s.includes('latin america')) out.push('BR', 'MX', 'AR', 'CO', 'Brazil', 'Mexico');
-    else if (s.includes('europe') || s === 'eu') out.push('GB', 'DE', 'FR', 'NL', 'ES', 'IT', 'United Kingdom', 'Germany', 'France');
-    else if ((s.includes('asia') && s.includes('pacific')) || s === 'apac') out.push('JP', 'AU', 'SG', 'IN', 'KR', 'Japan', 'Australia');
-    else if (s.includes('mena')) out.push('AE', 'SA', 'United Arab Emirates');
-    else if (s.includes('uk') || s.includes('ireland')) out.push('GB', 'IE', 'United Kingdom', 'Ireland');
+    if (s.includes('north america') || s === 'na') out.push('US', 'CA', 'MX');
+    else if (s.includes('latin america')) out.push('BR', 'MX', 'AR', 'CO', 'CL', 'PE');
+    else if (s.includes('europe') || s === 'eu') out.push('GB', 'DE', 'FR', 'NL', 'ES', 'IT', 'SE', 'CH', 'BE', 'IE', 'PL');
+    else if (s.includes('dach')) out.push('DE', 'AT', 'CH');
+    else if (s.includes('nordic')) out.push('SE', 'NO', 'DK', 'FI', 'IS');
+    else if ((s.includes('asia') && s.includes('pacific')) || s === 'apac') out.push('JP', 'AU', 'SG', 'IN', 'KR', 'HK', 'NZ');
+    else if (s.includes('australia') && s.includes('nz')) out.push('AU', 'NZ');
+    else if (s.includes('mena')) out.push('AE', 'SA', 'IL', 'EG');
+    else if (s.includes('africa')) out.push('ZA', 'NG', 'KE', 'EG');
+    else if (s.includes('uk') && s.includes('ireland')) out.push('GB', 'IE');
+    else if (s.length === 2) out.push(s.toUpperCase());
     else out.push(r.trim());
   }
   return [...new Set(out)];
@@ -378,12 +441,12 @@ router.post('/discover/icypeas', async (req, res) => {
 // ============================================================================
 
 // Helpers for enrichment waterfall (uses lead_enrichment_order from Settings)
-const FIND_EMAIL_KEYS = ['findymail', 'icypeas', 'ai_ark'];
+const FIND_EMAIL_KEYS = ['findymail', 'icypeas', 'bettercontact', 'ai_ark'];
 const VERIFY_EMAIL_KEYS = ['findymail', 'neverbounce', 'bettercontact', 'zerobounce', 'cleanlist'];
 
 async function findEmailWaterfall(orgId, { firstName, lastName, company, domain }) {
   const orderRow = await getIntegrationServiceOrder(orgId);
-  const order = orderRow?.lead_enrichment_order || ['findymail', 'icypeas', 'neverbounce', 'bettercontact'];
+  const order = orderRow?.lead_enrichment_order || ['findymail', 'icypeas', 'bettercontact', 'neverbounce'];
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
   const dom = (domain || (company && company.includes('.') ? company : '')).replace(/^https?:\/\//, '').split('/')[0];
 
@@ -401,6 +464,9 @@ async function findEmailWaterfall(orgId, { firstName, lastName, company, domain 
         const data = await findEmailIcyPeas({ firstName, lastName, company }, apiKey);
         const email = data?.email || data?.emails?.[0];
         if (email) return { email, confidence: data.confidence, source: key };
+      } else if (key === 'bettercontact' && (firstName || lastName) && (dom || company)) {
+        const data = await findEmailBetterContact(apiKey, { firstName, lastName, company, domain: dom });
+        if (data?.email) return { email: data.email, confidence: data.confidence, source: key };
       }
     } catch (e) {
       console.log(`[Enrich] ${key} find-email failed:`, e.message);
@@ -411,7 +477,7 @@ async function findEmailWaterfall(orgId, { firstName, lastName, company, domain 
 
 async function verifyEmailWaterfall(orgId, email) {
   const orderRow = await getIntegrationServiceOrder(orgId);
-  const order = orderRow?.lead_enrichment_order || ['findymail', 'neverbounce', 'bettercontact'];
+  const order = orderRow?.lead_enrichment_order || ['findymail', 'neverbounce', 'bettercontact', 'zerobounce'];
   let lastErr = null;
 
   for (const key of order) {
@@ -427,6 +493,12 @@ async function verifyEmailWaterfall(orgId, email) {
       } else if (key === 'neverbounce') {
         const data = await verifyEmailNeverBounce(email, apiKey);
         return { result: data.result === 'valid' ? 'valid' : 'invalid', verified: data.result === 'valid', source: key };
+      } else if (key === 'bettercontact') {
+        const data = await verifyEmailBetterContact(apiKey, email);
+        return { result: data.verified ? 'valid' : 'invalid', verified: data.verified, source: key };
+      } else if (key === 'zerobounce') {
+        const data = await verifyEmailZeroBounce(apiKey, email);
+        return { result: data.verified ? 'valid' : 'invalid', verified: data.verified, source: key };
       }
     } catch (e) {
       lastErr = e;
@@ -487,7 +559,59 @@ router.post('/verify/email', async (req, res) => {
   }
 });
 
-// POST /api/lead-generation/enrich/bulk — Check Postgres status (Enriched < 30 days), skip or run waterfall
+// Helper: find people for a company using Lead Search cascade (not just IcyPeas)
+async function findPeopleCascade(orgId, { companyName, domain, roles, limit = 5 }) {
+  const orderRow = await getIntegrationServiceOrder(orgId);
+  const searchOrder = orderRow?.lead_search_order || ['icypeas', 'ai_ark'];
+  const cleanDomain = domain && /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(domain.replace(/^https?:\/\//, '').split('/')[0])
+    ? domain.replace(/^https?:\/\//, '').split('/')[0]
+    : null;
+  const errors = [];
+
+  for (const key of searchOrder) {
+    const creds = await getIntegrationCredentials(orgId, key);
+    const apiKey = getApiKeyFromCredentials(creds);
+    if (!apiKey) continue;
+
+    try {
+      if (key === 'icypeas') {
+        const icypeasCriteria = {
+          companies: [companyName],
+          jobTitles: roles,
+          limit,
+          apiKey,
+        };
+        if (cleanDomain) icypeasCriteria.companyDomains = [cleanDomain];
+        const result = await findPeopleIcyPeas(icypeasCriteria);
+        let people = result.leads || result.people?.leads || result.people || result.data || (Array.isArray(result) ? result : []);
+        if (!Array.isArray(people)) people = [];
+        if (people.length > 0) return { people, source: key };
+      } else if (key === 'ai_ark') {
+        const results = await findCompaniesAiArkSemantic(apiKey, {
+          industry: null,
+          keywords: [companyName],
+          companySize: [],
+          regions: [],
+          maxLeads: limit,
+        });
+        if (results?.length > 0) {
+          const people = results.map(c => ({
+            companyName: c.name,
+            currentCompanyName: c.name,
+            companyWebsite: c.domain,
+            industry: c.industry,
+          }));
+          return { people, source: key, isCompanyLevel: true };
+        }
+      }
+    } catch (e) {
+      errors.push({ key, error: e.message });
+    }
+  }
+  return { people: [], source: null, errors };
+}
+
+// POST /api/lead-generation/enrich/bulk — Check Postgres status (Enriched < 30 days), skip or run cascade
 router.post('/enrich/bulk', async (req, res) => {
   const enrichmentLog = [];
   const log = (msg, type = 'info') => {
@@ -509,18 +633,26 @@ router.post('/enrich/bulk', async (req, res) => {
     const allContacts = [];
     let listId = null;
 
-    // Pre-check: IcyPeas required for person discovery (no fallback in bulk flow)
-    const icypeasCreds = await getIntegrationCredentials(orgId, 'icypeas');
-    const icypeasKey = getApiKeyFromCredentials(icypeasCreds);
-    if (!icypeasKey) {
-      log('No IcyPeas integration — connect IcyPeas in Settings → Integrations to find contacts', 'error');
+    // Pre-check: need at least one lead search provider for person discovery
+    const orderRow = await getIntegrationServiceOrder(orgId);
+    const searchOrder = orderRow?.lead_search_order || ['icypeas', 'ai_ark'];
+    let hasAnySearchProvider = false;
+    for (const key of searchOrder) {
+      const creds = await getIntegrationCredentials(orgId, key);
+      if (getApiKeyFromCredentials(creds)) { hasAnySearchProvider = true; break; }
+    }
+    if (!hasAnySearchProvider) {
+      log('No lead search integrations connected — configure at least one (IcyPeas, AI Ark, etc.) in Settings > Integrations', 'error');
       return res.status(400).json({
-        error: 'IcyPeas integration required for contact enrichment. Connect IcyPeas in Settings → Integrations.',
+        error: 'At least one lead search integration required for contact enrichment. Connect providers in Settings > Integrations.',
         contacts: [],
         enrichmentLog,
       });
     }
-    log(`IcyPeas connected — processing ${companiesInput.length} companies with roles: ${rolesList.join(', ')}`, 'info');
+
+    log(`Processing ${companiesInput.length} companies with roles: ${rolesList.join(', ')}`, 'info');
+    log(`Lead search cascade: ${searchOrder.join(' > ')}`, 'info');
+
     if (listName) {
       const listRes = await query(
         `INSERT INTO lead_lists (org_id, name, source, status, total_contacts, enriched_count)
@@ -563,33 +695,22 @@ router.post('/enrich/bulk', async (req, res) => {
         continue;
       }
 
-      // Run waterfall enrichment (IcyPeas pre-checked above)
-      // Use domain when available for more accurate matching (IcyPeas currentCompanyWebsite)
-      const cleanDomain = domain && /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(domain.replace(/^https?:\/\//, '').split('/')[0])
-        ? domain.replace(/^https?:\/\//, '').split('/')[0]
-        : null;
-      let people = [];
-      try {
-        const icypeasCriteria = {
-          companies: [companyName],
-          jobTitles: rolesList,
-          limit: 5,
-          apiKey: icypeasKey,
-        };
-        if (cleanDomain) icypeasCriteria.companyDomains = [cleanDomain];
-        const result = await findPeopleIcyPeas(icypeasCriteria);
-        people = result.leads || result.people?.leads || result.people || result.data || (Array.isArray(result) ? result : []);
-        if (!Array.isArray(people)) people = [];
-        if (people.length === 0) {
-          const respKeys = typeof result === 'object' && result ? Object.keys(result) : [];
-          log(`${companyName} — IcyPeas returned 0 people (response keys: ${respKeys.join(', ') || 'none'})`, 'warn');
-        } else {
-          log(`${companyName} — found ${people.length} people via IcyPeas`, 'info');
-        }
-      } catch (e) {
-        log(`${companyName} — IcyPeas failed: ${e.message}`, 'error');
+      // Cascade through Lead Search providers for person discovery
+      const { people, source: peopleSource, errors: peopleErrors } = await findPeopleCascade(orgId, {
+        companyName,
+        domain,
+        roles: rolesList,
+        limit: 5,
+      });
+
+      if (peopleErrors?.length) {
+        for (const e of peopleErrors) log(`${companyName} — ${e.key} failed: ${e.error}`, 'warn');
+      }
+      if (people.length === 0) {
+        log(`${companyName} — no people found from any provider`, 'warn');
         continue;
       }
+      log(`${companyName} — found ${people.length} people via ${peopleSource}`, 'info');
 
       const companyId = await upsertCompanyForEnrichment(orgId, {
         name: companyName,
@@ -642,8 +763,8 @@ router.post('/enrich/bulk', async (req, res) => {
         if (listId && companyId && email && email !== 'Not found') {
           try {
             await query(
-              `INSERT INTO leads (org_id, list_id, company_id, first_name, last_name, email, title, company, company_domain, linkedin_url, email_verified, email_bounce_risk, company_data_json)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)`,
+              `INSERT INTO leads (org_id, list_id, company_id, first_name, last_name, email, title, company, company_domain, linkedin_url, email_verified, email_bounce_risk, company_data_json, enriched_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, now())`,
               [
                 orgId,
                 listId,
@@ -669,7 +790,7 @@ router.post('/enrich/bulk', async (req, res) => {
 
     log(`Done: ${allContacts.length} contacts from ${companiesInput.length} companies`, allContacts.length > 0 ? 'success' : 'warn');
     if (allContacts.length === 0) {
-      log('Tip: Ensure company names are real (e.g. "Acme Corp") not generic (e.g. "B2B SaaS"). IcyPeas finds people by company name.', 'info');
+      log('Tip: Ensure company names are real (e.g. "Acme Corp") not generic (e.g. "B2B SaaS"). Providers find people by company name.', 'info');
     }
 
     res.json({ success: true, contacts: allContacts, enrichmentLog });

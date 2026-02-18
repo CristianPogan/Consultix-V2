@@ -223,6 +223,191 @@ router.post('/neverbounce/connect', async (req, res) => {
   }
 });
 
+// POST /api/integrations/icypeas/connect - Validate IcyPeas API key via count endpoint (no credits)
+router.post('/icypeas/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://app.icypeas.com/api/count', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': apiKey.trim() },
+      body: JSON.stringify({ query: { keyword: { include: ['test'] } } }),
+    });
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid API key' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'icypeas', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'icypeas', connected: true });
+  } catch (err) {
+    console.error('IcyPeas connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/bettercontact/connect - Validate BetterContact API key
+router.post('/bettercontact/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://app.bettercontact.rocks/api/v2/credits', {
+      headers: { 'Authorization': `Bearer ${apiKey.trim()}` },
+    });
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid API key' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'bettercontact', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'bettercontact', connected: true });
+  } catch (err) {
+    console.error('BetterContact connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/zerobounce/connect - Validate ZeroBounce API key
+router.post('/zerobounce/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch(`https://api.zerobounce.net/v2/getcredits?api_key=${encodeURIComponent(apiKey.trim())}`);
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid API key' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    }
+    const data = await testRes.json().catch(() => ({}));
+    if (data.error) return res.status(401).json({ error: data.error });
+    await saveIntegrationCredentials(orgId, 'zerobounce', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'zerobounce', connected: true });
+  } catch (err) {
+    console.error('ZeroBounce connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/findymail/connect - Validate FindyMail API key
+router.post('/findymail/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://app.findymail.com/api/credits', {
+      headers: { 'Authorization': `Bearer ${apiKey.trim()}` },
+    });
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid API key' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'findymail', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'findymail', connected: true });
+  } catch (err) {
+    console.error('FindyMail connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/instantly/connect - Validate Instantly API key
+router.post('/instantly/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    const campaignId = credentials?.campaign_id || '';
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://api.instantly.ai/api/v2/campaigns', {
+      headers: { 'Authorization': `Bearer ${apiKey.trim()}`, 'Content-Type': 'application/json' },
+    });
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid API key' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'instantly', { api_key: apiKey.trim(), campaign_id: campaignId.trim() });
+    res.json({ integration_key: 'instantly', connected: true });
+  } catch (err) {
+    console.error('Instantly connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/heyreach/connect - Validate HeyReach API key
+router.post('/heyreach/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    const campaignId = credentials?.campaign_id || '';
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://api.heyreach.io/api/public/campaign/GetAll', {
+      headers: { 'X-API-KEY': apiKey.trim(), 'Content-Type': 'application/json' },
+    });
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid API key' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'heyreach', { api_key: apiKey.trim(), campaign_id: campaignId.trim() });
+    res.json({ integration_key: 'heyreach', connected: true });
+  } catch (err) {
+    console.error('HeyReach connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/unipile/connect - Validate Unipile credentials
+router.post('/unipile/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    const token = credentials?.access_token;
+    const dsn = credentials?.dsn || 'api12.unipile.com:14291';
+    const accountId = credentials?.account_id || '';
+    if (!token || typeof token !== 'string') return res.status(400).json({ error: 'Access Token required' });
+    const testRes = await fetch(`https://${dsn.trim()}/api/v1/users/me`, {
+      headers: { 'accept': 'application/json', 'X-API-KEY': token.trim() },
+    });
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid access token' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate credentials' });
+    }
+    await saveIntegrationCredentials(orgId, 'unipile', { access_token: token.trim(), dsn: dsn.trim(), account_id: accountId.trim() });
+    res.json({ integration_key: 'unipile', connected: true });
+  } catch (err) {
+    console.error('Unipile connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generic connect for providers without dedicated validation endpoints (Wiza, Findy, LeadsMagix, SmartLead, AimFox, Fathom, Fireflies, Cleanlist)
+for (const providerKey of ['wiza', 'findy', 'leadsmagix', 'smartlead', 'aimfox', 'fathom', 'fireflies', 'cleanlist']) {
+  router.post(`/${providerKey}/connect`, async (req, res) => {
+    try {
+      const orgId = req.orgId;
+      const { credentials } = req.body || {};
+      if (!orgId) return res.status(401).json({ error: 'Organization required' });
+      const apiKey = credentials?.api_key || credentials?.apiKey;
+      if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+      await saveIntegrationCredentials(orgId, providerKey, { api_key: apiKey.trim(), ...(credentials?.workspace_id ? { workspace_id: credentials.workspace_id } : {}), ...(credentials?.campaign_id ? { campaign_id: credentials.campaign_id } : {}) });
+      res.json({ integration_key: providerKey, connected: true });
+    } catch (err) {
+      console.error(`${providerKey} connect error:`, err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+}
+
 // POST /api/integrations/calendly/connect - Save Calendly OAuth credentials (client_id, client_secret, webhook_signing_key)
 router.post('/calendly/connect', async (req, res) => {
   try {

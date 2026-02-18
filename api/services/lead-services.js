@@ -131,8 +131,7 @@ export async function findPeopleIcyPeas(criteria) {
   if (companies?.length) query.currentCompanyName = { include: companies };
   if (companyDomains?.length) query.currentCompanyWebsite = { include: companyDomains };
   if (keywords?.length) query.keyword = { include: keywords };
-  if (criteria.headcountMin != null) query.headcount = { '>=': criteria.headcountMin };
-  if (Object.keys(query).length === 0) query.keyword = { include: ['B2B'] }; // IcyPeas needs at least one filter
+  if (Object.keys(query).length === 0) query.keyword = { include: ['B2B'] };
 
   const pagination = { size: Math.min(limit || 200, 200) };
   if (paginationToken) pagination.token = paginationToken;
@@ -151,7 +150,57 @@ export async function findPeopleIcyPeas(criteria) {
     throw new Error(`IcyPeas find people failed: ${response.status} ${errText}`);
   }
 
-  return await response.json();
+  const data = await response.json();
+  if (data.success === false) {
+    const errMsg = data.error || JSON.stringify(data.validationErrors || {});
+    throw new Error(`IcyPeas find people validation: ${errMsg}`);
+  }
+  return data;
+}
+
+/**
+ * IcyPeas Find Companies — for discovery cascade
+ * Uses POST /api/find-companies with industry, keyword, location, headcount filters
+ */
+export async function findCompaniesIcyPeas(criteria) {
+  const apiKey = criteria?.apiKey || process.env.ICYPEAS_API_KEY;
+  if (!apiKey) throw new Error('ICYPEAS_API_KEY not configured');
+
+  const { industry, keywords, locations, headcountMin, headcountMax, limit = 100, paginationToken } = criteria;
+
+  const query = {};
+  if (industry) query.industry = { include: Array.isArray(industry) ? industry : [industry] };
+  if (locations?.length) query.location = { include: locations };
+  if (keywords?.length) query.keyword = { include: Array.isArray(keywords) ? keywords : [keywords] };
+  const hc = {};
+  if (headcountMin != null) hc['>='] = headcountMin;
+  if (headcountMax != null) hc['<='] = headcountMax;
+  if (Object.keys(hc).length) query.headcount = hc;
+  if (Object.keys(query).length === 0) query.keyword = { include: ['B2B'] };
+
+  const pagination = { size: Math.min(limit || 100, 200) };
+  if (paginationToken) pagination.token = paginationToken;
+
+  const response = await fetch('https://app.icypeas.com/api/find-companies', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': apiKey,
+    },
+    body: JSON.stringify({ query, pagination }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`IcyPeas find companies failed: ${response.status} ${errText}`);
+  }
+
+  const data = await response.json();
+  if (data.success === false) {
+    const errMsg = data.error || JSON.stringify(data.validationErrors || {});
+    throw new Error(`IcyPeas find companies validation: ${errMsg}`);
+  }
+  return data;
 }
 
 /**
@@ -476,6 +525,65 @@ export async function findEmailFindyMail(apiKey, { name, domain }) {
   if (!res.ok) throw new Error(`FindyMail search failed: ${res.statusText}`);
   const data = await res.json();
   return { email: data.email || data.address, confidence: data.confidence, ...data };
+}
+
+/**
+ * BetterContact Email Verification
+ * @param {string} apiKey - BetterContact API key
+ * @param {string} email - Email to verify
+ * @returns {Promise<Object>} - { verified, result }
+ */
+export async function verifyEmailBetterContact(apiKey, email) {
+  if (!apiKey) throw new Error('BetterContact API key required');
+  const response = await fetch('https://app.bettercontact.rocks/api/v2/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) throw new Error(`BetterContact verify failed: ${response.statusText}`);
+  const data = await response.json();
+  const valid = data.status === 'valid' || data.result === 'valid' || data.deliverable === true;
+  return { result: valid ? 'valid' : 'invalid', verified: valid, ...data };
+}
+
+/**
+ * BetterContact Email Find (by name + company domain)
+ * @param {string} apiKey - BetterContact API key
+ * @param {Object} params - { firstName, lastName, company, domain }
+ * @returns {Promise<Object>} - { email, confidence }
+ */
+export async function findEmailBetterContact(apiKey, { firstName, lastName, company, domain }) {
+  if (!apiKey) throw new Error('BetterContact API key required');
+  const response = await fetch('https://app.bettercontact.rocks/api/v2/enrich', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      first_name: firstName,
+      last_name: lastName,
+      company_name: company,
+      company_domain: domain,
+    }),
+  });
+  if (!response.ok) throw new Error(`BetterContact enrich failed: ${response.statusText}`);
+  const data = await response.json();
+  return { email: data.email || data.professional_email, confidence: data.confidence || (data.email ? 90 : 0), ...data };
+}
+
+/**
+ * ZeroBounce Email Verification
+ * @param {string} apiKey - ZeroBounce API key
+ * @param {string} email - Email to verify
+ * @returns {Promise<Object>} - { verified, result }
+ */
+export async function verifyEmailZeroBounce(apiKey, email) {
+  if (!apiKey) throw new Error('ZeroBounce API key required');
+  const response = await fetch(
+    `https://api.zerobounce.net/v2/validate?api_key=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(email)}`
+  );
+  if (!response.ok) throw new Error(`ZeroBounce verify failed: ${response.statusText}`);
+  const data = await response.json();
+  const valid = data.status === 'valid';
+  return { result: valid ? 'valid' : 'invalid', verified: valid, ...data };
 }
 
 /**

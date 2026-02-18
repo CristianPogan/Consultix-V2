@@ -126,6 +126,7 @@ export async function ensureProjectStatsColumns() {
     await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS outreach_sent_at TIMESTAMPTZ').catch(() => {});
     await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS responded_at TIMESTAMPTZ').catch(() => {});
     await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS meeting_booked_at TIMESTAMPTZ').catch(() => {});
+    await query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ').catch(() => {});
     await query('ALTER TABLE lead_lists ADD COLUMN IF NOT EXISTS project_id TEXT').catch(() => {});
     await query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS project_id TEXT').catch(() => {});
   } catch (_) {}
@@ -596,73 +597,134 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
 
   let rows = await runQuery('Postgres discovery (primary)');
 
-  // Fallback: if 0 results, try progressively relaxed queries and log each
-  if (rows.length === 0) {
-    // Fallback 2: without region filter (keep topic + employee)
-    if (regionPatterns.length) {
-      let rp2 = [orgId], idx2 = 2;
-      let sql2 = baseSelect;
-      for (const p of topicPatterns) {
-        sql2 += ` AND (COALESCE(c.industry, '') ILIKE $${idx2} OR COALESCE(c.description, '') ILIKE $${idx2} OR COALESCE(c.keywords, '') ILIKE $${idx2} OR COALESCE(c.name, '') ILIKE $${idx2})`;
-        rp2.push(p);
-        idx2++;
-      }
-      sql2 += employeeWhere + ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $${idx2}`;
-      rp2.push(limit);
-      const res2 = await query(sql2, rp2);
-      sqlQueries.push({ sql: sql2, params: [...rp2], label: 'Postgres discovery (no region)', rowCount: res2.rows?.length || 0 });
-      if (res2.rows?.length > 0) rows = res2.rows;
+  // Progressive fallbacks: try relaxed queries when results are below target
+  const needMore = () => rows.length < limit;
+
+  // Fallback 2: without region filter (keep topic + employee)
+  if (needMore() && regionPatterns.length && topicPatterns.length) {
+    let rp2 = [orgId], idx2 = 2;
+    let sql2 = baseSelect;
+    for (const p of topicPatterns) {
+      sql2 += ` AND (COALESCE(c.industry, '') ILIKE $${idx2} OR COALESCE(c.description, '') ILIKE $${idx2} OR COALESCE(c.keywords, '') ILIKE $${idx2} OR COALESCE(c.name, '') ILIKE $${idx2})`;
+      rp2.push(p);
+      idx2++;
     }
-    // Fallback 3: topic only (no region, no employee)
-    if (rows.length === 0 && topicPatterns.length) {
-      let rp3 = [orgId], idx3 = 2;
-      let sql3 = baseSelect;
-      for (const p of topicPatterns) {
-        sql3 += ` AND (COALESCE(c.industry, '') ILIKE $${idx3} OR COALESCE(c.description, '') ILIKE $${idx3} OR COALESCE(c.keywords, '') ILIKE $${idx3} OR COALESCE(c.name, '') ILIKE $${idx3})`;
-        rp3.push(p);
-        idx3++;
-      }
-      sql3 += ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $${idx3}`;
-      rp3.push(limit);
-      const res3 = await query(sql3, rp3);
-      sqlQueries.push({ sql: sql3, params: [...rp3], label: 'Postgres discovery (topic only)', rowCount: res3.rows?.length || 0 });
-      if (res3.rows?.length > 0) rows = res3.rows;
+    sql2 += employeeWhere + ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $${idx2}`;
+    rp2.push(limit);
+    const res2 = await query(sql2, rp2);
+    sqlQueries.push({ sql: sql2, params: [...rp2], label: 'Postgres discovery (no region)', rowCount: res2.rows?.length || 0 });
+    if (res2.rows?.length > rows.length) rows = res2.rows;
+  }
+  // Fallback 3: topic only (no region, no employee)
+  if (needMore() && topicPatterns.length) {
+    let rp3 = [orgId], idx3 = 2;
+    let sql3 = baseSelect;
+    for (const p of topicPatterns) {
+      sql3 += ` AND (COALESCE(c.industry, '') ILIKE $${idx3} OR COALESCE(c.description, '') ILIKE $${idx3} OR COALESCE(c.keywords, '') ILIKE $${idx3} OR COALESCE(c.name, '') ILIKE $${idx3})`;
+      rp3.push(p);
+      idx3++;
     }
-    // Fallback 4: derive companies from leads (when companies table has no matches)
-    if (rows.length === 0 && topicPatterns.length) {
-      const firstPattern = topicPatterns[0];
-      const sqlLeads = `
-        SELECT DISTINCT ON (LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))))
-          l.company_id as id, l.company as name, l.company_domain as domain
-        FROM leads l
-        WHERE l.org_id = $1
-          AND (COALESCE(l.company, '') ILIKE $2 OR COALESCE(l.company_domain, '') ILIKE $2)
-        ORDER BY LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))), l.created_at DESC
-        LIMIT $3`;
-      const resLeads = await query(sqlLeads, [orgId, firstPattern, limit]);
-      sqlQueries.push({ sql: sqlLeads, params: [orgId, firstPattern, limit], label: 'Postgres discovery (from leads)', rowCount: resLeads.rows?.length || 0 });
-      if (resLeads.rows?.length > 0) {
-        rows = resLeads.rows.map(r => ({
-          id: r.id || `lead-${(r.name || r.domain || '').replace(/\s/g, '-')}`,
-          name: r.name,
-          domain: r.domain,
-          industry: null,
-          employee_count: null,
-          employee_range: null,
-          headquarters_city: null,
-          headquarters_state: null,
-          headquarters_country: null,
-          icp_fit_score: 85,
-        }));
-      }
+    sql3 += ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $${idx3}`;
+    rp3.push(limit);
+    const res3 = await query(sql3, rp3);
+    sqlQueries.push({ sql: sql3, params: [...rp3], label: 'Postgres discovery (topic only)', rowCount: res3.rows?.length || 0 });
+    if (res3.rows?.length > rows.length) rows = res3.rows;
+  }
+  // Helper: deduplicate and append leads-derived companies to rows
+  const appendLeadCompanies = (leadRows, existingIds, existingDomains, remaining, score = 85) => {
+    const newFromLeads = leadRows
+      .filter(r => {
+        const key = (r.domain || r.name || '').toLowerCase().trim();
+        return key && !existingDomains.has(key) && !existingIds.has(String(r.id));
+      })
+      .slice(0, remaining)
+      .map(r => ({
+        id: r.id || `lead-${(r.name || r.domain || '').replace(/\s/g, '-')}`,
+        name: r.name,
+        domain: r.domain,
+        industry: null,
+        employee_count: null,
+        employee_range: null,
+        headquarters_city: null,
+        headquarters_state: null,
+        headquarters_country: null,
+        icp_fit_score: score,
+      }));
+    for (const c of newFromLeads) {
+      existingIds.add(String(c.id));
+      existingDomains.add((c.domain || c.name || '').toLowerCase().trim());
     }
-    // Fallback 5: org only — only when user did NOT specify industry/keywords (avoid returning irrelevant companies)
-    if (rows.length === 0 && topicPatterns.length === 0) {
-      const sql4 = baseSelect + ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $2`;
-      const res4 = await query(sql4, [orgId, limit]);
-      sqlQueries.push({ sql: sql4, params: [orgId, limit], label: 'Postgres discovery (org only)', rowCount: res4.rows?.length || 0 });
-      if (res4.rows?.length > 0) rows = res4.rows;
+    return newFromLeads;
+  };
+
+  const existingIds = new Set(rows.map(r => String(r.id)));
+  const existingDomains = new Set(rows.map(r => (r.domain || r.name || '').toLowerCase().trim()).filter(Boolean));
+
+  // Fallback 4a: leads filtered by topic patterns (industry/keywords in company/domain/title)
+  if (needMore() && topicPatterns.length) {
+    const remaining = limit - rows.length;
+    const leadTopicConditions = topicPatterns.map((_, i) => `(COALESCE(l.company, '') ILIKE $${i + 2} OR COALESCE(l.company_domain, '') ILIKE $${i + 2} OR COALESCE(l.title, '') ILIKE $${i + 2})`).join(' OR ');
+    const sqlLeads = `
+      SELECT DISTINCT ON (LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))))
+        l.company_id as id, l.company as name, l.company_domain as domain, l.title
+      FROM leads l
+      WHERE l.org_id = $1
+        AND (${leadTopicConditions})
+      ORDER BY LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))), l.created_at DESC
+      LIMIT $${topicPatterns.length + 2}`;
+    const leadParams = [orgId, ...topicPatterns, remaining + 20];
+    const resLeads = await query(sqlLeads, leadParams);
+    sqlQueries.push({ sql: sqlLeads, params: [...leadParams], label: 'Postgres discovery (from leads - topic)', rowCount: resLeads.rows?.length || 0 });
+    if (resLeads.rows?.length > 0) {
+      rows = [...rows, ...appendLeadCompanies(resLeads.rows, existingIds, existingDomains, remaining, 85)];
     }
+  }
+
+  // Fallback 4b: leads filtered by role/title matching (CEO, CTO, etc.)
+  const rolesList = roles?.length ? roles : [];
+  if (needMore() && rolesList.length) {
+    const remaining = limit - rows.length;
+    const roleConditions = rolesList.map((_, i) => `COALESCE(l.title, '') ILIKE $${i + 2}`).join(' OR ');
+    const sqlLeadRoles = `
+      SELECT DISTINCT ON (LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))))
+        l.company_id as id, l.company as name, l.company_domain as domain, l.title
+      FROM leads l
+      WHERE l.org_id = $1
+        AND (${roleConditions})
+        AND COALESCE(l.company, l.company_domain, '') != ''
+      ORDER BY LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))), l.created_at DESC
+      LIMIT $${rolesList.length + 2}`;
+    const roleParams = [orgId, ...rolesList.map(r => `%${r}%`), remaining + 20];
+    const resRoles = await query(sqlLeadRoles, roleParams);
+    sqlQueries.push({ sql: sqlLeadRoles, params: [...roleParams], label: 'Postgres discovery (from leads - roles)', rowCount: resRoles.rows?.length || 0 });
+    if (resRoles.rows?.length > 0) {
+      rows = [...rows, ...appendLeadCompanies(resRoles.rows, existingIds, existingDomains, remaining, 80)];
+    }
+  }
+
+  // Fallback 4c: all leads from org (broadest — imported leads are presumably relevant)
+  if (needMore()) {
+    const remaining = limit - rows.length;
+    const sqlLeadAll = `
+      SELECT DISTINCT ON (LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))))
+        l.company_id as id, l.company as name, l.company_domain as domain, l.title
+      FROM leads l
+      WHERE l.org_id = $1
+        AND COALESCE(l.company, l.company_domain, '') != ''
+      ORDER BY LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))), l.created_at DESC
+      LIMIT $2`;
+    const resAll = await query(sqlLeadAll, [orgId, remaining + 20]);
+    sqlQueries.push({ sql: sqlLeadAll, params: [orgId, remaining + 20], label: 'Postgres discovery (from leads - all org)', rowCount: resAll.rows?.length || 0 });
+    if (resAll.rows?.length > 0) {
+      rows = [...rows, ...appendLeadCompanies(resAll.rows, existingIds, existingDomains, remaining, 75)];
+    }
+  }
+  // Fallback 5: org only — only when user did NOT specify industry/keywords
+  if (rows.length === 0 && topicPatterns.length === 0) {
+    const sql4 = baseSelect + ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $2`;
+    const res4 = await query(sql4, [orgId, limit]);
+    sqlQueries.push({ sql: sql4, params: [orgId, limit], label: 'Postgres discovery (org only)', rowCount: res4.rows?.length || 0 });
+    if (res4.rows?.length > 0) rows = res4.rows;
   }
 
   const normDomain = (d) => (d || '').replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim();
