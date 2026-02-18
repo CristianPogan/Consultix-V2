@@ -466,54 +466,96 @@ const EMPLOYEE_RANGE_MAP = {
   '5,000+': [5000, 999999999],
 };
 
+// Map UI employee ranges to DB enum values (company_size enum: 1-10, 11-50, 51-200, etc.)
+const EMPLOYEE_RANGE_TO_ENUM = {
+  '1-10': ['1-10'],
+  '11-50': ['11-50'],
+  '51-200': ['51-200'],
+  '201-500': ['201-500'],
+  '501-1,000': ['501-1000'],
+  '1,001-5,000': ['1001-5000'],
+  '5,000+': ['5001-10000', '10000+'],
+};
+
+// Expand region names to match DB values (US, United States, Canada, etc.)
+function expandRegionForSql(region) {
+  const r = String(region || '').trim().toLowerCase();
+  if (r.includes('north america') || r === 'na') {
+    return ['%US%', '%United States%', '%USA%', '%Canada%', '%CA%', '%Mexico%', '%MX%'];
+  }
+  if (r.includes('europe') || r === 'eu') {
+    return ['%GB%', '%UK%', '%United Kingdom%', '%Germany%', '%DE%', '%France%', '%FR%', '%Netherlands%', '%NL%', '%Spain%', '%ES%', '%Italy%', '%IT%'];
+  }
+  return [`%${r}%`];
+}
+
 /**
- * Search companies (and optionally leads) in Postgres for discovery.
- * Returns companies matching ICP criteria in DiscoveryPanel format.
+ * Build discovery SQL and run it. Returns { companies, sqlQueries }.
+ * sqlQueries: array of { sql, params, label, rowCount } for agent log.
  */
 export async function searchCompaniesForDiscovery(orgId, criteria) {
   const { industry, keywords, employeeSizes, regions, roles, maxLeads = 200 } = criteria || {};
   const limit = Math.min(parseInt(maxLeads, 10) || 200, 500);
+  const sqlQueries = [];
 
-  let sql = `
-    SELECT c.id, c.name, c.domain, c.industry, c.employee_count, c.employee_range,
+  const expandRegions = (regList) => {
+    if (!regList?.length) return [];
+    const all = [];
+    for (const r of regList) {
+      all.push(...expandRegionForSql(r));
+    }
+    return [...new Set(all)];
+  };
+
+  const regionPatterns = expandRegions(regions);
+  const kwList = keywords ? String(keywords).split(',').map(k => k.trim()).filter(Boolean) : [];
+  // Topic patterns: industry and keywords — match if ANY field matches ANY pattern (OR logic)
+  const topicPatterns = [...new Set([
+    industry?.trim() ? `%${industry.trim()}%` : null,
+    ...kwList.map(k => `%${k}%`),
+  ].filter(Boolean))];
+
+  // Employee filter: allow nulls (unknown size) so we don't exclude most companies
+  let employeeWhere = '';
+  const empRanges = (employeeSizes || []).map(r => EMPLOYEE_RANGE_MAP[r] || null).filter(Boolean);
+  const empEnumArrays = (employeeSizes || []).map(r => EMPLOYEE_RANGE_TO_ENUM[r]).filter(Boolean);
+  const empEnums = empEnumArrays.flat();
+  if (empRanges.length) {
+    const minV = Math.min(...empRanges.map(([a]) => a));
+    const maxV = Math.max(...empRanges.map(([, b]) => b));
+    const enumList = empEnums.length ? empEnums.map(e => `'${String(e).replace(/'/g, "''")}'`).join(',') : '';
+    employeeWhere = enumList
+      ? ` AND ( (c.employee_count IS NOT NULL AND c.employee_count > 0 AND c.employee_count BETWEEN ${minV} AND ${maxV}) OR (c.employee_range::text IN (${enumList})) OR (c.employee_count IS NULL AND c.employee_range IS NULL) )`
+      : ` AND ( (c.employee_count IS NOT NULL AND c.employee_count > 0 AND c.employee_count BETWEEN ${minV} AND ${maxV}) OR (c.employee_count IS NULL AND c.employee_range IS NULL) )`;
+  }
+
+  const baseSelect = `
+    SELECT c.id, c.name, c.domain, c.website, c.industry, c.employee_count, c.employee_range,
            c.headquarters_city, c.headquarters_state, c.headquarters_country,
-           c.icp_fit_score, c.description, c.technologies
+           c.icp_fit_score, c.description, c.technologies, c.keywords as c_keywords
     FROM companies c
     WHERE c.org_id = $1`;
-  const params = [orgId];
+
+  let params = [orgId];
   let paramIdx = 2;
+  let sql = baseSelect;
 
-  if (industry?.trim()) {
-    sql += ` AND (c.industry ILIKE $${paramIdx} OR c.industry = $${paramIdx})`;
-    params.push(`%${industry.trim()}%`);
-    paramIdx++;
-  }
-
-  if (keywords?.trim()) {
-    const firstKw = keywords.split(',')[0].trim();
-    if (firstKw) {
-      const pattern = `%${firstKw}%`;
-      sql += ` AND (COALESCE(c.description, '') ILIKE $${paramIdx} OR COALESCE(c.industry, '') ILIKE $${paramIdx})`;
-      params.push(pattern);
+  // Topic filter: industry OR description OR keywords OR name matches any pattern
+  if (topicPatterns.length) {
+    const topicParts = [];
+    for (const p of topicPatterns) {
+      topicParts.push(`(COALESCE(c.industry, '') ILIKE $${paramIdx} OR COALESCE(c.description, '') ILIKE $${paramIdx} OR COALESCE(c.keywords, '') ILIKE $${paramIdx} OR COALESCE(c.name, '') ILIKE $${paramIdx})`);
+      params.push(p);
       paramIdx++;
     }
+    sql += ` AND (${topicParts.join(' OR ')})`;
   }
 
-  if (employeeSizes?.length) {
-    const ranges = employeeSizes.map(r => EMPLOYEE_RANGE_MAP[r] || null).filter(Boolean);
-    if (ranges.length) {
-      const minV = Math.min(...ranges.map(([a]) => a));
-      const maxV = Math.max(...ranges.map(([, b]) => b));
-      sql += ` AND c.employee_count BETWEEN $${paramIdx} AND $${paramIdx + 1}`;
-      params.push(minV, maxV);
-      paramIdx += 2;
-    }
-  }
+  sql += employeeWhere;
 
-  if (regions?.length) {
+  if (regionPatterns.length) {
     const orParts = [];
-    for (const r of regions) {
-      const p = `%${String(r).trim()}%`;
+    for (const p of regionPatterns) {
       orParts.push(`(COALESCE(c.headquarters_country, '') ILIKE $${paramIdx} OR COALESCE(c.headquarters_state, '') ILIKE $${paramIdx})`);
       params.push(p);
       paramIdx++;
@@ -524,20 +566,106 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
   sql += ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $${paramIdx}`;
   params.push(limit);
 
-  const result = await query(sql, params);
-  return (result.rows || []).map(r => {
+  const runQuery = async (label) => {
+    const result = await query(sql, params);
+    const rows = result.rows || [];
+    sqlQueries.push({ sql, params: [...params], label, rowCount: rows.length });
+    return rows;
+  };
+
+  let rows = await runQuery('Postgres discovery (primary)');
+
+  // Fallback: if 0 results, try progressively relaxed queries and log each
+  if (rows.length === 0) {
+    // Fallback 2: without region filter (keep topic + employee)
+    if (regionPatterns.length) {
+      let rp2 = [orgId], idx2 = 2;
+      let sql2 = baseSelect;
+      for (const p of topicPatterns) {
+        sql2 += ` AND (COALESCE(c.industry, '') ILIKE $${idx2} OR COALESCE(c.description, '') ILIKE $${idx2} OR COALESCE(c.keywords, '') ILIKE $${idx2} OR COALESCE(c.name, '') ILIKE $${idx2})`;
+        rp2.push(p);
+        idx2++;
+      }
+      sql2 += employeeWhere + ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $${idx2}`;
+      rp2.push(limit);
+      const res2 = await query(sql2, rp2);
+      sqlQueries.push({ sql: sql2, params: [...rp2], label: 'Postgres discovery (no region)', rowCount: res2.rows?.length || 0 });
+      if (res2.rows?.length > 0) rows = res2.rows;
+    }
+    // Fallback 3: topic only (no region, no employee)
+    if (rows.length === 0 && topicPatterns.length) {
+      let rp3 = [orgId], idx3 = 2;
+      let sql3 = baseSelect;
+      for (const p of topicPatterns) {
+        sql3 += ` AND (COALESCE(c.industry, '') ILIKE $${idx3} OR COALESCE(c.description, '') ILIKE $${idx3} OR COALESCE(c.keywords, '') ILIKE $${idx3} OR COALESCE(c.name, '') ILIKE $${idx3})`;
+        rp3.push(p);
+        idx3++;
+      }
+      sql3 += ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $${idx3}`;
+      rp3.push(limit);
+      const res3 = await query(sql3, rp3);
+      sqlQueries.push({ sql: sql3, params: [...rp3], label: 'Postgres discovery (topic only)', rowCount: res3.rows?.length || 0 });
+      if (res3.rows?.length > 0) rows = res3.rows;
+    }
+    // Fallback 4: derive companies from leads (when companies table has no matches)
+    if (rows.length === 0 && topicPatterns.length) {
+      const firstPattern = topicPatterns[0];
+      const sqlLeads = `
+        SELECT DISTINCT ON (LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))))
+          l.company_id as id, l.company as name, l.company_domain as domain
+        FROM leads l
+        WHERE l.org_id = $1
+          AND (COALESCE(l.company, '') ILIKE $2 OR COALESCE(l.company_domain, '') ILIKE $2)
+        ORDER BY LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))), l.created_at DESC
+        LIMIT $3`;
+      const resLeads = await query(sqlLeads, [orgId, firstPattern, limit]);
+      sqlQueries.push({ sql: sqlLeads, params: [orgId, firstPattern, limit], label: 'Postgres discovery (from leads)', rowCount: resLeads.rows?.length || 0 });
+      if (resLeads.rows?.length > 0) {
+        rows = resLeads.rows.map(r => ({
+          id: r.id || `lead-${(r.name || r.domain || '').replace(/\s/g, '-')}`,
+          name: r.name,
+          domain: r.domain,
+          industry: null,
+          employee_count: null,
+          employee_range: null,
+          headquarters_city: null,
+          headquarters_state: null,
+          headquarters_country: null,
+          icp_fit_score: 85,
+        }));
+      }
+    }
+    // Fallback 5: org only
+    if (rows.length === 0) {
+      const sql4 = baseSelect + ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $2`;
+      const res4 = await query(sql4, [orgId, limit]);
+      sqlQueries.push({ sql: sql4, params: [orgId, limit], label: 'Postgres discovery (org only)', rowCount: res4.rows?.length || 0 });
+      if (res4.rows?.length > 0) rows = res4.rows;
+    }
+  }
+
+  const normDomain = (d) => (d || '').replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim();
+  const toWebsite = (d) => {
+    const dom = normDomain(d);
+    return dom ? `https://${dom}` : null;
+  };
+
+  const companies = (rows || []).map(r => {
     const loc = [r.headquarters_city, r.headquarters_state, r.headquarters_country].filter(Boolean).join(', ');
+    const domain = normDomain(r.domain || r.website) || r.domain || r.website;
     return {
       id: r.id,
       name: r.name,
-      domain: r.domain,
+      domain: domain || null,
       industry: r.industry,
       employees: r.employee_count ?? r.employee_range ?? 'N/A',
       location: loc || 'Unknown',
-      website: r.domain ? `https://${r.domain.replace(/^https?:\/\//, '')}` : null,
+      website: toWebsite(r.domain || r.website),
       icpScore: r.icp_fit_score ?? 90,
     };
   });
+
+  return { companies, sqlQueries };
 }
 
 /**

@@ -519,6 +519,17 @@ export default function App() {
 
       const companies = result.companies || [];
       const source = result.source || "unknown";
+      const sqlQueries = result.sqlQueries || [];
+
+      if (sqlQueries.length > 0) {
+        addLog(`\n→ Postgres SQL queries run (${sqlQueries.length}):`, "system");
+        for (const q of sqlQueries) {
+          const paramsStr = (q.params || []).map((p, i) => `$${i + 1}=${JSON.stringify(p)}`).join(", ");
+          addLog(`  [${q.label}] → ${q.rowCount ?? "?"} rows`, "info");
+          addLog(`  SQL: ${(q.sql || "").replace(/\s+/g, " ").trim()}`, "dim");
+          if (paramsStr) addLog(`  Params: ${paramsStr}`, "dim");
+        }
+      }
       addLog(`→ Received ${companies.length} companies (source: ${source})`, "info");
 
       if (companies.length === 0) {
