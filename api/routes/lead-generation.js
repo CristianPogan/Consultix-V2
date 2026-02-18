@@ -465,6 +465,12 @@ router.post('/verify/email', async (req, res) => {
 
 // POST /api/lead-generation/enrich/bulk — Check Postgres status (Enriched < 30 days), skip or run waterfall
 router.post('/enrich/bulk', async (req, res) => {
+  const enrichmentLog = [];
+  const log = (msg, type = 'info') => {
+    enrichmentLog.push({ msg, type, ts: Date.now() });
+    console.log(`[Enrich] ${msg}`);
+  };
+
   try {
     const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
@@ -478,6 +484,19 @@ router.post('/enrich/bulk', async (req, res) => {
     const rolesList = Array.isArray(roles) ? roles : (roles ? [roles] : ['CEO', 'CTO', 'VP Sales']);
     const allContacts = [];
     let listId = null;
+
+    // Pre-check: IcyPeas required for person discovery (no fallback in bulk flow)
+    const icypeasCreds = await getIntegrationCredentials(orgId, 'icypeas');
+    const icypeasKey = icypeasCreds?.connected && icypeasCreds?.credentials_json?.api_key;
+    if (!icypeasKey) {
+      log('No IcyPeas integration — connect IcyPeas in Settings → Integrations to find contacts', 'error');
+      return res.status(400).json({
+        error: 'IcyPeas integration required for contact enrichment. Connect IcyPeas in Settings → Integrations.',
+        contacts: [],
+        enrichmentLog,
+      });
+    }
+    log(`IcyPeas connected — processing ${companiesInput.length} companies with roles: ${rolesList.join(', ')}`, 'info');
     if (listName) {
       const listRes = await query(
         `INSERT INTO lead_lists (org_id, name, source, status, total_contacts, enriched_count)
@@ -491,13 +510,16 @@ router.post('/enrich/bulk', async (req, res) => {
     for (const comp of companiesInput) {
       const companyName = comp.name || comp.company;
       const domain = comp.domain || comp.website?.replace?.(/^https?:\/\//, '') || '';
-      if (!companyName) continue;
+      if (!companyName) {
+        log(`Skipping company with no name (domain: ${domain || 'none'})`, 'warn');
+        continue;
+      }
 
       const status = await getCompanyEnrichmentStatus(orgId, { id: comp.id, name: companyName, domain });
       const skipEnrich = status && isEnrichmentFresh(status.enriched_at);
 
       if (skipEnrich && status.id) {
-        console.log('[Enrich] Skipping', companyName, '- enriched within 30 days');
+        log(`${companyName} — using cache (enriched < 30 days)`, 'info');
         const leads = await getLeadsByCompanyId(orgId, status.id);
         for (const l of leads) {
           const name = [l.first_name, l.last_name].filter(Boolean).join(' ') || l.email || 'Unknown';
@@ -517,25 +539,31 @@ router.post('/enrich/bulk', async (req, res) => {
         continue;
       }
 
-      // Run waterfall enrichment
-      const icypeasCreds = await getIntegrationCredentials(orgId, 'icypeas');
-      const icypeasKey = icypeasCreds?.connected && icypeasCreds?.credentials_json?.api_key;
-      if (!icypeasKey) {
-        console.log('[Enrich] No IcyPeas — cannot find people for', companyName);
-        continue;
-      }
-
+      // Run waterfall enrichment (IcyPeas pre-checked above)
+      // Use domain when available for more accurate matching (IcyPeas currentCompanyWebsite)
+      const cleanDomain = domain && /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(domain.replace(/^https?:\/\//, '').split('/')[0])
+        ? domain.replace(/^https?:\/\//, '').split('/')[0]
+        : null;
       let people = [];
       try {
-        const result = await findPeopleIcyPeas({
+        const icypeasCriteria = {
           companies: [companyName],
           jobTitles: rolesList,
           limit: 5,
           apiKey: icypeasKey,
-        });
+        };
+        if (cleanDomain) icypeasCriteria.companyDomains = [cleanDomain];
+        const result = await findPeopleIcyPeas(icypeasCriteria);
         people = result.leads || result.people?.leads || result.people || result.data || (Array.isArray(result) ? result : []);
+        if (!Array.isArray(people)) people = [];
+        if (people.length === 0) {
+          const respKeys = typeof result === 'object' && result ? Object.keys(result) : [];
+          log(`${companyName} — IcyPeas returned 0 people (response keys: ${respKeys.join(', ') || 'none'})`, 'warn');
+        } else {
+          log(`${companyName} — found ${people.length} people via IcyPeas`, 'info');
+        }
       } catch (e) {
-        console.log('[Enrich] IcyPeas find-people failed for', companyName, e.message);
+        log(`${companyName} — IcyPeas failed: ${e.message}`, 'error');
         continue;
       }
 
@@ -615,10 +643,16 @@ router.post('/enrich/bulk', async (req, res) => {
       }
     }
 
-    res.json({ success: true, contacts: allContacts });
+    log(`Done: ${allContacts.length} contacts from ${companiesInput.length} companies`, allContacts.length > 0 ? 'success' : 'warn');
+    if (allContacts.length === 0) {
+      log('Tip: Ensure company names are real (e.g. "Acme Corp") not generic (e.g. "B2B SaaS"). IcyPeas finds people by company name.', 'info');
+    }
+
+    res.json({ success: true, contacts: allContacts, enrichmentLog });
   } catch (err) {
+    log(`Bulk enrichment error: ${err.message}`, 'error');
     console.error('Bulk enrichment error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, enrichmentLog });
   }
 });
 

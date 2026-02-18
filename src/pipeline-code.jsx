@@ -607,6 +607,11 @@ export default function App() {
         ...c,
         id: c.id || `gen-${i + 1}`,
       }));
+      const logs = result.enrichmentLog || [];
+      for (const entry of logs) {
+        const type = entry.type === "error" ? "error" : entry.type === "warn" ? "warning" : "info";
+        addLog(entry.msg, type);
+      }
       const fromCache = allContacts.filter(c => c.fromCache).length;
       const enriched = allContacts.length - fromCache;
       if (fromCache > 0) addLog(`→ Loaded ${fromCache} contacts from cache (enriched < 30 days)`, "info");
@@ -616,6 +621,7 @@ export default function App() {
       addLog(`  Verified emails: ${verified}/${allContacts.length}`, "info");
     } catch (err) {
       addLog(`✗ Enrichment failed: ${err.message}`, "error");
+      if (typeof console !== "undefined") console.error("[Enrichment] Error:", err);
     }
 
     setEnrichedContacts(allContacts);

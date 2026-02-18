@@ -638,8 +638,8 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
         }));
       }
     }
-    // Fallback 5: org only
-    if (rows.length === 0) {
+    // Fallback 5: org only — only when user did NOT specify industry/keywords (avoid returning irrelevant companies)
+    if (rows.length === 0 && topicPatterns.length === 0) {
       const sql4 = baseSelect + ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $2`;
       const res4 = await query(sql4, [orgId, limit]);
       sqlQueries.push({ sql: sql4, params: [orgId, limit], label: 'Postgres discovery (org only)', rowCount: res4.rows?.length || 0 });
@@ -656,12 +656,14 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
   const companies = (rows || []).map(r => {
     const loc = [r.headquarters_city, r.headquarters_state, r.headquarters_country].filter(Boolean).join(', ');
     const domain = normDomain(r.domain || r.website) || r.domain || r.website;
+    let emp = r.employee_count ?? r.employee_range ?? null;
+    if (emp == null || emp === '' || (typeof emp === 'number' && emp <= 0)) emp = 'N/A';
     return {
       id: r.id,
       name: r.name,
       domain: domain || null,
       industry: r.industry,
-      employees: r.employee_count ?? r.employee_range ?? 'N/A',
+      employees: emp,
       location: loc || 'Unknown',
       website: toWebsite(r.domain || r.website),
       icpScore: r.icp_fit_score ?? 90,

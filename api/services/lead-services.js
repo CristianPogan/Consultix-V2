@@ -123,12 +123,13 @@ export async function findPeopleIcyPeas(criteria) {
   const apiKey = criteria?.apiKey || process.env.ICYPEAS_API_KEY;
   if (!apiKey) throw new Error('ICYPEAS_API_KEY not configured');
 
-  const { jobTitles, locations, companies, keywords, limit = 100, paginationToken } = criteria;
+  const { jobTitles, locations, companies, companyDomains, keywords, limit = 100, paginationToken } = criteria;
 
   const query = {};
   if (jobTitles?.length) query.currentJobTitle = { include: jobTitles };
   if (locations?.length) query.location = { include: locations };
   if (companies?.length) query.currentCompanyName = { include: companies };
+  if (companyDomains?.length) query.currentCompanyWebsite = { include: companyDomains };
   if (keywords?.length) query.keyword = { include: keywords };
   if (criteria.headcountMin != null) query.headcount = { '>=': criteria.headcountMin };
   if (Object.keys(query).length === 0) query.keyword = { include: ['B2B'] }; // IcyPeas needs at least one filter
@@ -162,12 +163,13 @@ export async function countIcyPeas(criteria) {
   const apiKey = criteria?.apiKey || process.env.ICYPEAS_API_KEY;
   if (!apiKey) throw new Error('ICYPEAS_API_KEY not configured');
 
-  const { jobTitles, locations, companies, keywords } = criteria || {};
+  const { jobTitles, locations, companies, companyDomains, keywords } = criteria || {};
 
   const query = {};
   if (jobTitles?.length) query.currentJobTitle = { include: jobTitles };
   if (locations?.length) query.location = { include: locations };
   if (companies?.length) query.currentCompanyName = { include: companies };
+  if (companyDomains?.length) query.currentCompanyWebsite = { include: companyDomains };
   if (keywords?.length) query.keyword = { include: keywords };
   if (criteria?.headcountMin != null) query.headcount = { '>=': criteria.headcountMin };
   if (Object.keys(query).length === 0) query.keyword = { include: ['B2B'] };
