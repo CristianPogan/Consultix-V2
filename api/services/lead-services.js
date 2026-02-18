@@ -116,20 +116,25 @@ export async function findLeadsGoogleMaps(params) {
 
 /**
  * IcyPeas Find People (person search by criteria)
- * @param {Object} criteria - Search criteria
+ * @param {Object} criteria - Search criteria. apiKey overrides env if provided.
  * @returns {Promise<Array>} - Array of people
  */
 export async function findPeopleIcyPeas(criteria) {
-  const apiKey = process.env.ICYPEAS_API_KEY;
+  const apiKey = criteria?.apiKey || process.env.ICYPEAS_API_KEY;
   if (!apiKey) throw new Error('ICYPEAS_API_KEY not configured');
 
-  const { jobTitles, locations, companies, keywords, limit = 100 } = criteria;
+  const { jobTitles, locations, companies, keywords, limit = 100, paginationToken } = criteria;
 
   const query = {};
   if (jobTitles?.length) query.currentJobTitle = { include: jobTitles };
   if (locations?.length) query.location = { include: locations };
   if (companies?.length) query.currentCompanyName = { include: companies };
   if (keywords?.length) query.keyword = { include: keywords };
+  if (criteria.headcountMin != null) query.headcount = { '>=': criteria.headcountMin };
+  if (Object.keys(query).length === 0) query.keyword = { include: ['B2B'] }; // IcyPeas needs at least one filter
+
+  const pagination = { size: Math.min(limit || 200, 200) };
+  if (paginationToken) pagination.token = paginationToken;
 
   const response = await fetch('https://app.icypeas.com/api/find-people', {
     method: 'POST',
@@ -137,17 +142,140 @@ export async function findPeopleIcyPeas(criteria) {
       'Content-Type': 'application/json',
       'Authorization': apiKey,
     },
-    body: JSON.stringify({
-      query,
-      pagination: { size: limit },
-    }),
+    body: JSON.stringify({ query, pagination }),
   });
 
   if (!response.ok) {
-    throw new Error(`IcyPeas find people failed: ${response.statusText}`);
+    const errText = await response.text();
+    throw new Error(`IcyPeas find people failed: ${response.status} ${errText}`);
   }
 
   return await response.json();
+}
+
+/**
+ * IcyPeas Count (pre-flight dry run, no credits deducted)
+ * @param {Object} criteria - Same as findPeopleIcyPeas. apiKey overrides env if provided.
+ * @returns {Promise<Object>} - { count: number }
+ */
+export async function countIcyPeas(criteria) {
+  const apiKey = criteria?.apiKey || process.env.ICYPEAS_API_KEY;
+  if (!apiKey) throw new Error('ICYPEAS_API_KEY not configured');
+
+  const { jobTitles, locations, companies, keywords } = criteria || {};
+
+  const query = {};
+  if (jobTitles?.length) query.currentJobTitle = { include: jobTitles };
+  if (locations?.length) query.location = { include: locations };
+  if (companies?.length) query.currentCompanyName = { include: companies };
+  if (keywords?.length) query.keyword = { include: keywords };
+  if (criteria?.headcountMin != null) query.headcount = { '>=': criteria.headcountMin };
+  if (Object.keys(query).length === 0) query.keyword = { include: ['B2B'] };
+
+  const response = await fetch('https://app.icypeas.com/api/count', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': apiKey,
+    },
+    body: JSON.stringify({ query }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`IcyPeas count failed: ${response.status} ${errText}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * AI Ark Semantic Company Search
+ * @param {string} apiKey - AI Ark API key (Bearer)
+ * @param {Object} criteria - industry, keywords, company_size (array), regions, maxLeads
+ * @returns {Promise<Array>} - Companies
+ */
+export async function findCompaniesAiArkSemantic(apiKey, criteria) {
+  if (!apiKey) throw new Error('AI Ark API key required');
+
+  const { industry, keywords, companySize, regions, maxLeads = 100 } = criteria;
+  const industries = industry ? [industry].flat().filter(Boolean) : [];
+  const kw = keywords
+    ? (typeof keywords === 'string' ? keywords.split(',').map(k => k.trim()).filter(Boolean) : keywords)
+    : [];
+  const sizes = companySize?.length ? companySize : ['1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'];
+
+  const body = {
+    filters: {
+      industries: industries.length ? industries : ['B2B SaaS', 'Software as a Service', 'Internet Software'],
+      keywords: kw.length ? kw : ['lead generation'],
+      company_size: sizes,
+    },
+    pagination: { limit: Math.min(maxLeads || 100, 100), page: 1 },
+  };
+  if (regions?.length) body.filters.location = regions;
+
+  const res = await fetch('https://api.ai-ark.com/v1/search/companies', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`AI Ark semantic search failed: ${res.status} ${errText}`);
+  }
+
+  const data = await res.json();
+  const companies = data.companies || data.data || data.results || (Array.isArray(data) ? data : []);
+  return Array.isArray(companies) ? companies : [];
+}
+
+/**
+ * AI Ark Lookalike / Similarity Search
+ * @param {string} apiKey - AI Ark API key
+ * @param {string} seedDomain - e.g. pogan-cristian.com
+ * @param {Object} criteria - industries, regions, limit
+ * @returns {Promise<Array>} - Similar companies
+ */
+export async function findCompaniesAiArkLookalike(apiKey, seedDomain, criteria = {}) {
+  if (!apiKey) throw new Error('AI Ark API key required');
+  if (!seedDomain?.trim()) throw new Error('Seed domain required for lookalike search');
+
+  const domain = seedDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').split('/')[0];
+  const { industry, industries, regions, maxLeads = 50 } = criteria;
+  const ind = industries || (industry ? [industry] : ['B2B SaaS', 'Software as a Service', 'Internet Software']);
+  const loc = regions?.length ? regions : ['Global'];
+
+  const body = {
+    seed_domain: domain,
+    similarity_threshold: 0.75,
+    filters: { location: loc, industries: ind },
+    limit: Math.min(maxLeads || 50, 100),
+  };
+
+  const res = await fetch('https://api.ai-ark.com/v1/search/similarity', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`AI Ark lookalike search failed: ${res.status} ${errText}`);
+  }
+
+  const data = await res.json();
+  const companies = data.companies || data.data || data.results || (Array.isArray(data) ? data : []);
+  return Array.isArray(companies) ? companies : [];
 }
 
 // ============================================================================

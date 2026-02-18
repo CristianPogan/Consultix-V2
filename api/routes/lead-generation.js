@@ -10,14 +10,231 @@ import {
   generatePersonalization,
   addLeadsToHeyReach,
   addLeadsToInstantly,
+  findCompaniesAiArkSemantic,
+  findCompaniesAiArkLookalike,
 } from '../services/lead-services.js';
-import { updateLeadsOutreachSentByEmails } from '../db.js';
+import { updateLeadsOutreachSentByEmails, getIntegrationCredentials, getIntegrationServiceOrder, searchCompaniesForDiscovery } from '../db.js';
 
 const router = Router();
 
 // ============================================================================
 // LEAD DISCOVERY
 // ============================================================================
+
+// GET /api/lead-generation/discover/status — Check if any lead search integrations are configured
+router.get('/discover/status', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(503).json({ error: 'No organisation configured', canRun: false });
+
+    const orderRow = await getIntegrationServiceOrder(orgId);
+    const order = orderRow?.lead_search_order || ['ai_ark', 'icypeas', 'findy', 'wiza', 'leadsmagix'];
+    const connected = [];
+
+    for (const key of order) {
+      const creds = await getIntegrationCredentials(orgId, key);
+      const hasKey = creds?.connected && creds?.credentials_json?.api_key;
+      if (hasKey) connected.push(key);
+    }
+
+    res.json({
+      canRun: connected.length > 0,
+      connectedIntegrations: connected,
+      leadSearchOrder: order,
+    });
+  } catch (err) {
+    console.error('Discover status error:', err);
+    res.status(500).json({ error: err.message, canRun: false });
+  }
+});
+
+// POST /api/lead-generation/discover — Postgres first, then waterfall (AI Ark, IcyPeas, etc.)
+router.post('/discover', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+
+    const {
+      listName,
+      industry,
+      keywords,
+      employeeSizes,
+      regions,
+      roles,
+      maxLeads,
+      lookalikeOnly,
+      lookalike,
+    } = req.body || {};
+
+    const criteria = {
+      industry: industry?.trim(),
+      keywords: typeof keywords === 'string' ? keywords : (keywords || []).join(', '),
+      employeeSizes: Array.isArray(employeeSizes) ? employeeSizes : (employeeSizes ? [employeeSizes] : []),
+      regions: Array.isArray(regions) ? regions : (regions ? [regions] : []),
+      roles: Array.isArray(roles) ? roles : (roles ? (typeof roles === 'string' ? roles.split(',') : [roles]) : []),
+      maxLeads: parseInt(maxLeads, 10) || null,
+    };
+
+    const kwList = criteria.keywords ? criteria.keywords.split(',').map(k => k.trim()).filter(Boolean) : [];
+    const industriesForApi = criteria.industry ? [criteria.industry] : ['B2B SaaS', 'Software as a Service', 'Internet Software'];
+    const keywordsForApi = kwList.length ? [...industriesForApi, ...kwList] : industriesForApi;
+
+    let companies = [];
+    let source = 'postgres';
+
+    // 1. Lookalike-only mode: use AI Ark similarity with seed domains
+    if (lookalikeOnly && lookalike?.trim()) {
+      const domains = lookalike.split(/[\n,;]/).map(d => d.trim()).filter(d => d && !d.startsWith('#'));
+      const seedDomain = domains[0];
+      if (seedDomain) {
+        const creds = await getIntegrationCredentials(orgId, 'ai_ark');
+        const apiKey = creds?.connected && creds?.credentials_json?.api_key;
+        if (apiKey) {
+          try {
+            const results = await findCompaniesAiArkLookalike(apiKey, seedDomain, {
+              industry: criteria.industry,
+              industries: industriesForApi,
+              regions: criteria.regions.length ? criteria.regions : ['Global'],
+              maxLeads: criteria.maxLeads || 50,
+            });
+            companies = (results || []).map((c, i) => normalizeCompany(c, i + 1));
+            source = 'ai_ark_lookalike';
+          } catch (err) {
+            console.warn('AI Ark lookalike failed:', err.message);
+          }
+        }
+      }
+    }
+
+    // 2. Semantic mode: Postgres first, then waterfall
+    if (companies.length === 0) {
+      console.log('[Discover] Postgres search:', { orgId, criteria });
+      const pgResults = await searchCompaniesForDiscovery(orgId, criteria);
+      console.log('[Discover] Postgres result:', { count: pgResults.length, sample: pgResults[0] });
+      if (pgResults.length > 0) {
+        companies = pgResults.map((c, i) => ({ ...c, id: c.id || `pg-${i + 1}` }));
+        source = 'postgres';
+      }
+    }
+
+    // 3. Waterfall: try integrations in Lead Search Order
+    if (companies.length === 0) {
+      const orderRow = await getIntegrationServiceOrder(orgId);
+      const order = orderRow?.lead_search_order || ['ai_ark', 'icypeas', 'findy', 'wiza', 'leadsmagix'];
+
+      for (const key of order) {
+        if (companies.length > 0) break;
+
+        if (key === 'ai_ark') {
+          const creds = await getIntegrationCredentials(orgId, 'ai_ark');
+          const apiKey = creds?.connected && creds?.credentials_json?.api_key;
+          if (apiKey) {
+            try {
+              console.log('[Discover] AI Ark semantic request:', { industry: criteria.industry, keywords: kwList, companySize: criteria.employeeSizes, regions: criteria.regions });
+              const results = await findCompaniesAiArkSemantic(apiKey, {
+                industry: criteria.industry,
+                keywords: kwList,
+                companySize: criteria.employeeSizes.length ? criteria.employeeSizes : ['1-10', '11-50', '51-200', '201-500', '501-1,000', '1,001-5,000', '5,000+'],
+                regions: criteria.regions,
+                maxLeads: criteria.maxLeads || 100,
+              });
+              companies = (results || []).map((c, i) => normalizeCompany(c, i + 1));
+              console.log('[Discover] AI Ark semantic result:', { count: companies.length });
+              if (companies.length > 0) source = 'ai_ark';
+            } catch (err) {
+              console.warn('[Discover] AI Ark semantic failed:', err.message);
+            }
+          }
+        } else if (key === 'icypeas') {
+          const creds = await getIntegrationCredentials(orgId, 'icypeas');
+          const apiKey = creds?.connected && creds?.credentials_json?.api_key;
+          if (!apiKey) continue;
+          try {
+            const icypeasCriteria = {
+              apiKey,
+              jobTitles: criteria.roles.length ? criteria.roles : ['CEO', 'Founder', 'VP of Sales', 'Head of Growth', 'Marketing Director'],
+              locations: criteria.regions.length ? criteria.regions : ['US'],
+              keywords: keywordsForApi,
+              limit: Math.min(criteria.maxLeads || 200, 200),
+              headcountMin: 1,
+            };
+            if (criteria.employeeSizes?.length) {
+              const mins = criteria.employeeSizes.map(s => (EMPLOYEE_RANGE_TO_HEADCOUNT[s] || [1])[0]).filter(Boolean);
+              if (mins.length) icypeasCriteria.headcountMin = Math.min(...mins);
+            }
+            console.log('[Discover] IcyPeas request:', { jobTitles: icypeasCriteria.jobTitles, locations: icypeasCriteria.locations, keywords: icypeasCriteria.keywords, limit: icypeasCriteria.limit });
+            const result = await findPeopleIcyPeas(icypeasCriteria);
+            console.log('[Discover] IcyPeas result:', { count: result.leads?.length ?? result.people?.length ?? 0, keys: Object.keys(result) });
+            const people = result.leads || result.people || result.data || (Array.isArray(result) ? result : []);
+            companies = peopleToCompanies(people, criteria.industry, criteria.regions);
+            if (companies.length > 0) source = 'icypeas';
+          } catch (err) {
+            console.warn('[Discover] IcyPeas failed:', err.message);
+          }
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      count: companies.length,
+      companies,
+      source,
+    });
+  } catch (err) {
+    console.error('Discover error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const EMPLOYEE_RANGE_TO_HEADCOUNT = {
+  '1-10': [1],
+  '11-50': [11],
+  '51-200': [51],
+  '201-500': [201],
+  '501-1,000': [501],
+  '1,001-5,000': [1001],
+  '5,000+': [5000],
+};
+
+function normalizeCompany(c, fallbackId) {
+  const id = c.id ?? c.domain ?? fallbackId;
+  const name = c.name ?? c.company_name ?? c.companyName ?? 'Unknown';
+  const domain = c.domain ?? c.website?.replace(/^https?:\/\//, '').split('/')[0] ?? null;
+  const emp = c.employees ?? c.employee_count ?? c.employeeCount ?? c.company_size ?? 'N/A';
+  const loc = c.location ?? c.headquarters ?? [c.headquarters_city, c.headquarters_state, c.headquarters_country].filter(Boolean).join(', ') ?? 'Unknown';
+  return {
+    id: String(id),
+    name,
+    domain,
+    industry: c.industry ?? c.industry_type ?? '',
+    employees: emp,
+    location: loc,
+    website: domain ? `https://${domain.replace(/^https?:\/\//, '')}` : null,
+    icpScore: c.icp_score ?? c.icpScore ?? c.relevance_score ?? 90,
+  };
+}
+
+function peopleToCompanies(people, defaultIndustry, defaultRegions) {
+  const seen = new Set();
+  const out = [];
+  for (const p of people) {
+    const companyName = p.lastCompanyName ?? p.currentCompanyName ?? p.companyName ?? p.company ?? 'Unknown';
+    if (!companyName || companyName === 'Unknown') continue;
+    if (seen.has(companyName)) continue;
+    seen.add(companyName);
+    out.push(normalizeCompany({
+      id: out.length + 1,
+      name: companyName,
+      domain: p.lastCompanyWebsite ?? p.currentCompanyWebsite ?? p.companyWebsite ?? p.company_domain ?? null,
+      industry: p.lastCompanyIndustry ?? p.currentCompanyIndustry ?? p.industry ?? defaultIndustry,
+      employees: p.lastCompanySize ?? p.currentCompanySize ?? p.companySize ?? 'N/A',
+      location: p.lastCompanyAddress ?? p.currentCompanyLocation ?? p.location ?? (defaultRegions && defaultRegions[0]) ?? 'Unknown',
+      icpScore: 95,
+    }, out.length + 1));
+  }
+  return out;
+}
 
 // POST /api/lead-generation/discover/apollo
 router.post('/discover/apollo', async (req, res) => {

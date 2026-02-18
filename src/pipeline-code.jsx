@@ -1,58 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { api, AuthError } from "./api.js";
 
-const MOCK_COMPANIES = [
-  { id: 1, name: "Meridian Health Systems", domain: "meridianhs.com", industry: "Healthcare SaaS", employees: 120, location: "Austin, TX", icpScore: 97, revenue: "$15M", techStack: ["Salesforce", "HubSpot", "Slack"], recentNews: "Just raised Series B ($28M) to expand into telehealth market" },
-  { id: 2, name: "NovaCraft Studios", domain: "novacraft.io", industry: "Creative Software", employees: 45, location: "Berlin, DE", icpScore: 94, revenue: "$4.2M", techStack: ["Figma", "Linear", "Notion"], recentNews: "Launched AI-powered design tool, growing 22% MoM" },
-  { id: 3, name: "TerraVolt Energy", domain: "terravolt.co", industry: "CleanTech", employees: 230, location: "Denver, CO", icpScore: 96, revenue: "$32M", techStack: ["AWS", "Snowflake", "dbt"], recentNews: "Won $50M government contract for grid modernization" },
-  { id: 4, name: "PulseMetrics", domain: "pulsemetrics.ai", industry: "Analytics Platform", employees: 67, location: "Toronto, CA", icpScore: 92, revenue: "$8.1M", techStack: ["GCP", "Looker", "Segment"], recentNews: "CEO spoke at SaaStr about product-led growth strategy" },
-  { id: 5, name: "Hatchway Financial", domain: "hatchway.finance", industry: "FinTech", employees: 89, location: "London, UK", icpScore: 95, revenue: "$12M", techStack: ["Stripe", "Plaid", "Datadog"], recentNews: "Expanding into UAE market, hiring 30+ roles" },
-  { id: 6, name: "BrightPath Learning", domain: "brightpath.edu", industry: "EdTech", employees: 150, location: "Singapore", icpScore: 91, revenue: "$18M", techStack: ["React", "Firebase", "Amplitude"], recentNews: "Partnered with 200+ universities across APAC" },
-  { id: 7, name: "CastleRock Security", domain: "castlerocksec.com", industry: "Cybersecurity", employees: 340, location: "Tel Aviv, IL", icpScore: 98, revenue: "$55M", techStack: ["Azure", "Splunk", "PagerDuty"], recentNews: "Acquired competitor for $12M, doubling customer base" },
-  { id: 8, name: "FreshRoute Logistics", domain: "freshroute.co", industry: "Supply Chain", employees: 78, location: "Amsterdam, NL", icpScore: 93, revenue: "$9.5M", techStack: ["SAP", "Tableau", "Jira"], recentNews: "Launched cold-chain tracking product for pharma" },
-];
-
-const MOCK_CONTACTS = {
-  1: [
-    { id: 101, name: "Sarah Chen", title: "VP of Growth", email: "sarah.chen@meridianhs.com", linkedin: "linkedin.com/in/sarahchen", verified: true, bounceRisk: "low", linkedinData: { posts: 12, connections: 2400, about: "Growth leader obsessed with PLG. Previously scaled GTM at Calm from $5M to $40M ARR.", recentActivity: "Posted about hiring a demand gen manager" } },
-    { id: 102, name: "James Whitfield", title: "CTO", email: "j.whitfield@meridianhs.com", linkedin: "linkedin.com/in/jwhitfield", verified: true, bounceRisk: "low", linkedinData: { posts: 5, connections: 1800, about: "Engineering leader. Built distributed systems at Amazon before joining Meridian.", recentActivity: "Shared article about HIPAA-compliant cloud architectures" } },
-  ],
-  2: [
-    { id: 201, name: "Lena Bauer", title: "Head of Product", email: "lena@novacraft.io", linkedin: "linkedin.com/in/lenabauer", verified: true, bounceRisk: "low", linkedinData: { posts: 28, connections: 3100, about: "Product thinker. Passionate about design systems and developer experience.", recentActivity: "Wrote a thread about AI replacing junior designers" } },
-  ],
-  3: [
-    { id: 301, name: "Marcus Rodriguez", title: "CEO", email: "marcus@terravolt.co", linkedin: "linkedin.com/in/marcusrodriguez", verified: true, bounceRisk: "low", linkedinData: { posts: 45, connections: 8200, about: "Building the energy grid of the future. Forbes 30 Under 30. Ex-Tesla.", recentActivity: "Keynote at CleanTech Summit about grid resilience" } },
-    { id: 302, name: "Priya Kapoor", title: "VP Operations", email: "priya.k@terravolt.co", linkedin: "linkedin.com/in/priyakapoor", verified: true, bounceRisk: "medium", linkedinData: { posts: 8, connections: 1500, about: "Operations leader focused on scaling teams in regulated industries.", recentActivity: "Commented on a post about remote-first operations" } },
-  ],
-  4: [
-    { id: 401, name: "David Kim", title: "Founder & CEO", email: "david@pulsemetrics.ai", linkedin: "linkedin.com/in/davidkim", verified: true, bounceRisk: "low", linkedinData: { posts: 60, connections: 12000, about: "Data nerd turned founder. Building analytics that don't suck.", recentActivity: "SaaStr talk: 'Why most dashboards are useless'" } },
-  ],
-  5: [
-    { id: 501, name: "Aisha Mohammed", title: "COO", email: "aisha@hatchway.finance", linkedin: "linkedin.com/in/aishamohammed", verified: true, bounceRisk: "low", linkedinData: { posts: 15, connections: 4200, about: "Scaling fintech in emerging markets. Previously at Revolut and Wise.", recentActivity: "Posted about regulatory challenges expanding into MENA" } },
-  ],
-  6: [
-    { id: 601, name: "Wei Zhang", title: "CRO", email: "wei.zhang@brightpath.edu", linkedin: "linkedin.com/in/weizhang", verified: true, bounceRisk: "low", linkedinData: { posts: 22, connections: 5600, about: "Revenue leader in EdTech. Believe education should be borderless.", recentActivity: "Celebrating 200th university partnership" } },
-  ],
-  7: [
-    { id: 701, name: "Yael Stern", title: "VP Sales", email: "yael@castlerocksec.com", linkedin: "linkedin.com/in/yaelstern", verified: true, bounceRisk: "low", linkedinData: { posts: 18, connections: 3800, about: "Enterprise sales leader. Closed $100M+ in cybersecurity deals.", recentActivity: "Hiring 5 AEs for US expansion" } },
-    { id: 702, name: "Omer Levy", title: "Head of Partnerships", email: "omer.l@castlerocksec.com", linkedin: "linkedin.com/in/omerlevy", verified: true, bounceRisk: "low", linkedinData: { posts: 9, connections: 2100, about: "Channel & partnerships. Building the ecosystem around CastleRock.", recentActivity: "Announced integration with CrowdStrike" } },
-  ],
-  8: [
-    { id: 801, name: "Sophie van Dijk", title: "Head of Growth", email: "sophie@freshroute.co", linkedin: "linkedin.com/in/sophievandijk", verified: true, bounceRisk: "low", linkedinData: { posts: 31, connections: 4500, about: "Growth marketer turned supply chain convert. Data-driven everything.", recentActivity: "Published case study on reducing pharma delivery times by 40%" } },
-  ],
-};
-
-const PERSONALIZED_EMAILS = {
-  101: { subject: "Scaling Meridian's growth engine post-Series B", body: `Hi Sarah,\n\nCongrats on the Series B — $28M is a serious vote of confidence in the telehealth expansion.\n\nI noticed you're hiring a demand gen manager, which tells me you're gearing up to scale acquisition channels. When you were at Calm scaling from $5M to $40M, you probably ran into the same bottleneck most PLG companies hit: the gap between product usage signals and outbound targeting.\n\nWe've built something that closes that gap — essentially turning your best-fit product users into a lookalike audience for outbound, with 95%+ ICP accuracy. One of our customers cut their CAC by 60% in the first quarter.\n\nWould it be worth 20 minutes to see if this fits into your growth roadmap?\n\nBest,\n[Your name]` },
-  201: { subject: "AI + design systems — from someone who agrees with your take", body: `Hi Lena,\n\nYour thread about AI replacing junior designers sparked a real debate in our team. I think you nailed it — AI won't replace designers, but it will change what "junior" means.\n\nWe're working on something adjacent: using AI to help product teams like yours ship faster without sacrificing design quality. Given NovaCraft's 22% MoM growth, I imagine your team is feeling the tension between speed and craft.\n\nWould love to share how a similar-sized product team cut their design-to-dev handoff time in half. Worth a quick look?\n\nCheers,\n[Your name]` },
-  301: { subject: "Grid modernization at scale — a resource for TerraVolt", body: `Marcus,\n\nYour CleanTech Summit keynote on grid resilience was compelling — especially the point about distributed architectures being more fault-tolerant than centralized ones.\n\nWith the $50M contract, you're about to hit a scaling challenge we've seen with other infrastructure companies: maintaining data quality across hundreds of new integrations. We help teams like yours ensure that the data flowing through the system is clean, verified, and actionable.\n\nGiven your ex-Tesla background, I suspect you appreciate systems that just work. Happy to show you ours — 15 minutes, no fluff.\n\nBest,\n[Your name]` },
-  401: { subject: "Fellow data nerd — re: your SaaStr talk", body: `David,\n\nYour SaaStr talk on "why most dashboards are useless" was one of the few I actually bookmarked. The point about vanity metrics masquerading as insights hit close to home.\n\nWe took that same philosophy and applied it to outbound — instead of tracking open rates and clicks, we built a system that optimizes for actual revenue impact. Given PulseMetrics is all about meaningful analytics, I think you'd appreciate the approach.\n\nWould you be open to a 15-minute walkthrough? I promise — no useless dashboards involved.\n\n[Your name]` },
-  501: { subject: "Expanding into MENA — lessons from the trenches", body: `Hi Aisha,\n\nYour post about regulatory challenges in MENA expansion really resonated. Having been through Revolut and Wise, you know better than most that each market has its own playbook.\n\nWe've been helping fintech companies entering the UAE specifically with one piece of the puzzle: finding and reaching the right decision-makers in a market where LinkedIn penetration is patchy and business networks are relationship-driven.\n\nSince Hatchway is actively hiring for the region, timing might be right to chat. 15 minutes?\n\nBest,\n[Your name]` },
-  601: { subject: "From 200 to 2,000 university partners", body: `Wei,\n\nCongrats on the 200th university partnership — that's a real milestone. The question now is probably: how do you 10x that without 10x-ing the sales team?\n\nWe work with education companies scaling B2B partnerships, helping them identify the right contacts at target institutions and personalize outreach at scale. One EdTech client went from 50 to 300 partners in 6 months using our system.\n\nWorth a conversation to see if there's a fit?\n\nCheers,\n[Your name]` },
-  701: { subject: "5 AEs for US expansion — let's make their ramp faster", body: `Yael,\n\nSaw you're hiring 5 AEs for the US push — exciting move, especially after the acquisition doubled your customer base.\n\nHere's something we've seen with cybersecurity companies expanding into the US: the biggest bottleneck isn't hiring AEs, it's giving them enough qualified pipeline from day one. We help solve that by generating hyper-targeted lead lists with verified contacts, so your new reps can start conversations in week one instead of month two.\n\n$100M+ in closed deals tells me you know what good pipeline looks like. Happy to show you how we build it.\n\nBest,\n[Your name]` },
-  801: { subject: "That pharma case study — 40% faster delivery is wild", body: `Sophie,\n\nJust read your case study on cutting pharma delivery times by 40%. As a fellow data-driven-everything person, I'd love to know what the leading indicator was.\n\nWe're building something in the same spirit but for a different part of the supply chain — helping logistics companies like FreshRoute find and reach new customers more efficiently. Given you're launching the cold-chain tracking product, I imagine pipeline generation for a new product line is top of mind.\n\nWorth 15 minutes to compare notes?\n\nCheers,\n[Your name]` },
-};
-
 // --- Saved Prompts ---
 const DEFAULT_PROMPT = `You are a world-class cold email copywriter. Write a personalized cold email for each lead using the enrichment data provided.
 
@@ -493,7 +441,16 @@ export default function App() {
   const [showAddProjectModal, setShowAddProjectModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [addProjectCreating, setAddProjectCreating] = useState(false);
+  const [discoverCanRun, setDiscoverCanRun] = useState(true); // true until we know otherwise
   const logRef = useRef(null);
+
+  useEffect(() => {
+    if (activePage === "leads") {
+      api.leadGeneration.getDiscoverStatus()
+        .then(r => setDiscoverCanRun(r.canRun ?? true))
+        .catch(() => setDiscoverCanRun(false));
+    }
+  }, [activePage]);
 
   const addLog = (msg, type = "info") => {
     setProcessLog(prev => [...prev, { msg, type, ts: Date.now() }]);
@@ -526,20 +483,13 @@ export default function App() {
 
   const runDiscovery = async (payload) => {
     const form = payload ?? icpForm;
+    if (!discoverCanRun) {
+      addLog("→ Run Discovery cannot run: no lead search integrations configured. Configure at least one in Settings → Integrations.", "info");
+      return;
+    }
     if (form?.importMode && form?.importedFile) {
-      addLog("→ Import mode: use CSV/LinkedIn export flow", "info");
-      setIsProcessing(true);
-      setProcessLog([]);
-      try {
-        addLog("→ Processing imported file...", "system");
-        await sleep(800);
-        addLog("✓ Import flow not yet wired — falling back to demo data", "info");
-        setDiscoveredLeads(MOCK_COMPANIES);
-        setSelectedLeads(new Set(MOCK_COMPANIES.map(c => c.id)));
-        setStep(1);
-      } finally {
-        setIsProcessing(false);
-      }
+      addLog("→ Import mode: CSV/LinkedIn export flow not yet wired", "info");
+      addLog("→ Configure Settings > Integrations or use Run Discovery instead", "info");
       return;
     }
 
@@ -573,9 +523,10 @@ export default function App() {
 
       if (companies.length === 0) {
         addLog(`⚠ No companies found with current criteria`, "info");
-        addLog("→ Falling back to demo data...", "info");
-        setDiscoveredLeads(MOCK_COMPANIES);
-        setSelectedLeads(new Set(MOCK_COMPANIES.map(c => c.id)));
+        addLog("→ Try broadening filters (industry, regions, roles) or check integration credentials in Settings", "info");
+        setDiscoveredLeads([]);
+        setSelectedLeads(new Set());
+        setIsProcessing(false);
       } else {
         for (const c of companies.slice(0, 10)) {
           addLog(`  + ${c.name} — ${c.industry || "—"} — ICP: ${c.icpScore || 90}%`, "data");
@@ -584,18 +535,16 @@ export default function App() {
         addLog(`\n✓ Discovery complete: ${companies.length} companies matched`, "success");
         setDiscoveredLeads(companies);
         setSelectedLeads(new Set(companies.map(c => c.id)));
+        setStep(1);
       }
 
       setIsProcessing(false);
-      setStep(1);
     } catch (err) {
       addLog(`✗ Discovery failed: ${err.message}`, "error");
-      addLog("→ Falling back to demo data...", "info");
-      await sleep(500);
-      setDiscoveredLeads(MOCK_COMPANIES);
-      setSelectedLeads(new Set(MOCK_COMPANIES.map(c => c.id)));
+      addLog("→ Check Settings > Integrations for configured lead search credentials", "info");
+      setDiscoveredLeads([]);
+      setSelectedLeads(new Set());
       setIsProcessing(false);
-      setStep(1);
     }
   };
 
@@ -688,9 +637,6 @@ export default function App() {
           
         } catch (err) {
           addLog(`  ✗ Error enriching ${company.name}: ${err.message}`, "error");
-          // Fall back to mock data for this company
-          const mockContacts = MOCK_CONTACTS[company.id] || [];
-          allContacts = [...allContacts, ...mockContacts.map(c => ({ ...c, company: company.name, companyId: company.id }))];
         }
       }
       
@@ -701,11 +647,6 @@ export default function App() {
       
     } catch (err) {
       addLog(`✗ Enrichment failed: ${err.message}`, "error");
-      addLog("→ Using demo data...", "info");
-      for (const company of selected) {
-        const contacts = MOCK_CONTACTS[company.id] || [];
-        allContacts = [...allContacts, ...contacts.map(c => ({ ...c, company: company.name, companyId: company.id }))];
-      }
     }
     
     setEnrichedContacts(allContacts);
@@ -768,8 +709,7 @@ export default function App() {
           previews[contact.id] = { subject, body };
           
         } catch (err) {
-          // Fallback to mock or template
-          previews[contact.id] = PERSONALIZED_EMAILS[contact.id] || {
+          previews[contact.id] = {
             subject: `Quick question for ${contact.name}`,
             body: `Hi ${contact.name.split(" ")[0]},\n\nI came across ${contact.company} and was impressed by what you're building...\n\nBest,\n[Your name]`,
           };
@@ -778,9 +718,8 @@ export default function App() {
         await sleep(500);
       }
     } catch (err) {
-      // Fallback to all mock data
       for (const contact of previewContacts) {
-        previews[contact.id] = PERSONALIZED_EMAILS[contact.id] || {
+        previews[contact.id] = {
           subject: `Quick question for ${contact.name}`,
           body: `Hi ${contact.name.split(" ")[0]},\n\nI came across ${contact.company} and was impressed by what you're building...\n\nBest,\n[Your name]`,
         };
@@ -855,19 +794,12 @@ export default function App() {
       
     } catch (err) {
       addLog(`✗ Personalization error: ${err.message}`, "error");
-      addLog("→ Falling back to templates...", "info");
-      
-      // Fallback to mock emails
+      addLog("→ Using template fallback...", "info");
       for (const contact of selected) {
-        const mockEmail = PERSONALIZED_EMAILS[contact.id];
-        if (mockEmail) {
-          emails[contact.id] = mockEmail;
-        } else {
-          emails[contact.id] = { 
-            subject: `Quick question for ${contact.company}`, 
-            body: `Hi ${contact.name.split(" ")[0]},\n\nI came across ${contact.company} and was impressed by what you're building...\n\nBest,\n[Your name]` 
-          };
-        }
+        emails[contact.id] = { 
+          subject: `Quick question for ${contact.company}`, 
+          body: `Hi ${contact.name.split(" ")[0]},\n\nI came across ${contact.company} and was impressed by what you're building...\n\nBest,\n[Your name]` 
+        };
       }
     }
     
@@ -1298,7 +1230,7 @@ export default function App() {
           <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
             {/* Main Panel */}
             <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-              {step === 0 && <ICPForm form={icpForm} setForm={setIcpForm} onSubmit={runDiscovery} isProcessing={isProcessing} />}
+              {step === 0 && <ICPForm form={icpForm} setForm={setIcpForm} onSubmit={runDiscovery} isProcessing={isProcessing} canRunDiscovery={discoverCanRun} />}
               {step === 1 && <DiscoveryPanel leads={discoveredLeads} selected={selectedLeads} setSelected={setSelectedLeads} onNext={runEnrichment} isProcessing={isProcessing} />}
               {step === 2 && <EnrichmentPanel
                 contacts={enrichedContacts} selected={selectedContacts} setSelected={setSelectedContacts}
@@ -1530,7 +1462,7 @@ function TagSelect({ label, presets, selected, onChange, placeholder, labelStyle
   );
 }
 
-function ICPForm({ form, setForm, onSubmit, isProcessing }) {
+function ICPForm({ form, setForm, onSubmit, isProcessing, canRunDiscovery = true }) {
   const [lookalikeOnly, setLookalikeOnly] = useState(false);
   const [importMode, setImportMode] = useState(false);
   const [importedFile, setImportedFile] = useState(null);
@@ -1552,6 +1484,14 @@ function ICPForm({ form, setForm, onSubmit, isProcessing }) {
 
   return (
     <div style={{ maxWidth: 640 }}>
+      {!canRunDiscovery && (
+        <div style={{
+          padding: "14px 18px", marginBottom: 24, background: COLORS.warnBg, border: `1px solid ${COLORS.warn}44`,
+          borderRadius: 10, fontSize: 14, color: COLORS.text,
+        }}>
+          Run Discovery cannot run because no lead search integrations are configured. Configure at least one integration in <strong>Settings → Integrations</strong>.
+        </div>
+      )}
       <div style={{ marginBottom: 32 }}>
         <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>
           Define Your <span style={{ color: COLORS.accent }}>Ideal Customer</span>
@@ -1770,7 +1710,7 @@ function ICPForm({ form, setForm, onSubmit, isProcessing }) {
             {/* Target Regions */}
             <TagSelect
               label="TARGET REGIONS"
-              presets={["North America", "Europe", "UK & Ireland", "DACH", "Nordics", "Asia Pacific", "MENA", "Latin America", "Australia & NZ", "Africa"]}
+              presets={["North America", "Asia Pacific", "Europe", "MENA", "UK & Ireland", "Latin America", "DACH", "Nordics", "Australia & NZ", "Africa"]}
               selected={form.regions || ["North America", "Europe"]}
               onChange={regions => setForm({ ...form, regions })}
               placeholder="Type a custom region and press Enter..."
@@ -1782,7 +1722,7 @@ function ICPForm({ form, setForm, onSubmit, isProcessing }) {
             <TagSelect
               label="TARGET ROLES / PERSONAS"
               presets={["CEO", "CTO", "COO", "CFO", "CMO", "CRO", "VP Sales", "VP Growth", "VP Marketing", "VP Engineering", "VP Operations", "Head of Product", "Head of Partnerships", "Director of Sales", "Director of Marketing", "Founder"]}
-              selected={form.roles || ["VP Growth", "CTO", "Head of Product"]}
+              selected={form.roles || ["CEO", "CTO", "Founder"]}
               onChange={roles => setForm({ ...form, roles })}
               placeholder="Type a custom role and press Enter..."
               labelStyle={labelStyle}
@@ -1832,12 +1772,19 @@ function ICPForm({ form, setForm, onSubmit, isProcessing }) {
         )}
       </div>
 
-      <button onClick={() => onSubmit({ ...form, lookalikeOnly, importMode, importedFile })} disabled={isProcessing || (importMode && !importedFile)} style={{
-        marginTop: 28, padding: "14px 32px", background: (importMode && !importedFile) ? COLORS.border : COLORS.accent, color: (importMode && !importedFile) ? COLORS.textDim : COLORS.bg,
-        border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 13, fontWeight: 600,
-        cursor: isProcessing || (importMode && !importedFile) ? "default" : "pointer", opacity: isProcessing ? 0.6 : 1,
-        letterSpacing: "0.02em", transition: "all 0.2s",
-      }}>
+      <button
+        onClick={() => canRunDiscovery && onSubmit({ ...form, lookalikeOnly, importMode, importedFile })}
+        disabled={isProcessing || (importMode && !importedFile) || !canRunDiscovery}
+        style={{
+          marginTop: 28, padding: "14px 32px",
+          background: !canRunDiscovery || (importMode && !importedFile) ? COLORS.border : COLORS.accent,
+          color: !canRunDiscovery || (importMode && !importedFile) ? COLORS.textDim : COLORS.bg,
+          border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 13, fontWeight: 600,
+          cursor: isProcessing || (importMode && !importedFile) || !canRunDiscovery ? "default" : "pointer",
+          opacity: isProcessing ? 0.6 : 1,
+          letterSpacing: "0.02em", transition: "all 0.2s",
+        }}
+      >
         {isProcessing ? "PROCESSING..." : importMode ? `IMPORT & ENRICH ${importedFile ? importedFile.rows + " LEADS" : ""} →` : lookalikeOnly ? "FIND LOOKALIKES →" : "RUN DISCOVERY →"}
       </button>
     </div>

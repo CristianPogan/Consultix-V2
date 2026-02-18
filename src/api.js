@@ -169,7 +169,7 @@ export const api = {
     getDefaults: () => req('GET', '/prompts/defaults'),
   },
   leadGeneration: {
-    // Discovery (Postgres first, then waterfall: AI Ark, IcyPeas, etc.)
+    getDiscoverStatus: () => req('GET', '/lead-generation/discover/status'),
     discover: (params) => req('POST', '/lead-generation/discover', params),
     discoverApollo: (params) => req('POST', '/lead-generation/discover/apollo', params),
     discoverGoogleMaps: (params) => req('POST', '/lead-generation/discover/google-maps', params),

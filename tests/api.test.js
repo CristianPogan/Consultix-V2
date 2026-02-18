@@ -319,6 +319,22 @@ describe('API: leads', () => {
 });
 
 describe('API: lead-generation discover', () => {
+  it('0. GET /api/lead-generation/discover/status without auth returns 401', async () => {
+    const res = await api.get('/api/lead-generation/discover/status');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('0b. GET /api/lead-generation/discover/status with auth returns canRun, connectedIntegrations, leadSearchOrder', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/lead-generation/discover/status').set(auth());
+    assert.ok(res.status === 200 || res.status === 503);
+    if (res.status === 200) {
+      assert.ok(typeof res.body.canRun === 'boolean');
+      assert.ok(Array.isArray(res.body.connectedIntegrations));
+      assert.ok(Array.isArray(res.body.leadSearchOrder));
+    }
+  });
+
   it('1. POST /api/lead-generation/discover without auth returns 401', async () => {
     const res = await api.post('/api/lead-generation/discover').send({
       industry: 'B2B SaaS',
