@@ -287,11 +287,11 @@ export async function findCompaniesAiArkSemantic(apiKey, criteria) {
     domain: (c.link?.domain || c.link?.website || c.domain || '').replace(/^https?:\/\//, '').split('/')[0] || null,
     industry: c.summary?.industry ?? c.industry ?? (c.industries?.[0]),
     employees: c.summary?.staff?.total ?? c.summary?.staff?.range ?? c.employees,
-    location: c.location?.headquarter?.raw_address ?? c.location?.default ?? [
+    location: (c.location?.headquarter?.raw_address ?? c.location?.default ?? [
       c.location?.headquarter?.city,
       c.location?.headquarter?.state,
       c.location?.headquarter?.country,
-    ].filter(Boolean).join(', ') || 'Unknown',
+    ].filter(Boolean).join(', ')) || 'Unknown',
   }));
 }
 
@@ -346,11 +346,11 @@ export async function findCompaniesAiArkLookalike(apiKey, seedDomain, criteria =
     domain: (c.link?.domain || c.link?.website || c.domain || '').replace(/^https?:\/\//, '').split('/')[0] || null,
     industry: c.summary?.industry ?? c.industry ?? (c.industries?.[0]),
     employees: c.summary?.staff?.total ?? c.summary?.staff?.range ?? c.employees,
-    location: c.location?.headquarter?.raw_address ?? c.location?.default ?? [
+    location: (c.location?.headquarter?.raw_address ?? c.location?.default ?? [
       c.location?.headquarter?.city,
       c.location?.headquarter?.state,
       c.location?.headquarter?.country,
-    ].filter(Boolean).join(', ') || 'Unknown',
+    ].filter(Boolean).join(', ')) || 'Unknown',
   }));
 }
 
