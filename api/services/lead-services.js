@@ -285,11 +285,12 @@ export async function findCompaniesAiArkLookalike(apiKey, seedDomain, criteria =
 /**
  * IcyPeas Email Search (find email for a person)
  * @param {Object} person - Person data
+ * @param {string} [apiKey] - Optional API key (from org credentials)
  * @returns {Promise<Object>} - Email data
  */
-export async function findEmailIcyPeas(person) {
-  const apiKey = process.env.ICYPEAS_API_KEY;
-  if (!apiKey) throw new Error('ICYPEAS_API_KEY not configured');
+export async function findEmailIcyPeas(person, apiKey) {
+  const key = apiKey || process.env.ICYPEAS_API_KEY;
+  if (!key) throw new Error('IcyPeas API key not configured');
 
   const { firstName, lastName, company } = person;
 
@@ -298,7 +299,7 @@ export async function findEmailIcyPeas(person) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': apiKey,
+      'Authorization': key,
     },
     body: JSON.stringify({
       firstname: firstName,
@@ -325,7 +326,7 @@ export async function findEmailIcyPeas(person) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': apiKey,
+        'Authorization': key,
       },
       body: JSON.stringify({ id: searchId }),
     });
@@ -346,14 +347,15 @@ export async function findEmailIcyPeas(person) {
 /**
  * NeverBounce Email Verification
  * @param {string} email - Email to verify
+ * @param {string} [apiKey] - Optional API key (from org credentials)
  * @returns {Promise<Object>} - Verification result
  */
-export async function verifyEmailNeverBounce(email) {
-  const apiKey = process.env.NEVERBOUNCE_API_KEY;
-  if (!apiKey) throw new Error('NEVERBOUNCE_API_KEY not configured');
+export async function verifyEmailNeverBounce(email, apiKey) {
+  const key = apiKey || process.env.NEVERBOUNCE_API_KEY;
+  if (!key) throw new Error('NeverBounce API key not configured');
 
   const response = await fetch(
-    `https://api.neverbounce.com/v4.2/single/check?key=${apiKey}&email=${encodeURIComponent(email)}`
+    `https://api.neverbounce.com/v4.2/single/check?key=${key}&email=${encodeURIComponent(email)}`
   );
 
   if (!response.ok) {
@@ -361,6 +363,43 @@ export async function verifyEmailNeverBounce(email) {
   }
 
   return await response.json();
+}
+
+/**
+ * FindyMail - Verify a known email address
+ * @param {string} apiKey - FindyMail API key (Bearer)
+ * @param {string} email - Email to verify
+ * @returns {Promise<Object>} - { valid, deliverable, etc }
+ */
+export async function verifyEmailFindyMail(apiKey, email) {
+  if (!apiKey) throw new Error('FindyMail API key required');
+  const res = await fetch('https://app.findymail.com/api/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error(`FindyMail verify failed: ${res.statusText}`);
+  const data = await res.json();
+  return { result: data.valid ? 'valid' : (data.deliverable === false ? 'invalid' : 'unknown'), verified: data.valid === true, ...data };
+}
+
+/**
+ * FindyMail - Find email by name + domain
+ * @param {string} apiKey - FindyMail API key (Bearer)
+ * @param {Object} params - { name, domain }
+ * @returns {Promise<Object>} - { email, ... }
+ */
+export async function findEmailFindyMail(apiKey, { name, domain }) {
+  if (!apiKey) throw new Error('FindyMail API key required');
+  if (!name || !domain) throw new Error('FindyMail search requires name and domain');
+  const res = await fetch('https://app.findymail.com/api/search/name', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({ name, domain }),
+  });
+  if (!res.ok) throw new Error(`FindyMail search failed: ${res.statusText}`);
+  const data = await res.json();
+  return { email: data.email || data.address, confidence: data.confidence, ...data };
 }
 
 /**
