@@ -7107,6 +7107,8 @@ function SettingsView() {
   const [activeTab, setActiveTab] = useState("brand_voice");
   const [submitted, setSubmitted] = useState(false);
   const [answers, setAnswers] = useState({});
+  const [buyerPersonaAnswers, setBuyerPersonaAnswers] = useState({});
+  const [buyerPersonaSubmitted, setBuyerPersonaSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [integrationStatus, setIntegrationStatus] = useState({});
@@ -7119,13 +7121,18 @@ function SettingsView() {
   useEffect(() => {
     async function loadSettings() {
       try {
-        const [result, schemaRes] = await Promise.all([
+        const [brandRes, buyerRes, schemaRes] = await Promise.all([
           api.settings.get('brand_voice'),
+          api.settings.get('buyer_persona').catch(() => ({ settings: null })),
           api.settings.getFormSchema('brand_voice').catch(() => ({ schema: [] })),
         ]);
-        if (result.settings) {
-          setAnswers(result.settings);
+        if (brandRes?.settings) {
+          setAnswers(brandRes.settings);
           setSubmitted(true);
+        }
+        if (buyerRes?.settings) {
+          setBuyerPersonaAnswers(buyerRes.settings);
+          setBuyerPersonaSubmitted(true);
         }
         if (schemaRes?.schema?.length) {
           setBrandVoiceSchema(schemaRes.schema);
@@ -7260,9 +7267,9 @@ function SettingsView() {
                   <div key={q.key}>
                     <label style={labelStyle}>{q.label}</label>
                     {q.type === "textarea" ? (
-                      <textarea value={answers[q.key] || ""} onChange={e => setAnswers({ ...answers, [q.key]: e.target.value })} placeholder={q.placeholder} rows={3} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} />
+                      <textarea value={buyerPersonaAnswers[q.key] || ""} onChange={e => setBuyerPersonaAnswers({ ...buyerPersonaAnswers, [q.key]: e.target.value })} placeholder={q.placeholder} rows={3} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} />
                     ) : (
-                      <input value={answers[q.key] || ""} onChange={e => setAnswers({ ...answers, [q.key]: e.target.value })} placeholder={q.placeholder} style={inputStyle} />
+                      <input value={buyerPersonaAnswers[q.key] || ""} onChange={e => setBuyerPersonaAnswers({ ...buyerPersonaAnswers, [q.key]: e.target.value })} placeholder={q.placeholder} style={inputStyle} />
                     )}
                   </div>
                 ))}
@@ -7272,8 +7279,8 @@ function SettingsView() {
           <button onClick={async () => {
             setSaving(true);
             try {
-              await api.settings.save('buyer_persona', answers);
-              setSubmitted(true);
+              await api.settings.save('buyer_persona', buyerPersonaAnswers);
+              setBuyerPersonaSubmitted(true);
             } catch (err) {
               console.error("Failed to save buyer persona:", err);
               alert("Failed to save. Please try again.");
@@ -7281,7 +7288,7 @@ function SettingsView() {
               setSaving(false);
             }
           }} disabled={saving} style={{ padding: "14px 28px", background: saving ? COLORS.border : COLORS.accent, color: saving ? COLORS.textDim : COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: saving ? "not-allowed" : "pointer" }}>
-            {saving ? "Saving..." : submitted ? "✓ Buyer Persona Saved" : "Save Buyer Persona"}
+            {saving ? "Saving..." : buyerPersonaSubmitted ? "✓ Buyer Persona Saved" : "Save Buyer Persona"}
           </button>
         </div>
       )}
@@ -7602,65 +7609,6 @@ function SettingsView() {
             </div>
           ))}
           <button onClick={() => setSubmitted(false)} style={{ padding: "12px 24px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 32 }}>Edit Brand Voice</button>
-        </div>
-      )}
-
-      {/* Buyer Persona Tab */}
-      {activeTab === "buyer_persona" && (
-        <div>
-          <p style={{ color: COLORS.textMuted, marginBottom: 24, fontSize: 13 }}>Define your ideal buyer persona. This profile feeds into messaging personalisation, content targeting, and sales scripts across the platform.</p>
-          {[
-            { section: "Background & Demographics", items: [
-              { key: "bp_job_title", label: "What is their typical job title?", placeholder: "e.g. VP of Sales, Head of Growth, CTO, Founder/CEO", type: "input" },
-              { key: "bp_seniority", label: "What level of seniority are they?", placeholder: "e.g. C-suite, VP, Director, Manager", type: "input" },
-              { key: "bp_industry", label: "What industry do they work in?", placeholder: "e.g. B2B SaaS, Financial Services, Healthcare, E-commerce", type: "input" },
-              { key: "bp_company_size", label: "What size company do they typically work at?", placeholder: "e.g. 50-500 employees, Series B+, £5-50M revenue", type: "input" },
-              { key: "bp_age_range", label: "What's their typical age range?", placeholder: "e.g. 30-50", type: "input" },
-              { key: "bp_education", label: "What's their typical educational background?", placeholder: "e.g. MBA, engineering degree, self-taught, business school", type: "input" },
-            ]},
-            { section: "Experience & Skills", items: [
-              { key: "bp_career_path", label: "What does their typical career path look like?", placeholder: "e.g. Started as SDR → AE → Sales Manager → VP of Sales over 10-15 years", type: "textarea" },
-              { key: "bp_expertise", label: "What are they an expert in?", placeholder: "e.g. Revenue operations, pipeline management, team scaling, go-to-market strategy", type: "textarea" },
-              { key: "bp_tools", label: "What tools/platforms do they use daily?", placeholder: "e.g. Salesforce, HubSpot, LinkedIn Sales Nav, Gong, Outreach, Slack", type: "textarea" },
-              { key: "bp_team", label: "How big is the team they manage?", placeholder: "e.g. 5-20 direct reports, manages SDR + AE teams", type: "input" },
-            ]},
-            { section: "Goals & Motivations", items: [
-              { key: "bp_primary_goal", label: "What is their #1 professional goal right now?", placeholder: "e.g. Hit revenue targets, scale the team, reduce CAC, improve conversion rates", type: "textarea" },
-              { key: "bp_success_metric", label: "What KPIs are they measured on?", placeholder: "e.g. Revenue, pipeline generated, meetings booked, conversion rate, CAC, LTV", type: "textarea" },
-              { key: "bp_aspirations", label: "Where do they want to be in 2-3 years?", placeholder: "e.g. CRO position, building their own company, recognised industry leader", type: "textarea" },
-            ]},
-            { section: "Pain Points & Frustrations", items: [
-              { key: "bp_biggest_pain", label: "What's their biggest daily frustration?", placeholder: "e.g. Too much time on manual tasks, low-quality leads, tool overload, lack of data", type: "textarea" },
-              { key: "bp_fear", label: "What keeps them up at night professionally?", placeholder: "e.g. Missing targets, falling behind competitors, team attrition, board pressure", type: "textarea" },
-              { key: "bp_objections", label: "What objections do they typically raise when buying?", placeholder: "e.g. Budget constraints, need to prove ROI first, bad experience with similar tools, too busy to implement", type: "textarea" },
-              { key: "bp_failed_solutions", label: "What solutions have they tried that didn't work?", placeholder: "e.g. Hired an agency, bought expensive tools with low adoption, tried building in-house", type: "textarea" },
-            ]},
-            { section: "Buying Behaviour", items: [
-              { key: "bp_info_sources", label: "Where do they go for information and advice?", placeholder: "e.g. LinkedIn, industry podcasts, peer recommendations, Gartner, conferences", type: "textarea" },
-              { key: "bp_decision_process", label: "How do they typically make purchasing decisions?", placeholder: "e.g. Research online → ask peers → request demo → internal business case → approval from CFO", type: "textarea" },
-              { key: "bp_budget_authority", label: "What budget authority do they have?", placeholder: "e.g. Can approve up to £50K independently, above that needs board sign-off", type: "input" },
-              { key: "bp_buying_triggers", label: "What triggers them to start looking for a solution?", placeholder: "e.g. Missed quarterly targets, new board pressure, competitor doing it, team complaints", type: "textarea" },
-            ]},
-          ].map(section => (
-            <div key={section.section} style={{ marginBottom: 24 }}>
-              <div style={{ fontFamily: FONT, fontSize: 10, color: "#7B61FF", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12, padding: "8px 16px", background: "#7B61FF10", borderRadius: 6, display: "inline-block" }}>{section.section.toUpperCase()}</div>
-              <div style={{ padding: "20px 24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
-                {section.items.map((q, i) => (
-                  <div key={q.key} style={{ marginBottom: i < section.items.length - 1 ? 18 : 0 }}>
-                    <label style={labelStyle}>{q.label}</label>
-                    {q.type === "input" ? (
-                      <input value={answers[q.key] || ""} onChange={e => setAnswers({ ...answers, [q.key]: e.target.value })} placeholder={q.placeholder} style={inputStyle} />
-                    ) : (
-                      <textarea value={answers[q.key] || ""} onChange={e => setAnswers({ ...answers, [q.key]: e.target.value })} placeholder={q.placeholder} rows={3} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, paddingBottom: 32 }}>
-            <button style={{ padding: "14px 32px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save Buyer Persona →</button>
-          </div>
         </div>
       )}
     </div>
