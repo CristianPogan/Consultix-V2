@@ -3578,15 +3578,40 @@ function CRMPipelineView({ projectId }) {
 }
 
 const CALENDAR_INTEGRATION_KEYS = ["calendly", "calcom", "google_calendar"];
+const CALENDAR_HOURS = ["8 AM", "9 AM", "10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM"];
+const TYPE_COLORS = { Discovery: COLORS.blue, "AI Audit": "#7B61FF", "Follow-up": COLORS.accent, Close: COLORS.green, Proposal: "#EC4899" };
+const SOURCE_COLORS = { calcom: "#7B61FF", google_calendar: "#4285F4", calendly: COLORS.accent };
+
+function parseSlotHour(h) {
+  const parts = h.trim().split(/\s+/);
+  let n = parseInt(parts[0], 10) || 0;
+  const period = (parts[1] || "AM").toUpperCase();
+  if (period === "PM" && n !== 12) n += 12;
+  if (period === "AM" && n === 12) n = 0;
+  return n;
+}
 
 function AppointmentsView() {
   const [activeTab, setActiveTab] = useState("calls");
   const [integrationStatus, setIntegrationStatus] = useState({});
-  const TODAY = "Thursday, February 13, 2025";
+  const [calendarData, setCalendarData] = useState({ events: [], bySource: {}, date: "", hours: CALENDAR_HOURS });
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const TODAY = today.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
   useEffect(() => {
     api.integrations.list().then((r) => setIntegrationStatus(r.integrations || {})).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "calendar" || activeTab === "calls") {
+      setCalendarLoading(true);
+      api.calendar.getEvents(dateStr).then((r) => {
+        setCalendarData({ events: r.events || [], bySource: r.bySource || {}, date: r.date || dateStr, hours: r.hours || CALENDAR_HOURS });
+      }).catch(() => setCalendarData((prev) => ({ ...prev, events: [] }))).finally(() => setCalendarLoading(false));
+    }
+  }, [activeTab, dateStr]);
 
   const calendarBadges = CALENDAR_INTEGRATION_KEYS.map((k) => {
     const s = integrationStatus[k];
@@ -3597,20 +3622,18 @@ function AppointmentsView() {
     return { key: k, label, ok };
   }).filter((b) => b.ok);
 
-  const CALLS = [
-    { id: 1, time: "10:00 AM", duration: "30 min", name: "Robert Chang", title: "Director of Sales", company: "PipelineHQ", type: "Discovery", link: "https://zoom.us/j/123456", intel: ["Series A SaaS, 85 employees, £4M ARR", "Director of Sales for 18 months, previously at Oracle", "Replied to cold email — pain point: manual lead qualification", "Company hiring 2 AEs — scaling sales org", "Uses HubSpot CRM + Outreach.io currently"] },
-    { id: 2, time: "11:30 AM", duration: "45 min", name: "Sarah Chen", title: "VP Growth", company: "ScaleFlow", type: "AI Audit", link: "https://meet.google.com/abc-def", intel: ["Series B SaaS, 120 employees, $18M ARR", "VP Growth for 2 years, previously at Salesforce", "Interested in automating outbound — currently 3 SDRs", "Recently raised $12M Series B", "Competitor to DataPulse — different market segment"] },
-    { id: 3, time: "2:00 PM", duration: "15 min", name: "Tom Bradley", title: "CRO", company: "GrowthLoop", type: "Follow-up", link: "https://zoom.us/j/789012", intel: ["Series C SaaS, 300 employees, $45M ARR", "CRO joined 6 months ago from Gong", "Asked for case study — sent ScaleFlow example", "Budget approved for Q2 tooling spend", "Main concern: integration with existing Salesforce workflow"] },
-    { id: 4, time: "4:00 PM", duration: "30 min", name: "Nina Okoro", title: "Head of Product", company: "FinLeap", type: "Discovery", link: "https://meet.google.com/ghi-jkl", intel: ["Seed-stage fintech, 28 employees", "Head of Product, co-founder", "Connected via LinkedIn — downloaded AI audit guide", "Company building B2B payment infrastructure", "No current outbound motion — all inbound/referral"] },
-  ];
+  const events = calendarData.events || [];
+  const now = Date.now();
+  const upcomingEvents = events.filter((e) => new Date(e.start).getTime() >= now);
+  const pastEvents = events.filter((e) => new Date(e.start).getTime() < now);
 
-  const PAST_CALLS = [
-    { name: "Marcus Webb", company: "DataPulse", type: "Proposal", time: "Yesterday 3:00 PM", outcome: "Proposal sent" },
-    { name: "Emily Rodriguez", company: "NexGen AI", type: "Close", time: "Yesterday 11:00 AM", outcome: "Won — £15,000" },
-  ];
-
-  const CALENDAR_HOURS = ["8 AM", "9 AM", "10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM"];
-  const TYPE_COLORS = { Discovery: COLORS.blue, "AI Audit": "#7B61FF", "Follow-up": COLORS.accent, Close: COLORS.green, Proposal: "#EC4899" };
+  const getEventsForHour = (hourStr) => {
+    const slotH = parseSlotHour(hourStr);
+    return events.filter((e) => {
+      const d = new Date(e.start);
+      return d.getHours() === slotH;
+    });
+  };
 
   return (
     <div style={{ flex: 1, overflow: "auto", padding: 32 }}>
@@ -3619,7 +3642,7 @@ function AppointmentsView() {
           <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0 }}>
             <span style={{ color: COLORS.accent }}>Appointments</span>
           </h2>
-          <p style={{ color: COLORS.textMuted, margin: "6px 0 0", fontSize: 13 }}>{TODAY} · {CALLS.length} calls today</p>
+          <p style={{ color: COLORS.textMuted, margin: "6px 0 0", fontSize: 13 }}>{TODAY} · {events.length} event{events.length !== 1 ? "s" : ""} today</p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {calendarBadges.length > 0 ? (
@@ -3645,75 +3668,90 @@ function AppointmentsView() {
 
       {activeTab === "calls" && (
         <div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
-            {CALLS.map(call => (
-              <div key={call.id} style={{ padding: "20px 24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, borderLeft: `4px solid ${TYPE_COLORS[call.type] || COLORS.accent}` }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 20, fontWeight: 700, fontFamily: FONT, color: COLORS.text }}>{call.time}</div>
-                      <div style={{ fontSize: 10, color: COLORS.textDim }}>{call.duration}</div>
-                    </div>
-                    <div style={{ width: 1, height: 36, background: COLORS.border }} />
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 15 }}>{call.name}</div>
-                      <div style={{ fontSize: 12, color: COLORS.textDim }}>{call.title} · {call.company}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, background: (TYPE_COLORS[call.type] || COLORS.accent) + "15", color: TYPE_COLORS[call.type] || COLORS.accent }}>{call.type}</span>
-                    <a href={call.link} target="_blank" rel="noreferrer" style={{ padding: "6px 14px", background: COLORS.accent, color: COLORS.bg, borderRadius: 6, fontFamily: FONT, fontSize: 10, fontWeight: 600, textDecoration: "none", cursor: "pointer" }}>Join Call</a>
-                  </div>
-                </div>
-                <div style={{ padding: "12px 16px", background: COLORS.bg, borderRadius: 8, border: `1px solid ${COLORS.border}` }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                    <span style={{ fontSize: 12 }}>✨</span>
-                    <span style={{ fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.accent, letterSpacing: "0.04em" }}>AI INTEL</span>
-                  </div>
-                  {call.intel.map((note, ni) => (
-                    <div key={ni} style={{ fontSize: 12, color: COLORS.text, padding: "3px 0", display: "flex", alignItems: "flex-start", gap: 8, lineHeight: 1.5 }}>
-                      <span style={{ color: COLORS.textDim, fontSize: 10, marginTop: 2 }}>•</span>
-                      <span>{note}</span>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                  <button style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, cursor: "pointer" }}>View in CRM</button>
-                  <button style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, cursor: "pointer" }}>Prep Script</button>
-                </div>
+          {calendarLoading ? (
+            <div style={{ padding: 40, textAlign: "center", color: COLORS.textDim, fontSize: 13 }}>Loading calendar events…</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
+                {upcomingEvents.length === 0 && !calendarLoading ? (
+                  <div style={{ padding: 24, background: COLORS.surface, border: `1px dashed ${COLORS.border}`, borderRadius: 12, color: COLORS.textDim, fontSize: 13, textAlign: "center" }}>No upcoming events from connected calendars. Connect Cal.com or Google Calendar in Settings &gt; Integrations.</div>
+                ) : (
+                  upcomingEvents.map((ev) => {
+                    const color = SOURCE_COLORS[ev.source] || TYPE_COLORS[ev.type] || COLORS.accent;
+                    const sourceLabel = ev.source === "calcom" ? "Cal.com" : ev.source === "google_calendar" ? "Google" : ev.source === "calendly" ? "Calendly" : "";
+                    return (
+                      <div key={ev.id} style={{ padding: "20px 24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, borderLeft: `4px solid ${color}` }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <div>
+                              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: FONT, color: COLORS.text }}>{ev.time}</div>
+                              <div style={{ fontSize: 10, color: COLORS.textDim }}>{ev.duration}</div>
+                            </div>
+                            <div style={{ width: 1, height: 36, background: COLORS.border }} />
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 15 }}>{ev.name || ev.title}</div>
+                              <div style={{ fontSize: 12, color: COLORS.textDim }}>{ev.title} {sourceLabel && `· ${sourceLabel}`}</div>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, background: color + "15", color }}>{ev.type || ev.title}</span>
+                            {ev.link && <a href={ev.link} target="_blank" rel="noreferrer" style={{ padding: "6px 14px", background: COLORS.accent, color: COLORS.bg, borderRadius: 6, fontFamily: FONT, fontSize: 10, fontWeight: 600, textDecoration: "none", cursor: "pointer" }}>Join Call</a>}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                          <button style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, cursor: "pointer" }}>View in CRM</button>
+                          <button style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, cursor: "pointer" }}>Prep Script</button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 11, fontFamily: FONT, fontWeight: 600, color: COLORS.textDim, letterSpacing: "0.04em", marginBottom: 10 }}>COMPLETED</div>
-            {PAST_CALLS.map((c, i) => (
-              <div key={i} style={{ padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", opacity: 0.7 }}>
-                <div><span style={{ fontWeight: 600, fontSize: 12 }}>{c.name}</span><span style={{ fontSize: 11, color: COLORS.textDim }}> · {c.company} · {c.type}</span></div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 10, color: COLORS.accent, fontWeight: 600 }}>{c.outcome}</span><span style={{ fontSize: 10, color: COLORS.textDim }}>{c.time}</span></div>
-              </div>
-            ))}
-          </div>
+              {pastEvents.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 11, fontFamily: FONT, fontWeight: 600, color: COLORS.textDim, letterSpacing: "0.04em", marginBottom: 10 }}>COMPLETED</div>
+                  {pastEvents.map((ev) => {
+                    const color = SOURCE_COLORS[ev.source] || TYPE_COLORS[ev.type] || COLORS.accent;
+                    return (
+                      <div key={ev.id} style={{ padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", opacity: 0.7 }}>
+                        <div><span style={{ fontWeight: 600, fontSize: 12 }}>{ev.name || ev.title}</span><span style={{ fontSize: 11, color: COLORS.textDim }}> · {ev.title} · {ev.time}</span></div>
+                        <span style={{ fontSize: 10, color: COLORS.textDim }}>{ev.time}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
       {activeTab === "calendar" && (
         <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden" }}>
-          {CALENDAR_HOURS.map((hour, hi) => {
-            const call = CALLS.find(c => c.time.startsWith(hour.replace(" AM", "").replace(" PM", "")));
-            return (
-              <div key={hi} style={{ display: "flex", borderBottom: hi < CALENDAR_HOURS.length - 1 ? `1px solid ${COLORS.border}` : "none", minHeight: 52 }}>
-                <div style={{ width: 70, padding: "10px 12px", borderRight: `1px solid ${COLORS.border}`, fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, flexShrink: 0 }}>{hour}</div>
-                <div style={{ flex: 1, padding: call ? "8px 12px" : "0" }}>
-                  {call && (
-                    <div style={{ padding: "8px 14px", background: (TYPE_COLORS[call.type] || COLORS.accent) + "12", border: `1px solid ${(TYPE_COLORS[call.type] || COLORS.accent)}33`, borderRadius: 6, borderLeft: `3px solid ${TYPE_COLORS[call.type] || COLORS.accent}` }}>
-                      <div style={{ fontWeight: 600, fontSize: 12 }}>{call.name} — {call.company}</div>
-                      <div style={{ fontSize: 10, color: COLORS.textDim }}>{call.type} · {call.duration}</div>
-                    </div>
-                  )}
+          {calendarLoading ? (
+            <div style={{ padding: 40, textAlign: "center", color: COLORS.textDim, fontSize: 13 }}>Loading calendar…</div>
+          ) : (
+            (calendarData.hours || CALENDAR_HOURS).map((hour, hi) => {
+              const hourEvents = getEventsForHour(hour);
+              const hasEvents = hourEvents.length > 0;
+              return (
+                <div key={hi} style={{ display: "flex", borderBottom: hi < (calendarData.hours || CALENDAR_HOURS).length - 1 ? `1px solid ${COLORS.border}` : "none", minHeight: 52 }}>
+                  <div style={{ width: 70, padding: "10px 12px", borderRight: `1px solid ${COLORS.border}`, fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, flexShrink: 0 }}>{hour}</div>
+                  <div style={{ flex: 1, padding: hasEvents ? "8px 12px" : 0, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                    {hourEvents.map((ev) => {
+                      const color = SOURCE_COLORS[ev.source] || TYPE_COLORS[ev.type] || COLORS.accent;
+                      return (
+                        <div key={ev.id} style={{ flex: hourEvents.length > 1 ? "1 1 min(200px, 100%)" : "0 1 auto", minWidth: 160, padding: "8px 14px", background: color + "12", border: `1px solid ${color}33`, borderRadius: 6, borderLeft: `3px solid ${color}` }}>
+                          <div style={{ fontWeight: 600, fontSize: 12 }}>{ev.name || ev.title} {ev.company ? `— ${ev.company}` : ""}</div>
+                          <div style={{ fontSize: 10, color: COLORS.textDim }}>{ev.type || ev.title} · {ev.duration} {ev.source ? `· ${ev.source === "calcom" ? "Cal.com" : ev.source === "google_calendar" ? "Google" : ev.source}` : ""}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       )}
     </div>

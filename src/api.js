@@ -209,6 +209,9 @@ export const api = {
     getLeadSearchOrder: () => req('GET', '/integrations/order/lead-search'),
     saveLeadSearchOrder: (order) => req('POST', '/integrations/order/lead-search', order),
   },
+  calendar: {
+    getEvents: (date) => req('GET', '/calendar/events' + (date ? `?date=${encodeURIComponent(date)}` : '')),
+  },
   stats: {
     dashboard: (params) => {
       const q = new URLSearchParams();
