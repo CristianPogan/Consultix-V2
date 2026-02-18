@@ -415,6 +415,21 @@ export async function saveIntegrationServiceOrder(orgId, leadSearchOrder, leadEn
 // integration_costs — cost_label per integration (displayed in Lead Search Order)
 // =============================================================================
 
+// Verified pricing (Feb 2025) — IcyPeas, AI Ark, NeverBounce, FindyMail from official docs; others from public pricing
+const INTEGRATION_COSTS_SEED = [
+  { key: 'icypeas', label: '~$0.02/lead', tier: 1 },        // 1 credit/result, Basic $19/1K
+  { key: 'ai_ark', label: '~$0.02/lead', tier: 1 },         // 0.5 credits/email, usage-based
+  { key: 'findy', label: '~$0.03/lead', tier: 2 },          // Lead discovery
+  { key: 'wiza', label: '~$0.04/lead', tier: 4 },           // Sales intelligence, pay per verified
+  { key: 'leadsmagix', label: '~$0.025/lead', tier: 3 },    // B2B lead gen
+  { key: 'bettercontact', label: '~$0.01/verify', tier: 1 }, // 1 credit per found+verified
+  { key: 'zerobounce', label: '~$0.008/verify', tier: 1 },   // Tiered, typical rate
+  { key: 'neverbounce', label: '~$0.008/verify', tier: 1 }, // $8/1K credits
+  { key: 'findymail', label: '~$0.02/lead', tier: 1 },      // 1 credit/email
+  { key: 'cleanlist', label: '~$0.012/verify', tier: 2 },   // 1 credit/email
+  { key: 'unipile', label: '€49/month', tier: 5 },           // LinkedIn campaigns only
+];
+
 async function ensureIntegrationCostsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS integration_costs (
@@ -423,12 +438,15 @@ async function ensureIntegrationCostsTable() {
       cost_tier INT DEFAULT 1
     )
   `);
-  await query(
-    `INSERT INTO integration_costs (integration_key, cost_label, cost_tier)
-     VALUES ('unipile', '€49/month', 5)
-     ON CONFLICT (integration_key)
-     DO UPDATE SET cost_label = EXCLUDED.cost_label, cost_tier = EXCLUDED.cost_tier`
-  ).catch(() => {});
+  for (const { key, label, tier } of INTEGRATION_COSTS_SEED) {
+    await query(
+      `INSERT INTO integration_costs (integration_key, cost_label, cost_tier)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (integration_key)
+       DO UPDATE SET cost_label = EXCLUDED.cost_label, cost_tier = EXCLUDED.cost_tier`,
+      [key, label, tier]
+    ).catch(() => {});
+  }
 }
 
 export async function getIntegrationCosts() {
@@ -520,6 +538,93 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
       icpScore: r.icp_fit_score ?? 90,
     };
   });
+}
+
+/**
+ * Get company by id or name/domain for enrichment status check.
+ * @returns {Object|null} { id, name, domain, enriched_at } or null
+ */
+export async function getCompanyEnrichmentStatus(orgId, { id, name, domain }) {
+  if (!orgId) return null;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isUuid = id && typeof id === 'string' && uuidRegex.test(id);
+
+  if (isUuid) {
+    const res = await query(
+      'SELECT id, name, domain, enriched_at FROM companies WHERE org_id = $1 AND id = $2',
+      [orgId, id]
+    );
+    return res.rows[0] || null;
+  }
+
+  const normDomain = (d) => (d || '').replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
+  const dom = normDomain(domain);
+  const nm = (name || '').trim();
+  if (!nm && !dom) return null;
+
+  let sql = 'SELECT id, name, domain, enriched_at FROM companies WHERE org_id = $1';
+  const params = [orgId];
+  let p = 2;
+  if (dom) {
+    sql += ` AND (LOWER(REPLACE(REPLACE(REPLACE(domain, 'https://', ''), 'http://', ''), '/', '')) = $${p} OR domain ILIKE $${p})`;
+    params.push(dom);
+    p++;
+  }
+  if (nm) {
+    sql += ` AND name ILIKE $${p}`;
+    params.push(`%${nm}%`);
+    p++;
+  }
+  sql += ' LIMIT 1';
+  const res = await query(sql, params);
+  return res.rows[0] || null;
+}
+
+/**
+ * Check if enrichment is fresh (within 30 days).
+ */
+export function isEnrichmentFresh(enrichedAt) {
+  if (!enrichedAt) return false;
+  const d = new Date(enrichedAt);
+  const now = new Date();
+  const diffDays = (now - d) / (1000 * 60 * 60 * 24);
+  return diffDays <= 30;
+}
+
+/**
+ * Get leads (contacts) for a company.
+ */
+export async function getLeadsByCompanyId(orgId, companyId) {
+  if (!orgId || !companyId) return [];
+  const res = await query(
+    `SELECT l.id, l.first_name, l.last_name, l.email, l.title, l.company, l.company_domain, l.linkedin_url, l.email_bounce_risk, l.company_data_json
+     FROM leads l WHERE l.org_id = $1 AND l.company_id = $2 ORDER BY l.created_at`,
+    [orgId, companyId]
+  );
+  return res.rows || [];
+}
+
+/**
+ * Upsert company (create or update enriched_at). Returns company id.
+ */
+export async function upsertCompanyForEnrichment(orgId, { name, domain, industry }) {
+  if (!orgId || !name) return null;
+  const dom = (domain || '').replace(/^https?:\/\//, '').split('/')[0].trim() || null;
+  const existing = await getCompanyEnrichmentStatus(orgId, { name, domain });
+  if (existing) {
+    await query(
+      'UPDATE companies SET enriched_at = now(), domain = COALESCE($2, domain) WHERE id = $1',
+      [existing.id, dom]
+    );
+    return existing.id;
+  }
+  const res = await query(
+    `INSERT INTO companies (org_id, name, domain, industry, enriched_at)
+     VALUES ($1, $2, $3, $4, now())
+     RETURNING id`,
+    [orgId, name, dom, industry || null]
+  );
+  return res.rows[0]?.id || null;
 }
 
 async function ensureAppUsersTable() {

@@ -552,103 +552,37 @@ export default function App() {
     setIsProcessing(true);
     setProcessLog([]);
     const selected = discoveredLeads.filter(c => selectedLeads.has(c.id));
-    addLog("→ Connecting to Icypeas email finder...", "system");
-    await sleep(600);
-    addLog("✓ Email search active", "success");
-    await sleep(300);
-    addLog("→ Connecting to NeverBounce verification...", "system");
-    await sleep(500);
-    addLog("✓ Email verification ready\n", "success");
+    addLog("→ Checking Postgres enrichment status (skip if Enriched < 30 days)...", "system");
+    addLog("→ Using LEAD ENRICHMENT waterfall from Settings → Integrations", "info");
 
     let allContacts = [];
-    
     try {
-      // First, get people from IcyPeas for the selected companies
-      for (const company of selected) {
-        addLog(`→ Finding contacts at ${company.name}...`, "system");
-        
-        try {
-          const peopleResult = await api.leadGeneration.discoverIcyPeas({
-            companies: [company.name],
-            jobTitles: icpForm.roles,
-            limit: 5
-          });
-          
-          const people = peopleResult.people || [];
-          
-          for (const person of people) {
-            await sleep(200);
-            
-            // IcyPeas structure: firstname, lastname (lowercase), lastJobTitle
-            const firstName = person.firstname || person.firstName || '';
-            const lastName = person.lastname || person.lastName || '';
-            const fullName = `${firstName} ${lastName}`.trim();
-            
-            if (!fullName) continue; // Skip if no name
-            
-            // Try to find email if not present
-            let email = person.email || person.emailAddress;
-            if (!email && firstName && lastName) {
-              try {
-                addLog(`  → Finding email for ${fullName}...`, "dim");
-                const emailResult = await api.leadGeneration.enrichEmail({
-                  firstName,
-                  lastName,
-                  company: company.name
-                });
-                email = emailResult.email;
-              } catch (e) {
-                email = null;
-              }
-            }
-            
-            // Verify email if found
-            let bounceRisk = "unknown";
-            if (email) {
-              try {
-                const verifyResult = await api.leadGeneration.verifyEmail(email);
-                bounceRisk = verifyResult.verified ? "low" : "high";
-                addLog(`  ✓ ${fullName} (${person.lastJobTitle || person.headline || 'Unknown'}) — ${email} — verified ✓`, "data");
-              } catch (e) {
-                bounceRisk = "unknown";
-                addLog(`  ✓ ${fullName} (${person.lastJobTitle || person.headline || 'Unknown'}) — ${email} — unverified`, "data");
-              }
-            } else {
-              addLog(`  ✓ ${fullName} (${person.lastJobTitle || person.headline || 'Unknown'}) — no email found`, "data");
-            }
-            
-            allContacts.push({
-              id: allContacts.length + 1,
-              name: fullName,
-              title: person.lastJobTitle || person.headline || 'Unknown',
-              email: email || 'Not found',
-              linkedin: person.profileUrl || person.linkedinUrl || '',
-              company: company.name,
-              companyId: company.id,
-              bounceRisk: bounceRisk,
-              linkedinData: person.profileUrl ? {
-                connections: Math.floor(Math.random() * 1000) + 500,
-                posts: Math.floor(Math.random() * 50),
-                about: (person.description || '').substring(0, 200),
-                recentActivity: person.headline || ''
-              } : null
-            });
-          }
-          
-        } catch (err) {
-          addLog(`  ✗ Error enriching ${company.name}: ${err.message}`, "error");
-        }
-      }
-      
-      await sleep(400);
+      const result = await api.leadGeneration.enrichBulk({
+        companies: selected.map(c => ({
+          id: c.id,
+          name: c.name,
+          domain: c.domain || c.website?.replace?.(/^https?:\/\//, ''),
+          industry: c.industry,
+          website: c.website,
+        })),
+        roles: icpForm.roles || ["CEO", "CTO", "VP Sales"],
+        listName: icpForm.listName || undefined,
+      });
+      allContacts = (result.contacts || []).map((c, i) => ({
+        ...c,
+        id: c.id || `gen-${i + 1}`,
+      }));
+      const fromCache = allContacts.filter(c => c.fromCache).length;
+      const enriched = allContacts.length - fromCache;
+      if (fromCache > 0) addLog(`→ Loaded ${fromCache} contacts from cache (enriched < 30 days)`, "info");
+      if (enriched > 0) addLog(`→ Enriched ${enriched} new contacts via waterfall`, "info");
       addLog(`\n✓ Enrichment complete: ${allContacts.length} contacts across ${selected.length} companies`, "success");
       const verified = allContacts.filter(c => c.bounceRisk === "low").length;
       addLog(`  Verified emails: ${verified}/${allContacts.length}`, "info");
-      
     } catch (err) {
       addLog(`✗ Enrichment failed: ${err.message}`, "error");
     }
-    
+
     setEnrichedContacts(allContacts);
     setSelectedContacts(new Set(allContacts.map(c => c.id)));
     setIsProcessing(false);
@@ -7140,7 +7074,7 @@ const INTEGRATIONS_META = [
   { key: "fathom", label: "Fathom", icon: "🎙️", desc: "AI meeting assistant — import call transcripts", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "fireflies", label: "Fireflies.ai", icon: "🔥", desc: "Meeting transcription & analysis", category: "call_recording", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "zoom", label: "Zoom", icon: "📹", desc: "Import recordings & transcripts", category: "call_recording", credentialFields: [{ name: "client_id", label: "Client ID", type: "text" }, { name: "client_secret", label: "Client Secret", type: "password" }] },
-  { key: "unipile", label: "Unipile", icon: "💼", desc: "LinkedIn company data & profile enrichment", category: "enrichment", orderTypes: ["lead_enrichment"], credentialFields: [{ name: "account_id", label: "Account ID", type: "text" }, { name: "access_token", label: "Access Token", type: "password" }, { name: "dsn", label: "DSN", type: "text", placeholder: "e.g. api12.unipile.com:14291" }] },
+  { key: "unipile", label: "Unipile", icon: "💼", desc: "LinkedIn campaigns & actions — execute outreach on LinkedIn (not used in lead enrichment waterfall)", category: "enrichment", orderTypes: [], credentialFields: [{ name: "account_id", label: "Account ID", type: "text" }, { name: "access_token", label: "Access Token", type: "password" }, { name: "dsn", label: "DSN", type: "text", placeholder: "e.g. api12.unipile.com:14291" }] },
   { key: "instantly", label: "Instantly", icon: "📧", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
   { key: "smartlead", label: "SmartLead", icon: "📬", desc: "Cold email campaigns", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
   { key: "heyreach", label: "HeyReach", icon: "🤝", desc: "LinkedIn outreach automation", category: "outreach", credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "campaign_id", label: "Campaign ID", type: "text" }] },
@@ -7151,6 +7085,7 @@ const INTEGRATIONS_META = [
   { key: "neverbounce", label: "NeverBounce", icon: "✉️", desc: "Email verification & deliverability", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.008/verify", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/neverbounce/connect" },
   { key: "ai_ark", label: "AI Ark", icon: "🦅", desc: "B2B data enrichment — people & company lookup", category: "enrichment", orderTypes: ["lead_search", "lead_enrichment"], costLabel: "~$0.02/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/ai-ark/connect" },
   { key: "findy", label: "Findy", icon: "🔍", desc: "Lead discovery & enrichment", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.03/lead", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
+  { key: "findymail", label: "FindyMail", icon: "✉️", desc: "Email finder & verification — find by name+domain, verify address", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.01/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "cleanlist", label: "Cleanlist", icon: "🧹", desc: "List cleaning & verification", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.012/verify", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "wiza", label: "Wiza", icon: "📊", desc: "Sales intelligence & lead data", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.04/lead", costTier: 4, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }] },
   { key: "leadsmagix", label: "Leads Magix", icon: "✨", desc: "B2B lead generation platform", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.025/lead", costTier: 3, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }] },
