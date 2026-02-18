@@ -486,6 +486,9 @@ function expandRegionForSql(region) {
   if (r.includes('europe') || r === 'eu') {
     return ['%GB%', '%UK%', '%United Kingdom%', '%Germany%', '%DE%', '%France%', '%FR%', '%Netherlands%', '%NL%', '%Spain%', '%ES%', '%Italy%', '%IT%'];
   }
+  if ((r.includes('asia') && r.includes('pacific')) || r === 'apac') {
+    return ['%Japan%', '%JP%', '%China%', '%CN%', '%Australia%', '%AU%', '%Singapore%', '%SG%', '%India%', '%IN%', '%South Korea%', '%KR%', '%Hong Kong%', '%HK%', '%New Zealand%', '%NZ%', '%Indonesia%', '%ID%', '%Philippines%', '%PH%', '%Thailand%', '%Vietnam%', '%Malaysia%'];
+  }
   return [`%${r}%`];
 }
 

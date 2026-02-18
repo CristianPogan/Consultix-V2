@@ -5,6 +5,8 @@ import {
   findPeopleIcyPeas,
   findEmailIcyPeas,
   verifyEmailNeverBounce,
+  verifyEmailFindyMail,
+  findEmailFindyMail,
   scrapeWebsite,
   getLinkedInCompanyProfile,
   generatePersonalization,
@@ -13,7 +15,7 @@ import {
   findCompaniesAiArkSemantic,
   findCompaniesAiArkLookalike,
 } from '../services/lead-services.js';
-import { updateLeadsOutreachSentByEmails, getIntegrationCredentials, getIntegrationServiceOrder, searchCompaniesForDiscovery } from '../db.js';
+import { updateLeadsOutreachSentByEmails, getIntegrationCredentials, getIntegrationServiceOrder, searchCompaniesForDiscovery, getCompanyEnrichmentStatus, isEnrichmentFresh, getLeadsByCompanyId, upsertCompanyForEnrichment, query, ensureOrgExists } from '../db.js';
 
 const router = Router();
 
@@ -28,7 +30,7 @@ router.get('/discover/status', async (req, res) => {
     if (!orgId) return res.status(503).json({ error: 'No organisation configured', canRun: false });
 
     const orderRow = await getIntegrationServiceOrder(orgId);
-    const order = orderRow?.lead_search_order || ['ai_ark', 'icypeas', 'findy', 'wiza', 'leadsmagix'];
+    const order = orderRow?.lead_search_order || ['icypeas', 'ai_ark', 'findy', 'wiza', 'leadsmagix'];
     const connected = [];
 
     for (const key of order) {
@@ -81,6 +83,8 @@ router.post('/discover', async (req, res) => {
 
     let companies = [];
     let source = 'postgres';
+    let sqlQueries = [];
+    const waterfallLog = [];
 
     // 1. Lookalike-only mode: use AI Ark similarity with seed domains
     if (lookalikeOnly && lookalike?.trim()) {
@@ -109,8 +113,10 @@ router.post('/discover', async (req, res) => {
     // 2. Semantic mode: Postgres first, then waterfall
     if (companies.length === 0) {
       console.log('[Discover] Postgres search:', { orgId, criteria });
-      const pgResults = await searchCompaniesForDiscovery(orgId, criteria);
-      console.log('[Discover] Postgres result:', { count: pgResults.length, sample: pgResults[0] });
+      const pgResult = await searchCompaniesForDiscovery(orgId, criteria);
+      const pgResults = pgResult.companies || [];
+      sqlQueries = pgResult.sqlQueries || [];
+      console.log('[Discover] Postgres result:', { count: pgResults.length, sample: pgResults[0], queriesRun: sqlQueries.length });
       if (pgResults.length > 0) {
         companies = pgResults.map((c, i) => ({ ...c, id: c.id || `pg-${i + 1}` }));
         source = 'postgres';
@@ -120,7 +126,7 @@ router.post('/discover', async (req, res) => {
     // 3. Waterfall: try integrations in Lead Search Order
     if (companies.length === 0) {
       const orderRow = await getIntegrationServiceOrder(orgId);
-      const order = orderRow?.lead_search_order || ['ai_ark', 'icypeas', 'findy', 'wiza', 'leadsmagix'];
+      const order = orderRow?.lead_search_order || ['icypeas', 'ai_ark', 'findy', 'wiza', 'leadsmagix'];
 
       for (const key of order) {
         if (companies.length > 0) break;
@@ -140,15 +146,22 @@ router.post('/discover', async (req, res) => {
               });
               companies = (results || []).map((c, i) => normalizeCompany(c, i + 1));
               console.log('[Discover] AI Ark semantic result:', { count: companies.length });
+              waterfallLog.push({ key: 'ai_ark', tried: true, count: companies.length });
               if (companies.length > 0) source = 'ai_ark';
             } catch (err) {
               console.warn('[Discover] AI Ark semantic failed:', err.message);
+              waterfallLog.push({ key: 'ai_ark', tried: true, error: err.message });
             }
+          } else {
+            waterfallLog.push({ key: 'ai_ark', tried: false, reason: 'no_api_key' });
           }
         } else if (key === 'icypeas') {
           const creds = await getIntegrationCredentials(orgId, 'icypeas');
           const apiKey = creds?.connected && creds?.credentials_json?.api_key;
-          if (!apiKey) continue;
+          if (!apiKey) {
+            waterfallLog.push({ key: 'icypeas', tried: false, reason: 'no_api_key' });
+            continue;
+          }
           try {
             const icypeasCriteria = {
               apiKey,
@@ -167,10 +180,14 @@ router.post('/discover', async (req, res) => {
             console.log('[Discover] IcyPeas result:', { count: result.leads?.length ?? result.people?.length ?? 0, keys: Object.keys(result) });
             const people = result.leads || result.people || result.data || (Array.isArray(result) ? result : []);
             companies = peopleToCompanies(people, criteria.industry, criteria.regions);
+            waterfallLog.push({ key: 'icypeas', tried: true, count: companies.length });
             if (companies.length > 0) source = 'icypeas';
           } catch (err) {
             console.warn('[Discover] IcyPeas failed:', err.message);
+            waterfallLog.push({ key: 'icypeas', tried: true, error: err.message });
           }
+        } else if (key === 'findy' || key === 'wiza' || key === 'leadsmagix') {
+          waterfallLog.push({ key, tried: false, reason: 'not_implemented_for_discovery' });
         }
       }
     }
@@ -180,6 +197,8 @@ router.post('/discover', async (req, res) => {
       count: companies.length,
       companies,
       source,
+      sqlQueries: sqlQueries || [],
+      waterfallLog: waterfallLog || [],
     });
   } catch (err) {
     console.error('Discover error:', err);
@@ -334,16 +353,78 @@ router.post('/discover/icypeas', async (req, res) => {
 // LEAD ENRICHMENT
 // ============================================================================
 
+// Helpers for enrichment waterfall (uses lead_enrichment_order from Settings)
+const FIND_EMAIL_KEYS = ['findymail', 'icypeas', 'ai_ark'];
+const VERIFY_EMAIL_KEYS = ['findymail', 'neverbounce', 'bettercontact', 'zerobounce', 'cleanlist'];
+
+async function findEmailWaterfall(orgId, { firstName, lastName, company, domain }) {
+  const orderRow = await getIntegrationServiceOrder(orgId);
+  const order = orderRow?.lead_enrichment_order || ['findymail', 'icypeas', 'neverbounce', 'bettercontact'];
+  const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+  const dom = (domain || (company && company.includes('.') ? company : '')).replace(/^https?:\/\//, '').split('/')[0];
+
+  for (const key of order) {
+    if (!FIND_EMAIL_KEYS.includes(key)) continue;
+    const creds = await getIntegrationCredentials(orgId, key);
+    const apiKey = creds?.connected && creds?.credentials_json?.api_key;
+    if (!apiKey) continue;
+
+    try {
+      if (key === 'findymail' && fullName && dom) {
+        const data = await findEmailFindyMail(apiKey, { name: fullName, domain: dom });
+        if (data?.email) return { email: data.email, confidence: data.confidence, source: key };
+      } else if (key === 'icypeas') {
+        const data = await findEmailIcyPeas({ firstName, lastName, company }, apiKey);
+        const email = data?.email || data?.emails?.[0];
+        if (email) return { email, confidence: data.confidence, source: key };
+      }
+    } catch (e) {
+      console.log(`[Enrich] ${key} find-email failed:`, e.message);
+    }
+  }
+  throw new Error('No enrichment integration could find email');
+}
+
+async function verifyEmailWaterfall(orgId, email) {
+  const orderRow = await getIntegrationServiceOrder(orgId);
+  const order = orderRow?.lead_enrichment_order || ['findymail', 'neverbounce', 'bettercontact'];
+  let lastErr = null;
+
+  for (const key of order) {
+    if (!VERIFY_EMAIL_KEYS.includes(key)) continue;
+    const creds = await getIntegrationCredentials(orgId, key);
+    const apiKey = creds?.connected && creds?.credentials_json?.api_key;
+    if (!apiKey) continue;
+
+    try {
+      if (key === 'findymail') {
+        const data = await verifyEmailFindyMail(apiKey, email);
+        return { result: data.verified ? 'valid' : 'invalid', verified: data.verified, source: key };
+      } else if (key === 'neverbounce') {
+        const data = await verifyEmailNeverBounce(email, apiKey);
+        return { result: data.result === 'valid' ? 'valid' : 'invalid', verified: data.result === 'valid', source: key };
+      }
+    } catch (e) {
+      lastErr = e;
+      console.log(`[Enrich] ${key} verify failed:`, e.message);
+    }
+  }
+  throw lastErr || new Error('No verification integration available');
+}
+
 // POST /api/lead-generation/enrich/email
 router.post('/enrich/email', async (req, res) => {
   try {
-    const { firstName, lastName, company } = req.body;
+    const orgId = req.orgId;
+    if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+
+    const { firstName, lastName, company, domain } = req.body;
     
     if (!firstName || !lastName || !company) {
       return res.status(400).json({ error: 'firstName, lastName, and company are required' });
     }
 
-    const emailData = await findEmailIcyPeas({ firstName, lastName, company });
+    const emailData = await findEmailWaterfall(orgId, { firstName, lastName, company, domain });
     
     res.json({ 
       success: true, 
@@ -360,22 +441,183 @@ router.post('/enrich/email', async (req, res) => {
 // POST /api/lead-generation/verify/email
 router.post('/verify/email', async (req, res) => {
   try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+
     const { email } = req.body;
     
     if (!email) {
       return res.status(400).json({ error: 'email is required' });
     }
 
-    const verification = await verifyEmailNeverBounce(email);
+    const verification = await verifyEmailWaterfall(orgId, email);
     
     res.json({ 
       success: true, 
       result: verification.result,
-      flags: verification.flags,
-      verified: verification.result === 'valid'
+      verified: verification.verified === true
     });
   } catch (err) {
     console.error('Email verification error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/lead-generation/enrich/bulk — Check Postgres status (Enriched < 30 days), skip or run waterfall
+router.post('/enrich/bulk', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    await ensureOrgExists(orgId);
+
+    const { companies: companiesInput, roles, listName } = req.body || {};
+    if (!companiesInput || !Array.isArray(companiesInput) || companiesInput.length === 0) {
+      return res.status(400).json({ error: 'companies array is required' });
+    }
+
+    const rolesList = Array.isArray(roles) ? roles : (roles ? [roles] : ['CEO', 'CTO', 'VP Sales']);
+    const allContacts = [];
+    let listId = null;
+    if (listName) {
+      const listRes = await query(
+        `INSERT INTO lead_lists (org_id, name, source, status, total_contacts, enriched_count)
+         VALUES ($1, $2, 'discovery', 'draft', 0, 0)
+         RETURNING id`,
+        [orgId, listName]
+      );
+      listId = listRes.rows[0]?.id;
+    }
+
+    for (const comp of companiesInput) {
+      const companyName = comp.name || comp.company;
+      const domain = comp.domain || comp.website?.replace?.(/^https?:\/\//, '') || '';
+      if (!companyName) continue;
+
+      const status = await getCompanyEnrichmentStatus(orgId, { id: comp.id, name: companyName, domain });
+      const skipEnrich = status && isEnrichmentFresh(status.enriched_at);
+
+      if (skipEnrich && status.id) {
+        console.log('[Enrich] Skipping', companyName, '- enriched within 30 days');
+        const leads = await getLeadsByCompanyId(orgId, status.id);
+        for (const l of leads) {
+          const name = [l.first_name, l.last_name].filter(Boolean).join(' ') || l.email || 'Unknown';
+          allContacts.push({
+            id: l.id,
+            name,
+            title: l.title || 'Unknown',
+            email: l.email || 'Not found',
+            linkedin: l.linkedin_url || '',
+            company: l.company || companyName,
+            companyId: status.id,
+            bounceRisk: l.email_bounce_risk === 'low' ? 'low' : l.email_bounce_risk === 'high' ? 'high' : 'unknown',
+            linkedinData: l.company_data_json?.linkedinData || null,
+            fromCache: true,
+          });
+        }
+        continue;
+      }
+
+      // Run waterfall enrichment
+      const icypeasCreds = await getIntegrationCredentials(orgId, 'icypeas');
+      const icypeasKey = icypeasCreds?.connected && icypeasCreds?.credentials_json?.api_key;
+      if (!icypeasKey) {
+        console.log('[Enrich] No IcyPeas — cannot find people for', companyName);
+        continue;
+      }
+
+      let people = [];
+      try {
+        const result = await findPeopleIcyPeas({
+          companies: [companyName],
+          jobTitles: rolesList,
+          limit: 5,
+          apiKey: icypeasKey,
+        });
+        people = result.leads || result.people?.leads || result.people || result.data || (Array.isArray(result) ? result : []);
+      } catch (e) {
+        console.log('[Enrich] IcyPeas find-people failed for', companyName, e.message);
+        continue;
+      }
+
+      const companyId = await upsertCompanyForEnrichment(orgId, {
+        name: companyName,
+        domain: domain || undefined,
+        industry: comp.industry,
+      });
+
+      for (const person of people) {
+        const firstName = person.firstname || person.firstName || '';
+        const lastName = person.lastname || person.lastName || '';
+        const fullName = `${firstName} ${lastName}`.trim();
+        if (!fullName) continue;
+
+        let email = person.email || person.emailAddress;
+        if (!email) {
+          try {
+            const dom = (domain || companyName).replace(/^https?:\/\//, '').split('/')[0];
+            const emailData = await findEmailWaterfall(orgId, {
+              firstName,
+              lastName,
+              company: companyName,
+              domain: dom,
+            });
+            email = emailData?.email;
+          } catch (_) {}
+        }
+
+        let bounceRisk = 'unknown';
+        if (email) {
+          try {
+            const v = await verifyEmailWaterfall(orgId, email);
+            bounceRisk = v.verified ? 'low' : 'high';
+          } catch (_) {}
+        }
+
+        const contact = {
+          id: `gen-${allContacts.length + 1}`,
+          name: fullName,
+          title: person.lastJobTitle || person.headline || 'Unknown',
+          email: email || 'Not found',
+          linkedin: person.profileUrl || person.linkedinUrl || '',
+          company: companyName,
+          companyId,
+          bounceRisk,
+          linkedinData: person.profileUrl ? { about: (person.description || '').substring(0, 200), recentActivity: person.headline || '' } : null,
+          fromCache: false,
+        };
+        allContacts.push(contact);
+
+        if (listId && companyId && email && email !== 'Not found') {
+          try {
+            await query(
+              `INSERT INTO leads (org_id, list_id, company_id, first_name, last_name, email, title, company, company_domain, linkedin_url, email_verified, email_bounce_risk, company_data_json)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)`,
+              [
+                orgId,
+                listId,
+                companyId,
+                firstName,
+                lastName,
+                email,
+                contact.title,
+                companyName,
+                domain || null,
+                contact.linkedin || null,
+                bounceRisk === 'low',
+                bounceRisk,
+                JSON.stringify(contact.linkedinData || {}),
+              ]
+            );
+          } catch (e) {
+            console.log('[Enrich] Lead insert error:', e.message);
+          }
+        }
+      }
+    }
+
+    res.json({ success: true, contacts: allContacts });
+  } catch (err) {
+    console.error('Bulk enrichment error:', err);
     res.status(500).json({ error: err.message });
   }
 });

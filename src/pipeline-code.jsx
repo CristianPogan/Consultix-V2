@@ -520,21 +520,37 @@ export default function App() {
       const companies = result.companies || [];
       const source = result.source || "unknown";
       const sqlQueries = result.sqlQueries || [];
+      const waterfallLog = result.waterfallLog || [];
 
-      if (sqlQueries.length > 0) {
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[Discovery] API result:", { count: companies.length, source, sqlQueriesCount: sqlQueries?.length ?? 0, sqlQueries, waterfallLog });
+      }
+
+      if (Array.isArray(sqlQueries) && sqlQueries.length > 0) {
         addLog(`\n→ Postgres SQL queries run (${sqlQueries.length}):`, "system");
         for (const q of sqlQueries) {
           const paramsStr = (q.params || []).map((p, i) => `$${i + 1}=${JSON.stringify(p)}`).join(", ");
           addLog(`  [${q.label}] → ${q.rowCount ?? "?"} rows`, "info");
-          addLog(`  SQL: ${(q.sql || "").replace(/\s+/g, " ").trim()}`, "dim");
+          const sqlOneLine = (q.sql || "").replace(/\s+/g, " ").trim();
+          addLog(`  SQL: ${sqlOneLine}`, "dim");
           if (paramsStr) addLog(`  Params: ${paramsStr}`, "dim");
+        }
+      } else if (source === "postgres") {
+        addLog(`\n→ Postgres ran but returned no matching companies`, "info");
+      }
+      if (Array.isArray(waterfallLog) && waterfallLog.length > 0) {
+        addLog(`\n→ Waterfall (Lead Search order):`, "system");
+        for (const w of waterfallLog) {
+          const status = w.tried ? (w.count > 0 ? `${w.count} companies` : (w.error ? `failed: ${w.error}` : "0 companies")) : (w.reason || "skipped");
+          addLog(`  ${w.key}: ${status}`, "dim");
         }
       }
       addLog(`→ Received ${companies.length} companies (source: ${source})`, "info");
 
       if (companies.length === 0) {
         addLog(`⚠ No companies found with current criteria`, "info");
-        addLog("→ Try broadening filters (industry, regions, roles) or check integration credentials in Settings", "info");
+        addLog("→ Postgres: try Industry=B2B SaaS or Facilities Services; Regions=North America only; or fewer employee filters", "info");
+        addLog("→ Settings > Integrations: configure IcyPeas or AI Ark for waterfall fallback", "info");
         setDiscoveredLeads([]);
         setSelectedLeads(new Set());
         setIsProcessing(false);
