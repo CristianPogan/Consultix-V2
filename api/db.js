@@ -131,6 +131,74 @@ export async function ensureProjectStatsColumns() {
   } catch (_) {}
 }
 
+// =============================================================================
+// form_schemas — Brand Voice, Buyer Persona question definitions (no hardcoding)
+// =============================================================================
+const DEFAULT_BRAND_VOICE_SCHEMA = [
+  { section: 'About You', sort_order: 0, field_key: 'name', label: "What's your full name?", placeholder: 'Andrew Dunn', field_type: 'input' },
+  { section: 'About You', sort_order: 1, field_key: 'title', label: "What's your current role / title?", placeholder: 'AI Consultant & Founder, Vibe Consulting', field_type: 'input' },
+  { section: 'About You', sort_order: 2, field_key: 'industry', label: 'What industry do you operate in?', placeholder: 'AI Consulting, B2B SaaS, Automation', field_type: 'input' },
+  { section: 'About You', sort_order: 3, field_key: 'experience', label: 'How many years of experience do you have?', placeholder: 'e.g. 8 years in tech, 3 in AI consulting', field_type: 'input' },
+  { section: 'About You', sort_order: 4, field_key: 'unique', label: "What makes you different from others in your space?", placeholder: "e.g. I run a one-person agency that competes with teams of 20 using AI leverage...", field_type: 'textarea' },
+  { section: 'Your Audience', sort_order: 0, field_key: 'audience_who', label: 'Who is your ideal audience?', placeholder: 'e.g. B2B founders, VPs of Sales, heads of growth at SaaS companies (50-500 employees)', field_type: 'textarea' },
+  { section: 'Your Audience', sort_order: 1, field_key: 'audience_problems', label: "What are their biggest pain points?", placeholder: "e.g. Spending too much on lead gen tools, low reply rates, can't personalise at scale...", field_type: 'textarea' },
+  { section: 'Your Audience', sort_order: 2, field_key: 'audience_goals', label: "What outcomes do they want?", placeholder: "e.g. More qualified meetings, lower CAC, efficient outbound that doesn't feel spammy", field_type: 'textarea' },
+  { section: 'Content Pillars', sort_order: 0, field_key: 'topics', label: 'What are your 3-5 core topics you create content about?', placeholder: 'e.g. AI automation, lead generation, cold outreach, one-person business, vibe coding', field_type: 'textarea' },
+  { section: 'Content Pillars', sort_order: 1, field_key: 'strong_opinions', label: 'What are your strongest opinions / hot takes?', placeholder: "e.g. One-person businesses will outperform agencies. AI won't replace consultants but consultants using AI will replace those who don't...", field_type: 'textarea' },
+  { section: 'Content Pillars', sort_order: 2, field_key: 'stories', label: 'What personal stories or case studies do you reference often?', placeholder: 'e.g. Building Vibe Consulting from scratch, client results (100 testimonials), specific client wins...', field_type: 'textarea' },
+  { section: 'Writing Style', sort_order: 0, field_key: 'tone', label: 'How would you describe your tone?', placeholder: 'e.g. Direct, no-fluff, conversational but authoritative. I use short sentences and paragraphs.', field_type: 'textarea' },
+  { section: 'Writing Style', sort_order: 1, field_key: 'vocabulary', label: "Any specific phrases, words or expressions you use often?", placeholder: "e.g. 'Here's the thing', 'Let me break this down', 'The real question is...'", field_type: 'textarea' },
+  { section: 'Writing Style', sort_order: 2, field_key: 'avoid', label: 'What words or styles do you avoid?', placeholder: "e.g. Corporate jargon, buzzwords like 'synergy', overly formal language, emoji overuse", field_type: 'textarea' },
+  { section: 'Writing Style', sort_order: 3, field_key: 'formatting', label: 'How do you typically format your posts?', placeholder: 'e.g. Short paragraphs, line breaks between thoughts, bold opening hook, end with a question', field_type: 'textarea' },
+  { section: 'Content Goals', sort_order: 0, field_key: 'goal', label: "What's the primary goal of your content?", placeholder: 'e.g. Generate inbound leads, build authority, grow audience, drive traffic to offers', field_type: 'input' },
+  { section: 'Content Goals', sort_order: 1, field_key: 'cta_style', label: "How do you typically end posts / what's your CTA style?", placeholder: "e.g. Ask a question, invite DMs, point to a link, 'Follow for more...'", field_type: 'textarea' },
+  { section: 'Content Goals', sort_order: 2, field_key: 'frequency', label: 'How often do you want to post?', placeholder: 'e.g. Daily on LinkedIn, 3x/week on video, engage in communities daily', field_type: 'input' },
+  { section: 'Examples', sort_order: 0, field_key: 'best_post', label: "Paste your best-performing post (the one that felt most 'you'):", placeholder: 'Paste your best LinkedIn post, tweet, or content piece here...', field_type: 'textarea_lg' },
+  { section: 'Examples', sort_order: 1, field_key: 'inspiration', label: 'Who do you look up to content-wise? (creators, writers, thought leaders)', placeholder: 'e.g. Alex Hormozi, Chris Walker, Justin Welsh, Sahil Bloom', field_type: 'input' },
+];
+
+async function ensureFormSchemasTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS form_schemas (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      form_type TEXT NOT NULL,
+      section TEXT NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      field_key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      placeholder TEXT DEFAULT '',
+      field_type TEXT NOT NULL DEFAULT 'input',
+      created_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE(form_type, field_key)
+    )
+  `);
+  await query('CREATE INDEX IF NOT EXISTS idx_form_schemas_type ON form_schemas(form_type)').catch(() => {});
+}
+
+export async function getFormSchema(formType) {
+  await ensureFormSchemasTable();
+  const res = await query(
+    'SELECT section, sort_order, field_key, label, placeholder, field_type FROM form_schemas WHERE form_type = $1 ORDER BY section, sort_order, field_key',
+    [formType]
+  );
+  if (!res.rows?.length && formType === 'brand_voice') {
+    for (const row of DEFAULT_BRAND_VOICE_SCHEMA) {
+      await query(
+        `INSERT INTO form_schemas (form_type, section, sort_order, field_key, label, placeholder, field_type)
+         VALUES ('brand_voice', $1, $2, $3, $4, $5, $6)
+         ON CONFLICT (form_type, field_key) DO NOTHING`,
+        [row.section, row.sort_order, row.field_key, row.label, row.placeholder, row.field_type]
+      );
+    }
+    const reselect = await query(
+      'SELECT section, sort_order, field_key, label, placeholder, field_type FROM form_schemas WHERE form_type = $1 ORDER BY section, sort_order, field_key',
+      [formType]
+    );
+    return reselect.rows || [];
+  }
+  return res.rows || [];
+}
+
 // Ensure project_settings table for project-scoped settings (e.g. ai_sdr)
 export async function ensureProjectSettingsTable() {
   try {
@@ -367,6 +435,91 @@ export async function getIntegrationCosts() {
   await ensureIntegrationCostsTable();
   const res = await query('SELECT integration_key, cost_label, cost_tier FROM integration_costs');
   return Object.fromEntries((res.rows || []).map(r => [r.integration_key, { cost_label: r.cost_label, cost_tier: r.cost_tier }]));
+}
+
+// Map UI employee ranges to (min, max) for SQL
+const EMPLOYEE_RANGE_MAP = {
+  '1-10': [1, 10],
+  '11-50': [11, 50],
+  '51-200': [51, 200],
+  '201-500': [201, 500],
+  '501-1,000': [501, 1000],
+  '1,001-5,000': [1001, 5000],
+  '5,000+': [5000, 999999999],
+};
+
+/**
+ * Search companies (and optionally leads) in Postgres for discovery.
+ * Returns companies matching ICP criteria in DiscoveryPanel format.
+ */
+export async function searchCompaniesForDiscovery(orgId, criteria) {
+  const { industry, keywords, employeeSizes, regions, roles, maxLeads = 200 } = criteria || {};
+  const limit = Math.min(parseInt(maxLeads, 10) || 200, 500);
+
+  let sql = `
+    SELECT c.id, c.name, c.domain, c.industry, c.employee_count, c.employee_range,
+           c.headquarters_city, c.headquarters_state, c.headquarters_country,
+           c.icp_fit_score, c.description, c.technologies
+    FROM companies c
+    WHERE c.org_id = $1`;
+  const params = [orgId];
+  let paramIdx = 2;
+
+  if (industry?.trim()) {
+    sql += ` AND (c.industry ILIKE $${paramIdx} OR c.industry = $${paramIdx})`;
+    params.push(`%${industry.trim()}%`);
+    paramIdx++;
+  }
+
+  if (keywords?.trim()) {
+    const firstKw = keywords.split(',')[0].trim();
+    if (firstKw) {
+      const pattern = `%${firstKw}%`;
+      sql += ` AND (COALESCE(c.description, '') ILIKE $${paramIdx} OR COALESCE(c.industry, '') ILIKE $${paramIdx})`;
+      params.push(pattern);
+      paramIdx++;
+    }
+  }
+
+  if (employeeSizes?.length) {
+    const ranges = employeeSizes.map(r => EMPLOYEE_RANGE_MAP[r] || null).filter(Boolean);
+    if (ranges.length) {
+      const minV = Math.min(...ranges.map(([a]) => a));
+      const maxV = Math.max(...ranges.map(([, b]) => b));
+      sql += ` AND c.employee_count BETWEEN $${paramIdx} AND $${paramIdx + 1}`;
+      params.push(minV, maxV);
+      paramIdx += 2;
+    }
+  }
+
+  if (regions?.length) {
+    const orParts = [];
+    for (const r of regions) {
+      const p = `%${String(r).trim()}%`;
+      orParts.push(`(COALESCE(c.headquarters_country, '') ILIKE $${paramIdx} OR COALESCE(c.headquarters_state, '') ILIKE $${paramIdx})`);
+      params.push(p);
+      paramIdx++;
+    }
+    sql += ` AND (${orParts.join(' OR ')})`;
+  }
+
+  sql += ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $${paramIdx}`;
+  params.push(limit);
+
+  const result = await query(sql, params);
+  return (result.rows || []).map(r => {
+    const loc = [r.headquarters_city, r.headquarters_state, r.headquarters_country].filter(Boolean).join(', ');
+    return {
+      id: r.id,
+      name: r.name,
+      domain: r.domain,
+      industry: r.industry,
+      employees: r.employee_count ?? r.employee_range ?? 'N/A',
+      location: loc || 'Unknown',
+      website: r.domain ? `https://${r.domain.replace(/^https?:\/\//, '')}` : null,
+      icpScore: r.icp_fit_score ?? 90,
+    };
+  });
 }
 
 async function ensureAppUsersTable() {

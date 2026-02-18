@@ -169,7 +169,8 @@ export const api = {
     getDefaults: () => req('GET', '/prompts/defaults'),
   },
   leadGeneration: {
-    // Discovery
+    // Discovery (Postgres first, then waterfall: AI Ark, IcyPeas, etc.)
+    discover: (params) => req('POST', '/lead-generation/discover', params),
     discoverApollo: (params) => req('POST', '/lead-generation/discover/apollo', params),
     discoverGoogleMaps: (params) => req('POST', '/lead-generation/discover/google-maps', params),
     discoverIcyPeas: (params) => req('POST', '/lead-generation/discover/icypeas', params),
@@ -198,6 +199,7 @@ export const api = {
       if (params?.projectId != null) body.projectId = params.projectId;
       return req('POST', `/settings/${type}` + (params?.projectId != null ? `?project_id=${encodeURIComponent(params.projectId)}` : ''), body);
     },
+    getFormSchema: (formType) => req('GET', `/settings/schema/${formType}`),
   },
   integrations: {
     list: () => req('GET', '/integrations'),

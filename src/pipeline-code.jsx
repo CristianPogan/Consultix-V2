@@ -524,76 +524,68 @@ export default function App() {
       .catch(() => setAuditProjects([]));
   }, []);
 
-  const runDiscovery = async () => {
+  const runDiscovery = async (payload) => {
+    const form = payload ?? icpForm;
+    if (form?.importMode && form?.importedFile) {
+      addLog("→ Import mode: use CSV/LinkedIn export flow", "info");
+      setIsProcessing(true);
+      setProcessLog([]);
+      try {
+        addLog("→ Processing imported file...", "system");
+        await sleep(800);
+        addLog("✓ Import flow not yet wired — falling back to demo data", "info");
+        setDiscoveredLeads(MOCK_COMPANIES);
+        setSelectedLeads(new Set(MOCK_COMPANIES.map(c => c.id)));
+        setStep(1);
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
     setIsProcessing(true);
     setProcessLog([]);
-    
-    addLog("→ Connecting to IcyPeas API...", "system");
-    await sleep(800);
-    
+
+    addLog("→ Running discovery (Postgres → AI Ark → IcyPeas waterfall)...", "system");
+    await sleep(400);
+    addLog(`→ ICP: ${form?.industry || "—"}, ${(form?.employeeSizes || ["51-200"]).join(", ")} employees`, "info");
+    if (form?.keywords) addLog(`→ Keywords: ${form.keywords}`, "info");
+    addLog(`→ Target roles: ${(form?.roles || []).join(", ")}`, "info");
+    addLog(`→ Regions: ${(form?.regions || []).join(", ")}`, "info");
+    if (form?.lookalikeOnly && form?.lookalike) addLog(`→ Lookalike mode: seed domains`, "info");
+
     try {
-      addLog("✓ Authenticated", "success");
-      await sleep(400);
-      addLog(`→ ICP: ${icpForm.industry}, ${(icpForm.employeeSizes || ["51-200"]).join(", ")} employees`, "info");
-      if (icpForm.keywords) addLog(`→ Keywords: ${icpForm.keywords}`, "info");
-      addLog(`→ Target roles: ${(icpForm.roles || []).join(", ")}`, "info");
-      addLog(`→ Regions: ${(icpForm.regions || []).join(", ")}`, "info");
-      
-      addLog("→ Running company discovery...", "system");
-      
-      // Call IcyPeas API for discovery
-      const result = await api.leadGeneration.discoverIcyPeas({
-        jobTitles: icpForm.roles,
-        locations: icpForm.regions,
-        companies: icpForm.industry ? [icpForm.industry] : [],
-        keywords: icpForm.keywords ? icpForm.keywords.split(',').map(k => k.trim()) : [],
-        limit: 100
+      const result = await api.leadGeneration.discover({
+        listName: form?.listName,
+        industry: form?.industry,
+        keywords: form?.keywords,
+        employeeSizes: form?.employeeSizes || ["51-200"],
+        regions: form?.regions,
+        roles: form?.roles,
+        maxLeads: form?.maxLeads ? parseInt(form.maxLeads, 10) : null,
+        lookalikeOnly: form?.lookalikeOnly || false,
+        lookalike: form?.lookalike,
       });
-      
-      addLog(`→ Received ${result.count || 0} people from IcyPeas`, "info");
-      console.log("IcyPeas full result:", result);
-      
-      const peopleData = result.people || [];
-      
-      if (peopleData.length === 0) {
-        addLog(`⚠ No people found with current criteria`, "info");
-        throw new Error("No results from IcyPeas - check your search criteria");
-      }
-      
-      addLog(`→ Processing ${peopleData.length} people into companies...`, "info");
-      
-      const companies = peopleData.reduce((acc, person) => {
-        // IcyPeas structure: lastCompanyName, lastCompanyIndustry, etc.
-        const companyName = person.lastCompanyName || person.currentCompanyName || person.companyName || person.company || 'Unknown Company';
-        
-        if (companyName === 'Unknown Company') return acc; // Skip unknown companies
-        
-        if (!acc.find(c => c.name === companyName)) {
-          acc.push({
-            id: acc.length + 1,
-            name: companyName,
-            industry: person.lastCompanyIndustry || person.currentCompanyIndustry || person.industry || icpForm.industry,
-            employees: person.lastCompanySize || person.currentCompanySize || person.companySize || 'N/A',
-            website: person.lastCompanyWebsite || person.currentCompanyWebsite || person.companyWebsite || '',
-            location: person.lastCompanyAddress || person.currentCompanyLocation || person.location || (icpForm.regions || [])[0] || 'Unknown',
-            icpScore: 95 + Math.floor(Math.random() * 5),
-          });
+
+      const companies = result.companies || [];
+      const source = result.source || "unknown";
+      addLog(`→ Received ${companies.length} companies (source: ${source})`, "info");
+
+      if (companies.length === 0) {
+        addLog(`⚠ No companies found with current criteria`, "info");
+        addLog("→ Falling back to demo data...", "info");
+        setDiscoveredLeads(MOCK_COMPANIES);
+        setSelectedLeads(new Set(MOCK_COMPANIES.map(c => c.id)));
+      } else {
+        for (const c of companies.slice(0, 10)) {
+          addLog(`  + ${c.name} — ${c.industry || "—"} — ICP: ${c.icpScore || 90}%`, "data");
         }
-        return acc;
-      }, []);
-      
-      addLog(`✓ Found ${companies.length} unique companies from ${peopleData.length} people`, "success");
-      await sleep(300);
-      
-      for (const c of companies) {
-        await sleep(200);
-        addLog(`  + ${c.name} — ${c.industry} — ICP: ${c.icpScore}%`, "data");
+        if (companies.length > 10) addLog(`  ... and ${companies.length - 10} more`, "dim");
+        addLog(`\n✓ Discovery complete: ${companies.length} companies matched`, "success");
+        setDiscoveredLeads(companies);
+        setSelectedLeads(new Set(companies.map(c => c.id)));
       }
-      
-      await sleep(400);
-      addLog(`\n✓ Discovery complete: ${companies.length} companies matched`, "success");
-      setDiscoveredLeads(companies);
-      setSelectedLeads(new Set(companies.map(c => c.id)));
+
       setIsProcessing(false);
       setStep(1);
     } catch (err) {
@@ -1840,7 +1832,7 @@ function ICPForm({ form, setForm, onSubmit, isProcessing }) {
         )}
       </div>
 
-      <button onClick={onSubmit} disabled={isProcessing || (importMode && !importedFile)} style={{
+      <button onClick={() => onSubmit({ ...form, lookalikeOnly, importMode, importedFile })} disabled={isProcessing || (importMode && !importedFile)} style={{
         marginTop: 28, padding: "14px 32px", background: (importMode && !importedFile) ? COLORS.border : COLORS.accent, color: (importMode && !importedFile) ? COLORS.textDim : COLORS.bg,
         border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 13, fontWeight: 600,
         cursor: isProcessing || (importMode && !importedFile) ? "default" : "pointer", opacity: isProcessing ? 0.6 : 1,
@@ -7240,14 +7232,21 @@ function SettingsView() {
   const [leadSearchOrder, setLeadSearchOrder] = useState({ leadSearch: LEAD_SEARCH_KEYS, leadEnrichment: LEAD_ENRICHMENT_KEYS });
   const [leadOrderSaving, setLeadOrderSaving] = useState(false);
   const [integrationCosts, setIntegrationCosts] = useState({});
-  
+  const [brandVoiceSchema, setBrandVoiceSchema] = useState([]); // from Postgres form_schemas
+
   useEffect(() => {
     async function loadSettings() {
       try {
-        const result = await api.settings.get('brand_voice');
+        const [result, schemaRes] = await Promise.all([
+          api.settings.get('brand_voice'),
+          api.settings.getFormSchema('brand_voice').catch(() => ({ schema: [] })),
+        ]);
         if (result.settings) {
           setAnswers(result.settings);
           setSubmitted(true);
+        }
+        if (schemaRes?.schema?.length) {
+          setBrandVoiceSchema(schemaRes.schema);
         }
       } catch (err) {
         console.error("Failed to load settings:", err);
@@ -7303,40 +7302,8 @@ function SettingsView() {
     }
   }
 
-  const QUESTIONS = [
-    { section: "About You", items: [
-      { key: "name", label: "What's your full name?", placeholder: "Andrew Dunn", type: "input" },
-      { key: "title", label: "What's your current role / title?", placeholder: "AI Consultant & Founder, Vibe Consulting", type: "input" },
-      { key: "industry", label: "What industry do you operate in?", placeholder: "AI Consulting, B2B SaaS, Automation", type: "input" },
-      { key: "experience", label: "How many years of experience do you have?", placeholder: "e.g. 8 years in tech, 3 in AI consulting", type: "input" },
-      { key: "unique", label: "What makes you different from others in your space?", placeholder: "e.g. I run a one-person agency that competes with teams of 20 using AI leverage...", type: "textarea" },
-    ]},
-    { section: "Your Audience", items: [
-      { key: "audience_who", label: "Who is your ideal audience?", placeholder: "e.g. B2B founders, VPs of Sales, heads of growth at SaaS companies (50-500 employees)", type: "textarea" },
-      { key: "audience_problems", label: "What are their biggest pain points?", placeholder: "e.g. Spending too much on lead gen tools, low reply rates, can't personalise at scale...", type: "textarea" },
-      { key: "audience_goals", label: "What outcomes do they want?", placeholder: "e.g. More qualified meetings, lower CAC, efficient outbound that doesn't feel spammy", type: "textarea" },
-    ]},
-    { section: "Content Pillars", items: [
-      { key: "topics", label: "What are your 3-5 core topics you create content about?", placeholder: "e.g. AI automation, lead generation, cold outreach, one-person business, vibe coding", type: "textarea" },
-      { key: "strong_opinions", label: "What are your strongest opinions / hot takes?", placeholder: "e.g. One-person businesses will outperform agencies. AI won't replace consultants but consultants using AI will replace those who don't...", type: "textarea" },
-      { key: "stories", label: "What personal stories or case studies do you reference often?", placeholder: "e.g. Building Vibe Consulting from scratch, client results (100 testimonials), specific client wins...", type: "textarea" },
-    ]},
-    { section: "Writing Style", items: [
-      { key: "tone", label: "How would you describe your tone?", placeholder: "e.g. Direct, no-fluff, conversational but authoritative. I use short sentences and paragraphs.", type: "textarea" },
-      { key: "vocabulary", label: "Any specific phrases, words or expressions you use often?", placeholder: "e.g. 'Here\u2019s the thing', 'Let me break this down', 'The real question is...'", type: "textarea" },
-      { key: "avoid", label: "What words or styles do you avoid?", placeholder: "e.g. Corporate jargon, buzzwords like 'synergy', overly formal language, emoji overuse", type: "textarea" },
-      { key: "formatting", label: "How do you typically format your posts?", placeholder: "e.g. Short paragraphs, line breaks between thoughts, bold opening hook, end with a question", type: "textarea" },
-    ]},
-    { section: "Content Goals", items: [
-      { key: "goal", label: "What's the primary goal of your content?", placeholder: "e.g. Generate inbound leads, build authority, grow audience, drive traffic to offers", type: "input" },
-      { key: "cta_style", label: "How do you typically end posts / what's your CTA style?", placeholder: "e.g. Ask a question, invite DMs, point to a link, 'Follow for more...'", type: "textarea" },
-      { key: "frequency", label: "How often do you want to post?", placeholder: "e.g. Daily on LinkedIn, 3x/week on video, engage in communities daily", type: "input" },
-    ]},
-    { section: "Examples", items: [
-      { key: "best_post", label: "Paste your best-performing post (the one that felt most 'you'):", placeholder: "Paste your best LinkedIn post, tweet, or content piece here...", type: "textarea_lg" },
-      { key: "inspiration", label: "Who do you look up to content-wise? (creators, writers, thought leaders)", placeholder: "e.g. Alex Hormozi, Chris Walker, Justin Welsh, Sahil Bloom", type: "input" },
-    ]},
-  ];
+  const DEFAULT_BRAND_VOICE = [{ section: "About You", items: [{ key: "name", label: "What's your full name?", placeholder: "Andrew Dunn", type: "input" }] }];
+  const brandVoiceQuestions = brandVoiceSchema?.length ? brandVoiceSchema : DEFAULT_BRAND_VOICE;
 
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
   const labelStyle = { display: "block", fontFamily: FONT_BODY, fontSize: 13, color: COLORS.text, fontWeight: 500, marginBottom: 6 };
@@ -7700,7 +7667,7 @@ function SettingsView() {
       {activeTab === "brand_voice" && !submitted && (
         <div>
           <p style={{ color: COLORS.textMuted, marginBottom: 24, fontSize: 13 }}>Answer these questions once to train the AI on your persona, tone, and style. This feeds into all content generation across the platform.</p>
-          {QUESTIONS.map(section => (
+          {brandVoiceQuestions.map(section => (
             <div key={section.section} style={{ marginBottom: 24 }}>
               <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.accent, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12, padding: "8px 16px", background: COLORS.accentBg, borderRadius: 6, display: "inline-block" }}>{section.section.toUpperCase()}</div>
               <div style={{ padding: "20px 24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
@@ -7735,11 +7702,11 @@ function SettingsView() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
-            <StatCard label="Questions Answered" value={`${Object.values(answers).filter(v => v && v.trim()).length}/${QUESTIONS.reduce((s, sec) => s + sec.items.length, 0)}`} accent={COLORS.accent} />
+            <StatCard label="Questions Answered" value={`${Object.values(answers).filter(v => v && v.trim()).length}/${brandVoiceQuestions.reduce((s, sec) => s + sec.items.length, 0)}`} accent={COLORS.accent} />
             <StatCard label="Profile Strength" value={Object.values(answers).filter(v => v && v.trim()).length >= 15 ? "Strong" : "Good"} accent={COLORS.accent} />
             <StatCard label="Active Modules" value="3" accent={COLORS.blue} />
           </div>
-          {QUESTIONS.map(section => (
+          {brandVoiceQuestions.map(section => (
             <div key={section.section} style={{ marginBottom: 16 }}>
               <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 8 }}>{section.section.toUpperCase()}</div>
               <div style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query, ensureOrgExists, ensureProjectSettingsTable } from '../db.js';
+import { query, ensureOrgExists, ensureProjectSettingsTable, getFormSchema } from '../db.js';
 
 const router = Router();
 
@@ -22,6 +22,34 @@ async function ensureSettingsTable() {
 
 // Project-scoped settings (ai_sdr): use project_settings table, allow userId null for org-level
 const PROJECT_SCOPED_TYPES = ['ai_sdr'];
+// User/org-level: when userId present use user_settings; when null use project_settings (org_id, project_id='')
+const ORG_FALLBACK_TYPES = ['brand_voice', 'buyer_persona'];
+
+// GET /api/settings/schema/:formType - Get form schema (Brand Voice questions from Postgres)
+router.get('/schema/:formType', async (req, res) => {
+  try {
+    const { formType } = req.params;
+    if (!['brand_voice', 'buyer_persona'].includes(formType)) {
+      return res.status(400).json({ error: 'formType must be brand_voice or buyer_persona' });
+    }
+    const rows = await getFormSchema(formType);
+    const sections = {};
+    for (const r of rows) {
+      if (!sections[r.section]) sections[r.section] = [];
+      sections[r.section].push({
+        key: r.field_key,
+        label: r.label,
+        placeholder: r.placeholder,
+        type: r.field_type,
+      });
+    }
+    const schema = Object.entries(sections).map(([section, items]) => ({ section, items }));
+    res.json({ schema });
+  } catch (err) {
+    console.error('Get form schema error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/settings/:type - Get settings by type. For ai_sdr, use ?project_id= for project scope.
 router.get('/:type', async (req, res) => {
@@ -43,6 +71,25 @@ router.get('/:type', async (req, res) => {
       );
       if (result.rows.length === 0) return res.json({ settings: null });
       return res.json({ settings: result.rows[0].settings_data });
+    }
+
+    // brand_voice, buyer_persona: user_settings when userId present; project_settings (org-level) when null
+    if (ORG_FALLBACK_TYPES.includes(type)) {
+      if (userId) {
+        await ensureSettingsTable();
+        const result = await query(
+          'SELECT settings_data FROM user_settings WHERE user_id = $1 AND settings_type = $2',
+          [userId, type]
+        );
+        if (result.rows.length > 0) return res.json({ settings: result.rows[0].settings_data });
+      }
+      await ensureProjectSettingsTable();
+      const result = await query(
+        `SELECT settings_data FROM project_settings
+         WHERE org_id = $1 AND project_id = '' AND settings_type = $2 AND user_id IS NULL`,
+        [orgId, type]
+      );
+      return res.json({ settings: result.rows[0]?.settings_data || null });
     }
 
     if (!userId) return res.status(401).json({ error: 'User ID required' });
@@ -69,12 +116,11 @@ router.post('/:type', async (req, res) => {
     const projectIdQuery = req.query.project_id || projectId || '';
 
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    if (!settings) return res.status(400).json({ error: 'Settings data required' });
+    if (orgId) await ensureOrgExists(orgId);
 
     if (PROJECT_SCOPED_TYPES.includes(type)) {
-      if (!settings) return res.status(400).json({ error: 'Settings data required' });
-      if (orgId) await ensureOrgExists(orgId);
       await ensureProjectSettingsTable();
-
       const existing = await query(
         `SELECT id FROM project_settings
          WHERE org_id = $1 AND project_id = $2 AND settings_type = $3
@@ -104,11 +150,48 @@ router.post('/:type', async (req, res) => {
       return res.json({ success: true, settings: getResult.rows[0]?.settings_data || settings });
     }
 
-    if (!userId) return res.status(401).json({ error: 'User ID required' });
-    if (!settings) return res.status(400).json({ error: 'Settings data required' });
-    if (orgId) await ensureOrgExists(orgId);
-    await ensureSettingsTable();
+    // brand_voice, buyer_persona: save to user_settings when userId; else project_settings (org-level)
+    if (ORG_FALLBACK_TYPES.includes(type)) {
+      if (userId) {
+        await ensureSettingsTable();
+        const result = await query(
+          `INSERT INTO user_settings (user_id, org_id, settings_type, settings_data)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (user_id, settings_type)
+           DO UPDATE SET settings_data = $4, updated_at = now()
+           RETURNING id, settings_data`,
+          [userId, orgId, type, JSON.stringify(settings)]
+        );
+        return res.json({ success: true, settings: result.rows[0].settings_data });
+      }
+      await ensureProjectSettingsTable();
+      const existing = await query(
+        `SELECT id FROM project_settings WHERE org_id = $1 AND project_id = '' AND settings_type = $2 AND user_id IS NULL`,
+        [orgId, type]
+      );
+      if (existing.rows.length > 0) {
+        await query(
+          `UPDATE project_settings SET settings_data = $3, updated_at = now()
+           WHERE org_id = $1 AND project_id = '' AND settings_type = $2 AND user_id IS NULL`,
+          [orgId, type, JSON.stringify(settings)]
+        );
+      } else {
+        await query(
+          `INSERT INTO project_settings (org_id, project_id, user_id, settings_type, settings_data)
+           VALUES ($1, '', NULL, $2, $3)`,
+          [orgId, type, JSON.stringify(settings)]
+        );
+      }
+      const getResult = await query(
+        `SELECT settings_data FROM project_settings
+         WHERE org_id = $1 AND project_id = '' AND settings_type = $2 AND user_id IS NULL`,
+        [orgId, type]
+      );
+      return res.json({ success: true, settings: getResult.rows[0]?.settings_data || settings });
+    }
 
+    if (!userId) return res.status(401).json({ error: 'User ID required' });
+    await ensureSettingsTable();
     const result = await query(
       `INSERT INTO user_settings (user_id, org_id, settings_type, settings_data)
        VALUES ($1, $2, $3, $4)

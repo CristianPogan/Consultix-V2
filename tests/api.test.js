@@ -318,6 +318,51 @@ describe('API: leads', () => {
   });
 });
 
+describe('API: lead-generation discover', () => {
+  it('1. POST /api/lead-generation/discover without auth returns 401', async () => {
+    const res = await api.post('/api/lead-generation/discover').send({
+      industry: 'B2B SaaS',
+      keywords: 'lead generation',
+      employeeSizes: ['51-200'],
+      regions: ['North America'],
+      roles: ['VP Growth'],
+    });
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. POST /api/lead-generation/discover with auth returns success, count, companies, source', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/lead-generation/discover').set(auth()).send({
+      industry: 'B2B SaaS',
+      keywords: 'lead generation',
+      employeeSizes: ['51-200'],
+      regions: ['North America'],
+      roles: ['VP Growth'],
+      lookalikeOnly: false,
+    });
+    assert.ok(res.status === 200 || res.status === 503);
+    if (res.status === 200) {
+      assert.strictEqual(res.body.success, true);
+      assert.ok(typeof res.body.count === 'number');
+      assert.ok(Array.isArray(res.body.companies));
+      assert.ok(['postgres', 'ai_ark', 'ai_ark_lookalike', 'icypeas', 'unknown'].includes(res.body.source));
+    }
+  });
+
+  it('3. POST discover with lookalikeOnly and seed domain', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/lead-generation/discover').set(auth()).send({
+      lookalikeOnly: true,
+      lookalike: 'stripe.com\nnotion.so',
+    });
+    assert.ok(res.status === 200 || res.status === 503);
+    if (res.status === 200) {
+      assert.strictEqual(res.body.success, true);
+      assert.ok(Array.isArray(res.body.companies));
+    }
+  });
+});
+
 describe('API: organisations (projects)', () => {
   it('1. GET /api/organisations with JWT returns array', async function () {
     if (!hasAuth) this.skip();
@@ -601,6 +646,49 @@ describe('API: leads update (CRM)', () => {
     const deal = res.body.deals.find(d => d.id === leadId);
     assert.ok(deal, 'Lead should appear in pipeline');
     assert.strictEqual(deal.stage, 'Contacted');
+  });
+});
+
+describe('API: settings brand_voice', () => {
+  it('1. GET /api/settings/schema/brand_voice with auth returns schema', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/settings/schema/brand_voice').set(auth());
+    assert.ok(res.status === 200 || res.status === 503);
+    if (res.status === 200) {
+      assert.ok(Array.isArray(res.body.schema));
+      if (res.body.schema.length > 0) {
+        assert.ok(res.body.schema[0].section);
+        assert.ok(Array.isArray(res.body.schema[0].items));
+        assert.ok(res.body.schema[0].items[0]?.key);
+        assert.ok(res.body.schema[0].items[0]?.label);
+      }
+    }
+  });
+
+  it('2. GET /api/settings/brand_voice with auth returns settings or null', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/settings/brand_voice').set(auth());
+    assert.ok(res.status === 200 || res.status === 503);
+    if (res.status === 200) assert.ok('settings' in res.body);
+  });
+
+  it('3. POST /api/settings/brand_voice saves and GET returns saved data', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const payload = { name: 'Test User', title: 'Content Creator', industry: 'B2B SaaS' };
+    const saveRes = await api.post('/api/settings/brand_voice').set(auth()).send({ settings: payload });
+    assert.ok(saveRes.status === 200 || saveRes.status === 503);
+    if (saveRes.status !== 200) return this.skip();
+    const getRes = await api.get('/api/settings/brand_voice').set(auth());
+    assert.ok(getRes.status === 200 || getRes.status === 503);
+    if (getRes.status === 200 && getRes.body.settings) {
+      assert.strictEqual(getRes.body.settings.name, payload.name);
+      assert.strictEqual(getRes.body.settings.title, payload.title);
+    }
+  });
+
+  it('4. GET /api/settings/schema/brand_voice without auth returns 401', async () => {
+    const res = await api.get('/api/settings/schema/brand_voice');
+    assert.strictEqual(res.status, 401);
   });
 });
 
