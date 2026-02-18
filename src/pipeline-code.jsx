@@ -551,6 +551,36 @@ export default function App() {
         addLog(`⚠ No companies found with current criteria`, "info");
         addLog("→ Postgres: try Industry=B2B SaaS or Facilities Services; Regions=North America only; or fewer employee filters", "info");
         addLog("→ Settings > Integrations: configure IcyPeas or AI Ark for waterfall fallback", "info");
+        addLog(`\n→ Run these cURL commands manually (replace YOUR_*_API_KEY):`, "system");
+        const industry = form?.industry || "HVAC";
+        const keywords = (form?.keywords || "").split(",").map(k => k.trim()).filter(Boolean) || [industry];
+        const roles = form?.roles?.length ? form.roles : ["CEO", "CTO", "VP Sales"];
+        const regions = form?.regions || ["North America"];
+        const locIcyPeas = regions.flatMap(r => {
+          const s = String(r || "").toLowerCase();
+          if (s.includes("north america")) return ["US", "CA", "MX"];
+          if (s.includes("latin america")) return ["BR", "MX", "AR", "CO"];
+          if (s.includes("europe")) return ["GB", "DE", "FR", "NL", "ES", "IT"];
+          if (s.includes("asia") && s.includes("pacific")) return ["JP", "AU", "SG", "IN", "KR"];
+          if (s.includes("mena")) return ["AE", "SA"];
+          return [r];
+        });
+        const locAiArk = regions.flatMap(r => {
+          const s = String(r || "").toLowerCase();
+          if (s.includes("north america")) return ["United States", "Canada", "Mexico"];
+          if (s.includes("latin america")) return ["Brazil", "Mexico", "Argentina", "Colombia"];
+          if (s.includes("europe")) return ["United Kingdom", "Germany", "France", "Netherlands", "Spain", "Italy"];
+          if (s.includes("asia") && s.includes("pacific")) return ["Japan", "Australia", "Singapore", "India"];
+          if (s.includes("mena")) return ["United Arab Emirates", "Saudi Arabia"];
+          return [r];
+        });
+        const kwList = [...new Set([industry, ...keywords])].filter(Boolean);
+        addLog(`\nIcyPeas (find people):`, "dim");
+        const icypeasBody = JSON.stringify({ query: { currentJobTitle: { include: roles }, location: { include: [...new Set(locIcyPeas)] }, keyword: { include: kwList }, headcount: { ">=": 1 } }, pagination: { size: 100 } });
+        addLog(`curl -X POST "https://app.icypeas.com/api/find-people" -H "Content-Type: application/json" -H "Authorization: YOUR_ICYPEAS_API_KEY" -d '${icypeasBody.replace(/'/g, "'\\''")}'`, "dim");
+        addLog(`\nAI Ark (company search):`, "dim");
+        const aiArkBody = JSON.stringify({ page: 0, size: 100, account: { industry: { any: { include: [industry] } }, keyword: { any: { include: { mode: "SMART", content: kwList } } }, location: { any: { include: [...new Set(locAiArk)] } } } });
+        addLog(`curl -X POST "https://api.ai-ark.com/api/developer-portal/v1/companies" -H "Content-Type: application/json" -H "X-TOKEN: YOUR_AI_ARK_API_KEY" -d '${aiArkBody.replace(/'/g, "'\\''")}'`, "dim");
         setDiscoveredLeads([]);
         setSelectedLeads(new Set());
         setIsProcessing(false);

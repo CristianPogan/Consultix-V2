@@ -224,6 +224,7 @@ function expandRegionsForIcyPeas(regions) {
   for (const r of regions) {
     const s = String(r || '').trim().toLowerCase();
     if (s.includes('north america') || s === 'na') out.push('US', 'CA', 'MX', 'United States', 'Canada');
+    else if (s.includes('latin america')) out.push('BR', 'MX', 'AR', 'CO', 'Brazil', 'Mexico');
     else if (s.includes('europe') || s === 'eu') out.push('GB', 'DE', 'FR', 'NL', 'ES', 'IT', 'United Kingdom', 'Germany', 'France');
     else if ((s.includes('asia') && s.includes('pacific')) || s === 'apac') out.push('JP', 'AU', 'SG', 'IN', 'KR', 'Japan', 'Australia');
     else if (s.includes('mena')) out.push('AE', 'SA', 'United Arab Emirates');
