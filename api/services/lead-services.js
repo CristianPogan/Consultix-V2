@@ -191,10 +191,50 @@ export async function countIcyPeas(criteria) {
   return await response.json();
 }
 
+const AI_ARK_BASE = 'https://api.ai-ark.com/api/developer-portal';
+
+// Map our employee sizes to AI Ark range format { start, end }
+const EMPLOYEE_SIZE_TO_RANGE = {
+  '1-10': { start: 1, end: 10 },
+  '11-50': { start: 11, end: 50 },
+  '51-200': { start: 51, end: 200 },
+  '201-500': { start: 201, end: 500 },
+  '501-1,000': { start: 501, end: 1000 },
+  '501-1000': { start: 501, end: 1000 },
+  '1,001-5,000': { start: 1001, end: 5000 },
+  '1001-5000': { start: 1001, end: 5000 },
+  '5,000+': { start: 5001, end: 999999 },
+  '5000+': { start: 5001, end: 999999 },
+};
+
+// Expand region names to AI Ark location values (country names/codes)
+function expandRegionsForAiArk(regions) {
+  if (!regions?.length) return ['United States', 'Canada'];
+  const out = [];
+  for (const r of regions) {
+    const s = String(r || '').trim().toLowerCase();
+    if (s.includes('north america') || s === 'na') {
+      out.push('United States', 'Canada', 'Mexico');
+    } else if (s.includes('europe') || s === 'eu') {
+      out.push('United Kingdom', 'Germany', 'France', 'Netherlands', 'Spain', 'Italy');
+    } else if ((s.includes('asia') && s.includes('pacific')) || s === 'apac') {
+      out.push('Japan', 'Australia', 'Singapore', 'India');
+    } else if (s.includes('mena')) {
+      out.push('United Arab Emirates', 'Saudi Arabia');
+    } else if (s.includes('uk') || s.includes('ireland')) {
+      out.push('United Kingdom', 'Ireland');
+    } else {
+      out.push(r.trim());
+    }
+  }
+  return [...new Set(out)];
+}
+
 /**
- * AI Ark Semantic Company Search
- * @param {string} apiKey - AI Ark API key (Bearer)
- * @param {Object} criteria - industry, keywords, company_size (array), regions, maxLeads
+ * AI Ark Semantic Company Search (docs.ai-ark.com)
+ * Uses POST /v1/companies with X-TOKEN auth
+ * @param {string} apiKey - AI Ark API key (X-TOKEN header)
+ * @param {Object} criteria - industry, keywords, companySize (array), regions, maxLeads
  * @returns {Promise<Array>} - Companies
  */
 export async function findCompaniesAiArkSemantic(apiKey, criteria) {
@@ -206,21 +246,27 @@ export async function findCompaniesAiArkSemantic(apiKey, criteria) {
     ? (typeof keywords === 'string' ? keywords.split(',').map(k => k.trim()).filter(Boolean) : keywords)
     : [];
   const sizes = companySize?.length ? companySize : ['1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'];
+  const loc = expandRegionsForAiArk(regions);
+
+  const account = {};
+  if (industries.length) account.industry = { any: { include: industries } };
+  if (kw.length) account.keyword = { any: { include: { mode: 'SMART', content: kw } } };
+  else if (industries.length) account.keyword = { any: { include: { mode: 'SMART', content: industries } } };
+  if (loc.length) account.location = { any: { include: loc } };
+  const rangeParts = sizes.map(s => EMPLOYEE_SIZE_TO_RANGE[s]).filter(Boolean);
+  if (rangeParts.length) account.employeeSize = { type: 'RANGE', range: rangeParts };
+  if (Object.keys(account).length === 0) account.industry = { any: { include: ['B2B SaaS'] } };
 
   const body = {
-    filters: {
-      industries: industries.length ? industries : ['B2B SaaS', 'Software as a Service', 'Internet Software'],
-      keywords: kw.length ? kw : ['lead generation'],
-      company_size: sizes,
-    },
-    pagination: { limit: Math.min(maxLeads || 100, 100), page: 1 },
+    page: 0,
+    size: Math.min(maxLeads || 100, 100),
+    account,
   };
-  if (regions?.length) body.filters.location = regions;
 
-  const res = await fetch('https://api.ai-ark.com/v1/search/companies', {
+  const res = await fetch(`${AI_ARK_BASE}/v1/companies`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      'X-TOKEN': apiKey,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
@@ -233,15 +279,27 @@ export async function findCompaniesAiArkSemantic(apiKey, criteria) {
   }
 
   const data = await res.json();
-  const companies = data.companies || data.data || data.results || (Array.isArray(data) ? data : []);
-  return Array.isArray(companies) ? companies : [];
+  const raw = data.content || data.companies || data.data || data.results || (Array.isArray(data) ? data : []);
+  // AI Ark returns { summary, link, location, ... } per company
+  return (Array.isArray(raw) ? raw : []).map(c => ({
+    id: c.id,
+    name: c.summary?.name ?? c.name ?? 'Unknown',
+    domain: (c.link?.domain || c.link?.website || c.domain || '').replace(/^https?:\/\//, '').split('/')[0] || null,
+    industry: c.summary?.industry ?? c.industry ?? (c.industries?.[0]),
+    employees: c.summary?.staff?.total ?? c.summary?.staff?.range ?? c.employees,
+    location: c.location?.headquarter?.raw_address ?? c.location?.default ?? [
+      c.location?.headquarter?.city,
+      c.location?.headquarter?.state,
+      c.location?.headquarter?.country,
+    ].filter(Boolean).join(', ') || 'Unknown',
+  }));
 }
 
 /**
- * AI Ark Lookalike / Similarity Search
+ * AI Ark Lookalike / Similarity Search (uses Company Search with lookalikeDomains)
  * @param {string} apiKey - AI Ark API key
- * @param {string} seedDomain - e.g. pogan-cristian.com
- * @param {Object} criteria - industries, regions, limit
+ * @param {string} seedDomain - e.g. stripe.com or linkedin.com/company/stripe
+ * @param {Object} criteria - industries, regions, maxLeads
  * @returns {Promise<Array>} - Similar companies
  */
 export async function findCompaniesAiArkLookalike(apiKey, seedDomain, criteria = {}) {
@@ -249,21 +307,26 @@ export async function findCompaniesAiArkLookalike(apiKey, seedDomain, criteria =
   if (!seedDomain?.trim()) throw new Error('Seed domain required for lookalike search');
 
   const domain = seedDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').split('/')[0];
+  const lookalikeUrl = domain.includes('linkedin.com') ? seedDomain.trim() : `https://${domain}`;
   const { industry, industries, regions, maxLeads = 50 } = criteria;
-  const ind = industries || (industry ? [industry] : ['B2B SaaS', 'Software as a Service', 'Internet Software']);
-  const loc = regions?.length ? regions : ['Global'];
+  const ind = industries || (industry ? [industry] : []);
+  const loc = expandRegionsForAiArk(regions?.length ? regions : []);
+
+  const account = {};
+  if (ind.length) account.industry = { any: { include: ind } };
+  if (loc.length) account.location = { any: { include: loc } };
 
   const body = {
-    seed_domain: domain,
-    similarity_threshold: 0.75,
-    filters: { location: loc, industries: ind },
-    limit: Math.min(maxLeads || 50, 100),
+    lookalikeDomains: [lookalikeUrl],
+    page: 0,
+    size: Math.min(maxLeads || 50, 100),
+    ...(Object.keys(account).length ? { account } : {}),
   };
 
-  const res = await fetch('https://api.ai-ark.com/v1/search/similarity', {
+  const res = await fetch(`${AI_ARK_BASE}/v1/companies`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      'X-TOKEN': apiKey,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
@@ -276,8 +339,19 @@ export async function findCompaniesAiArkLookalike(apiKey, seedDomain, criteria =
   }
 
   const data = await res.json();
-  const companies = data.companies || data.data || data.results || (Array.isArray(data) ? data : []);
-  return Array.isArray(companies) ? companies : [];
+  const raw = data.content || data.companies || data.data || data.results || (Array.isArray(data) ? data : []);
+  return (Array.isArray(raw) ? raw : []).map(c => ({
+    id: c.id,
+    name: c.summary?.name ?? c.name ?? 'Unknown',
+    domain: (c.link?.domain || c.link?.website || c.domain || '').replace(/^https?:\/\//, '').split('/')[0] || null,
+    industry: c.summary?.industry ?? c.industry ?? (c.industries?.[0]),
+    employees: c.summary?.staff?.total ?? c.summary?.staff?.range ?? c.employees,
+    location: c.location?.headquarter?.raw_address ?? c.location?.default ?? [
+      c.location?.headquarter?.city,
+      c.location?.headquarter?.state,
+      c.location?.headquarter?.country,
+    ].filter(Boolean).join(', ') || 'Unknown',
+  }));
 }
 
 // ============================================================================
