@@ -165,6 +165,37 @@ router.post('/openrouter/connect', async (req, res) => {
   }
 });
 
+// POST /api/integrations/ai-ark/connect - Validate API key then save
+router.post('/ai-ark/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://api.ai-ark.com/api/developer-portal/v1/people/reverse-lookup', {
+      method: 'POST',
+      headers: {
+        'X-TOKEN': apiKey.trim(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ search: 'test@example.com' }),
+    });
+    if (testRes.status === 401 || testRes.status === 403) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+    if (!testRes.ok && testRes.status !== 404) {
+      const err = await testRes.text();
+      return res.status(400).json({ error: err || 'Failed to validate API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'ai_ark', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'ai_ark', connected: true });
+  } catch (err) {
+    console.error('AI Ark connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/integrations/neverbounce/connect - Validate API key then save
 router.post('/neverbounce/connect', async (req, res) => {
   try {
