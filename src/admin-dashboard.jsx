@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { api } from "./api.js";
 
 // --- Design Tokens (same dark theme, admin-blue accent) ---
 const C = {
@@ -170,12 +171,32 @@ export default function AdminDashboard() {
   const [newProviderKey, setNewProviderKey] = useState("");
   const [globalSearch, setGlobalSearch] = useState("");
   const [showGlobalResults, setShowGlobalResults] = useState(false);
+  const [liveAgencies, setLiveAgencies] = useState(null);
+  const [liveOrgs, setLiveOrgs] = useState(null);
+  const [liveTickets, setLiveTickets] = useState(null);
+  const [liveUsers, setLiveUsers] = useState(null);
+  const [liveErrors, setLiveErrors] = useState(null);
+  const [liveFlags, setLiveFlags] = useState(null);
+
+  useEffect(() => {
+    api.admin.agencies.list().then(d => setLiveAgencies(Array.isArray(d) ? d : d.agencies || null)).catch(() => {});
+    api.admin.organisations.list().then(d => setLiveOrgs(Array.isArray(d) ? d : d.organisations || null)).catch(() => {});
+    api.admin.supportTickets.list().then(d => setLiveTickets(Array.isArray(d) ? d : d.tickets || null)).catch(() => {});
+    api.admin.users.list().then(d => setLiveUsers(Array.isArray(d) ? d : d.users || null)).catch(() => {});
+    api.admin.errors.list().then(d => setLiveErrors(Array.isArray(d) ? d : d.errors || null)).catch(() => {});
+    api.admin.featureFlags.list().then(d => setLiveFlags(Array.isArray(d) ? d : d.feature_flags || null)).catch(() => {});
+  }, []);
+
+  const _AGENCIES = liveAgencies || AGENCIES;
+  const _ORGS = liveOrgs || ORGS;
+  const _TICKETS = liveTickets || TICKETS;
+  const _USERS = liveUsers || USERS;
 
   const inputStyle = { width: "100%", padding: "8px 12px", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: FB, color: C.text, outline: "none", boxSizing: "border-box" };
 
   // ---- OVERVIEW ----
-  const directMrr = ORGS.filter(o => !o.agency_id && o.mrr > 0).reduce((s, o) => s + o.mrr, 0);
-  const agencyMrr = AGENCIES.reduce((s, a) => s + a.platformFee + a.workspaceFees, 0);
+  const directMrr = _ORGS.filter(o => !o.agency_id && o.mrr > 0).reduce((s, o) => s + (o.mrr || 0), 0);
+  const agencyMrr = _AGENCIES.reduce((s, a) => s + (a.platformFee || 0) + (a.workspaceFees || 0), 0);
   const totalMrr = directMrr + agencyMrr;
   const renderOverview = () => (
     <div>

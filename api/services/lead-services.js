@@ -264,6 +264,16 @@ function expandRegionsForAiArk(regions) {
     const s = String(r || '').trim().toLowerCase();
     if (s.includes('north america') || s === 'na') {
       out.push('United States', 'Canada', 'Mexico');
+    } else if (s === 'dach') {
+      out.push('Germany', 'Austria', 'Switzerland');
+    } else if (s === 'nordics' || s === 'nordic') {
+      out.push('Sweden', 'Norway', 'Denmark', 'Finland', 'Iceland');
+    } else if (s.includes('australia') && s.includes('nz')) {
+      out.push('Australia', 'New Zealand');
+    } else if (s.includes('latin america') || s === 'latam') {
+      out.push('Brazil', 'Mexico', 'Argentina', 'Colombia', 'Chile');
+    } else if (s === 'africa') {
+      out.push('South Africa', 'Nigeria', 'Kenya', 'Egypt', 'Ghana');
     } else if (s.includes('europe') || s === 'eu') {
       out.push('United Kingdom', 'Germany', 'France', 'Netherlands', 'Spain', 'Italy');
     } else if ((s.includes('asia') && s.includes('pacific')) || s === 'apac') {
@@ -272,6 +282,8 @@ function expandRegionsForAiArk(regions) {
       out.push('United Arab Emirates', 'Saudi Arabia');
     } else if (s.includes('uk') || s.includes('ireland')) {
       out.push('United Kingdom', 'Ireland');
+    } else if (s === 'global') {
+      out.push('United States', 'Canada', 'United Kingdom', 'Germany', 'France', 'Australia', 'Japan', 'India', 'Brazil');
     } else {
       out.push(r.trim());
     }
@@ -527,6 +539,149 @@ export async function findEmailFindyMail(apiKey, { name, domain }) {
   return { email: data.email || data.address, confidence: data.confidence, ...data };
 }
 
+// ============================================================================
+// FINDYMAIL / FINDY — Lead Discovery, People Search, Company Enrichment
+// Uses FindyMail API (app.findymail.com) — "Findy" and "FindyMail" share the same key.
+// ============================================================================
+
+const FINDYMAIL_BASE = 'https://app.findymail.com/api';
+
+function findyHeaders(apiKey) {
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
+}
+
+/**
+ * Findy — Lead discovery via natural language (IntelliMatch).
+ * POST /api/intellimatch/search
+ * @param {string} apiKey
+ * @param {Object} criteria - { industry, keywords, regions, employeeSizes, roles, maxLeads }
+ * @returns {Promise<Array>} - normalised company objects
+ */
+export async function findLeadsFindy(apiKey, criteria) {
+  if (!apiKey) throw new Error('Findy API key required');
+
+  const { industry, keywords, regions, employeeSizes, roles, maxLeads = 50 } = criteria;
+
+  const parts = [];
+  if (industry) parts.push(industry);
+  if (keywords?.length) parts.push(...(Array.isArray(keywords) ? keywords : String(keywords).split(',').map(k => k.trim()).filter(Boolean)));
+  parts.push('companies');
+  if (employeeSizes?.length) {
+    const sizeDesc = employeeSizes.map(s => s.replace(/,/g, '')).join(' or ');
+    parts.push(`with ${sizeDesc} employees`);
+  }
+  if (regions?.length) parts.push(`in ${regions.join(', ')}`);
+  if (!parts.some(p => p !== 'companies')) parts.unshift('B2B SaaS');
+  const query = parts.join(' ');
+
+  const findContact = !!(roles?.length);
+
+  const res = await fetch(`${FINDYMAIL_BASE}/intellimatch/search`, {
+    method: 'POST',
+    headers: findyHeaders(apiKey),
+    body: JSON.stringify({
+      query,
+      limit: Math.min(maxLeads || 50, 200),
+      config: { find_contact: findContact, find_email: findContact },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Findy intellimatch failed: ${res.status} ${errText}`);
+  }
+
+  const body = await res.json();
+  const items = body.data || body.results || body.companies || (Array.isArray(body) ? body : []);
+
+  return items.map(c => ({
+    name: c.name || c.company_name || 'Unknown',
+    domain: (c.domain || c.website || '').replace(/^https?:\/\//, '').split('/')[0] || null,
+    industry: c.industry || industry || '',
+    employees: c.company_size || c.employee_count || c.employees || 'N/A',
+    location: c.location || c.headquarters || c.country || 'Unknown',
+    contactEmail: c.contact_email || c.email || null,
+    contactName: c.contact_name || c.contact?.name || null,
+  }));
+}
+
+/**
+ * Findy — Find employees at a company by website + job titles.
+ * POST /api/search/employees
+ * @param {string} apiKey
+ * @param {Object} params - { website, jobTitles, count }
+ * @returns {Promise<Array>} - [{ name, linkedinUrl, jobTitle }]
+ */
+export async function findEmployeesFindy(apiKey, { website, jobTitles, count = 5 }) {
+  if (!apiKey) throw new Error('Findy API key required');
+  if (!website) throw new Error('Website required for employee search');
+
+  const domain = website.replace(/^https?:\/\//, '').split('/')[0];
+
+  const res = await fetch(`${FINDYMAIL_BASE}/search/employees`, {
+    method: 'POST',
+    headers: findyHeaders(apiKey),
+    body: JSON.stringify({
+      website: domain,
+      job_titles: jobTitles?.length ? jobTitles : ['CEO', 'Founder', 'CTO'],
+      count: Math.min(count, 50),
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Findy employees search failed: ${res.status} ${errText}`);
+  }
+
+  const data = await res.json();
+  return Array.isArray(data) ? data : (data.data || data.results || []);
+}
+
+/**
+ * Findy — Company enrichment by domain.
+ * POST /api/search/company
+ * @param {string} apiKey
+ * @param {Object} params - { domain } or { name }
+ * @returns {Promise<Object>} - { name, domain, company_size, industry, ... }
+ */
+export async function enrichCompanyFindy(apiKey, { domain, name }) {
+  if (!apiKey) throw new Error('Findy API key required');
+  if (!domain && !name) throw new Error('Domain or name required for company enrichment');
+
+  const body = {};
+  if (domain) body.domain = domain.replace(/^https?:\/\//, '').split('/')[0];
+  else body.name = name;
+
+  const res = await fetch(`${FINDYMAIL_BASE}/search/company`, {
+    method: 'POST',
+    headers: findyHeaders(apiKey),
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Findy company enrichment failed: ${res.status} ${errText}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Findy — Validate API key by making a lightweight company search.
+ * 200 = valid key with credits, 402 = valid key but no credits, 401/403 = invalid key.
+ * @param {string} apiKey
+ * @returns {Promise<boolean>}
+ */
+export async function checkFindyApiKey(apiKey) {
+  if (!apiKey) return false;
+  const res = await fetch(`${FINDYMAIL_BASE}/search/company`, {
+    method: 'POST',
+    headers: findyHeaders(apiKey),
+    body: JSON.stringify({ domain: 'google.com' }),
+  });
+  return res.ok || res.status === 402;
+}
+
 /**
  * BetterContact Email Verification
  * @param {string} apiKey - BetterContact API key
@@ -686,84 +841,75 @@ export async function generatePersonalization(params) {
 // ============================================================================
 
 /**
- * HeyReach - Add leads to LinkedIn campaign
+ * HeyReach - Add leads to LinkedIn campaign.
+ * Resolves credentials from DB (orgId) with env-var fallback.
+ *
  * @param {Array} leads - Array of lead objects
+ * @param {string|null} orgId - Organisation ID (used to look up DB credentials)
  * @returns {Promise<Object>} - Result
  */
-export async function addLeadsToHeyReach(leads) {
-  const apiKey = process.env.HEYREACH_API_KEY;
-  const campaignId = process.env.HEYREACH_CAMPAIGN_ID;
-  
+export async function addLeadsToHeyReach(leads, orgId = null) {
+  const { addLeadsToCampaign } = await import('./heyreach-service.js');
+  const { getIntegrationCredentials, getApiKeyFromCredentials } = await import('../db.js');
+
+  let apiKey = null;
+  let campaignId = null;
+
+  if (orgId) {
+    const row = await getIntegrationCredentials(orgId, 'heyreach');
+    apiKey = getApiKeyFromCredentials(row);
+    campaignId = row?.credentials_json?.campaign_id || row?.credentials_json?.campaignId || null;
+  }
+  if (!apiKey) apiKey = process.env.HEYREACH_API_KEY;
+  if (!campaignId) campaignId = process.env.HEYREACH_CAMPAIGN_ID;
+
   if (!apiKey) throw new Error('HEYREACH_API_KEY not configured');
   if (!campaignId) throw new Error('HEYREACH_CAMPAIGN_ID not configured');
 
-  const accountLeadPairs = leads.map(lead => ({
-    lead: {
-      profileUrl: lead.linkedinUrl,
-      firstName: lead.firstName,
-      lastName: lead.lastName,
-      emailAddress: lead.email,
-      companyName: lead.company,
-      position: lead.title,
-    },
-  }));
-
-  const response = await fetch('https://api.heyreach.io/api/public/campaign/AddLeadsToCampaignV2', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-KEY': apiKey,
-    },
-    body: JSON.stringify({
-      campaignId,
-      accountLeadPairs,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`HeyReach failed: ${response.statusText}`);
-  }
-
-  return await response.json();
+  return addLeadsToCampaign(apiKey, campaignId, leads);
 }
 
 /**
- * Instantly.ai - Add leads to email campaign
+ * Instantly.ai - Add leads to email campaign.
+ * Resolves credentials from DB (orgId) with env-var fallback.
+ *
  * @param {Array} leads - Array of lead objects
- * @returns {Promise<Object>} - Result
+ * @param {string|null} orgId - Organisation ID (used to look up DB credentials)
+ * @returns {Promise<Array>} - Per-lead results
  */
-export async function addLeadsToInstantly(leads) {
-  const apiKey = process.env.INSTANTLY_API_KEY;
-  const campaignId = process.env.INSTANTLY_CAMPAIGN_ID;
-  
+export async function addLeadsToInstantly(leads, orgId = null) {
+  const { createLead } = await import('./instantly-service.js');
+  const { getIntegrationCredentials, getApiKeyFromCredentials } = await import('../db.js');
+
+  let apiKey = null;
+  let campaignId = null;
+
+  if (orgId) {
+    const row = await getIntegrationCredentials(orgId, 'instantly');
+    apiKey = getApiKeyFromCredentials(row);
+    campaignId = row?.credentials_json?.campaign_id || row?.credentials_json?.campaignId || null;
+  }
+  if (!apiKey) apiKey = process.env.INSTANTLY_API_KEY;
+  if (!campaignId) campaignId = process.env.INSTANTLY_CAMPAIGN_ID;
+
   if (!apiKey) throw new Error('INSTANTLY_API_KEY not configured');
   if (!campaignId) throw new Error('INSTANTLY_CAMPAIGN_ID not configured');
 
   const results = [];
-
   for (const lead of leads) {
-    const response = await fetch('https://api.instantly.ai/api/v2/leads', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        campaign: campaignId,
+    try {
+      await createLead(apiKey, {
         email: lead.email,
+        campaign: campaignId,
         first_name: lead.firstName,
         last_name: lead.lastName,
         company_name: lead.company,
         personalization: lead.personalizedMessage || '',
-      }),
-    });
-
-    results.push({
-      email: lead.email,
-      success: response.ok,
-      status: response.status,
-    });
+      });
+      results.push({ email: lead.email, success: true, status: 200 });
+    } catch (e) {
+      results.push({ email: lead.email, success: false, status: e.status || 500 });
+    }
   }
-
   return results;
 }

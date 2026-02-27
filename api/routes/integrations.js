@@ -294,46 +294,54 @@ router.post('/zerobounce/connect', async (req, res) => {
   }
 });
 
-// POST /api/integrations/findymail/connect - Validate FindyMail API key
-router.post('/findymail/connect', async (req, res) => {
+// POST /api/integrations/findy/connect - Validate FindyMail/Findy API key then save (also saves to 'findymail')
+router.post('/findy/connect', async (req, res) => {
   try {
     const orgId = req.orgId;
     const { credentials } = req.body || {};
     const apiKey = credentials?.api_key || credentials?.apiKey;
     if (!orgId) return res.status(401).json({ error: 'Organization required' });
     if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
-    const testRes = await fetch('https://app.findymail.com/api/credits', {
-      headers: { 'Authorization': `Bearer ${apiKey.trim()}` },
+    const testRes = await fetch('https://app.findymail.com/api/search/company', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey.trim()}` },
+      body: JSON.stringify({ domain: 'google.com' }),
     });
-    if (!testRes.ok) {
-      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid API key' });
-      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    if (!testRes.ok && testRes.status !== 402) {
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid FindyMail/Findy API key' });
+      const errText = await testRes.text().catch(() => '');
+      return res.status(400).json({ error: errText || 'Failed to validate Findy API key' });
     }
+    await saveIntegrationCredentials(orgId, 'findy', { api_key: apiKey.trim() });
     await saveIntegrationCredentials(orgId, 'findymail', { api_key: apiKey.trim() });
-    res.json({ integration_key: 'findymail', connected: true });
+    res.json({ integration_key: 'findy', connected: true });
   } catch (err) {
-    console.error('FindyMail connect error:', err);
+    console.error('Findy connect error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/integrations/instantly/connect - Validate Instantly API key
+// POST /api/integrations/instantly/connect - Validate Instantly API key then save
 router.post('/instantly/connect', async (req, res) => {
   try {
     const orgId = req.orgId;
     const { credentials } = req.body || {};
     const apiKey = credentials?.api_key || credentials?.apiKey;
-    const campaignId = credentials?.campaign_id || '';
+    const campaignId = credentials?.campaign_id || credentials?.campaignId || '';
     if (!orgId) return res.status(401).json({ error: 'Organization required' });
     if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
-    const testRes = await fetch('https://api.instantly.ai/api/v2/campaigns', {
-      headers: { 'Authorization': `Bearer ${apiKey.trim()}`, 'Content-Type': 'application/json' },
+    const testRes = await fetch('https://api.instantly.ai/api/v2/campaigns?limit=1&skip=0', {
+      headers: { 'Authorization': `Bearer ${apiKey.trim()}` },
     });
     if (!testRes.ok) {
-      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid API key' });
-      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid Instantly API key' });
+      const errText = await testRes.text().catch(() => '');
+      return res.status(400).json({ error: errText || 'Failed to validate Instantly API key' });
     }
-    await saveIntegrationCredentials(orgId, 'instantly', { api_key: apiKey.trim(), campaign_id: campaignId.trim() });
+    await saveIntegrationCredentials(orgId, 'instantly', {
+      api_key: apiKey.trim(),
+      ...(campaignId ? { campaign_id: String(campaignId).trim() } : {}),
+    });
     res.json({ integration_key: 'instantly', connected: true });
   } catch (err) {
     console.error('Instantly connect error:', err);
@@ -341,23 +349,27 @@ router.post('/instantly/connect', async (req, res) => {
   }
 });
 
-// POST /api/integrations/heyreach/connect - Validate HeyReach API key
+// POST /api/integrations/heyreach/connect - Validate API key via /auth/CheckApiKey then save
 router.post('/heyreach/connect', async (req, res) => {
   try {
     const orgId = req.orgId;
     const { credentials } = req.body || {};
     const apiKey = credentials?.api_key || credentials?.apiKey;
-    const campaignId = credentials?.campaign_id || '';
+    const campaignId = credentials?.campaign_id || credentials?.campaignId || '';
     if (!orgId) return res.status(401).json({ error: 'Organization required' });
     if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
-    const testRes = await fetch('https://api.heyreach.io/api/public/campaign/GetAll', {
-      headers: { 'X-API-KEY': apiKey.trim(), 'Content-Type': 'application/json' },
+    const testRes = await fetch('https://api.heyreach.io/api/public/auth/CheckApiKey', {
+      headers: { 'X-API-KEY': apiKey.trim() },
     });
     if (!testRes.ok) {
-      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid API key' });
-      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid HeyReach API key' });
+      const errText = await testRes.text().catch(() => '');
+      return res.status(400).json({ error: errText || 'Failed to validate HeyReach API key' });
     }
-    await saveIntegrationCredentials(orgId, 'heyreach', { api_key: apiKey.trim(), campaign_id: campaignId.trim() });
+    await saveIntegrationCredentials(orgId, 'heyreach', {
+      api_key: apiKey.trim(),
+      ...(campaignId ? { campaign_id: String(campaignId).trim() } : {}),
+    });
     res.json({ integration_key: 'heyreach', connected: true });
   } catch (err) {
     console.error('HeyReach connect error:', err);
@@ -390,8 +402,8 @@ router.post('/unipile/connect', async (req, res) => {
   }
 });
 
-// Generic connect for providers without dedicated validation endpoints (Wiza, Findy, LeadsMagix, SmartLead, AimFox, Fathom, Fireflies, Cleanlist)
-for (const providerKey of ['wiza', 'findy', 'leadsmagix', 'smartlead', 'aimfox', 'fathom', 'fireflies', 'cleanlist']) {
+// Generic connect for providers without dedicated validation endpoints
+for (const providerKey of ['wiza', 'leadsmagix', 'smartlead', 'aimfox', 'fathom', 'fireflies', 'cleanlist']) {
   router.post(`/${providerKey}/connect`, async (req, res) => {
     try {
       const orgId = req.orgId;

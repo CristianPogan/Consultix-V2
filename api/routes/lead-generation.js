@@ -11,6 +11,8 @@ import {
   verifyEmailBetterContact,
   findEmailBetterContact,
   verifyEmailZeroBounce,
+  findLeadsFindy,
+  findEmployeesFindy,
   scrapeWebsite,
   getLinkedInCompanyProfile,
   generatePersonalization,
@@ -19,7 +21,7 @@ import {
   findCompaniesAiArkSemantic,
   findCompaniesAiArkLookalike,
 } from '../services/lead-services.js';
-import { updateLeadsOutreachSentByEmails, getIntegrationCredentials, getApiKeyFromCredentials, getIntegrationServiceOrder, searchCompaniesForDiscovery, getCompanyEnrichmentStatus, isEnrichmentFresh, getLeadsByCompanyId, upsertCompanyForEnrichment, query, ensureOrgExists } from '../db.js';
+import { updateLeadsOutreachSentByEmails, getIntegrationCredentials, getApiKeyFromCredentials, getIntegrationServiceOrder, searchCompaniesForDiscovery, countStrictMatchingCompanies, getCompanyEnrichmentStatus, isEnrichmentFresh, getLeadsByCompanyId, upsertCompanyForEnrichment, query, ensureOrgExists, persistDiscoveryResults, upsertDiscoveredLead, upsertDiscoveredCompany, createDiscoveryList, updateListCounts } from '../db.js';
 
 const router = Router();
 
@@ -91,7 +93,7 @@ router.post('/discover', async (req, res) => {
     const icypeasKeywords = criteria.industry ? [criteria.industry] : industriesForApi;
 
     let companies = [];
-    let source = 'postgres';
+    let source = 'none';
     let sqlQueries = [];
     const waterfallLog = [];
 
@@ -132,15 +134,27 @@ router.post('/discover', async (req, res) => {
         companies.push(c);
         added++;
       }
-      if (added > 0 && source === 'postgres' && providerSource !== 'postgres') {
-        source = companies.some(c => c._source === 'postgres') ? `postgres+${providerSource}` : providerSource;
+      if (added > 0 && source === 'none' && providerSource !== 'postgres') {
+        source = providerSource;
+      } else if (added > 0 && source === 'postgres' && providerSource !== 'postgres') {
+        source = `postgres+${providerSource}`;
+      } else if (added > 0 && !source.includes(providerSource)) {
+        source = source ? `${source}+${providerSource}` : providerSource;
       }
       return added;
     };
 
-    // 2. Semantic mode: Postgres first, then cascade for remaining
+    // 2. Pre-check: strict count of DB companies matching criteria (no fallbacks)
+    let dbStrictCount = 0;
     if (companies.length === 0) {
-      console.log('[Discover] Postgres search:', { orgId, criteria });
+      dbStrictCount = await countStrictMatchingCompanies(orgId, criteria);
+      console.log('[Discover] Strict DB pre-check:', { dbStrictCount, criteria: { industry: criteria.industry, keywords: criteria.keywords, regions: criteria.regions } });
+      waterfallLog.push({ key: 'postgres_precheck', count: dbStrictCount });
+    }
+
+    // 3. If DB has matches, serve from Postgres (fast path)
+    if (companies.length === 0 && dbStrictCount > 0) {
+      console.log('[Discover] Postgres search (has strict matches):', { orgId, criteria });
       const pgResult = await searchCompaniesForDiscovery(orgId, criteria);
       const pgResults = pgResult.companies || [];
       sqlQueries = pgResult.sqlQueries || [];
@@ -155,7 +169,7 @@ router.post('/discover', async (req, res) => {
     // 3. Cascade: iterate through Lead Search Order, filling remaining gap
     if (companies.length < targetCount) {
       const orderRow = await getIntegrationServiceOrder(orgId);
-      const order = orderRow?.lead_search_order || ['icypeas', 'ai_ark', 'findy', 'wiza', 'leadsmagix'];
+      const order = orderRow?.lead_search_order || ['ai_ark', 'icypeas', 'findy', 'wiza', 'leadsmagix'];
       const remaining = () => targetCount - companies.length;
 
       for (const key of order) {
@@ -242,20 +256,70 @@ router.post('/discover', async (req, res) => {
             console.warn('[Discover] IcyPeas failed:', err.message);
             waterfallLog.push({ key: 'icypeas', tried: true, error: err.message });
           }
-        } else if (key === 'findy' || key === 'wiza' || key === 'leadsmagix') {
-          const creds = await getIntegrationCredentials(orgId, key);
-          const apiKey = getApiKeyFromCredentials(creds);
+        } else if (key === 'findy') {
+          const creds = await getIntegrationCredentials(orgId, 'findy');
+          let apiKey = getApiKeyFromCredentials(creds);
           if (!apiKey) {
-            waterfallLog.push({ key, tried: false, reason: 'no_api_key' });
-          } else {
-            waterfallLog.push({ key, tried: false, reason: 'api_stub_pending' });
+            const fmCreds = await getIntegrationCredentials(orgId, 'findymail');
+            apiKey = getApiKeyFromCredentials(fmCreds);
           }
+          if (!apiKey) {
+            waterfallLog.push({ key: 'findy', tried: false, reason: 'no_api_key' });
+            continue;
+          }
+          try {
+            console.log('[Discover] Findy intellimatch request (need %d more):', remaining(), { industry: criteria.industry, keywords: kwList, regions: criteria.regions });
+            const results = await findLeadsFindy(apiKey, {
+              industry: criteria.industry,
+              keywords: kwList,
+              regions: criteria.regions,
+              employeeSizes: criteria.employeeSizes,
+              roles: criteria.roles,
+              maxLeads: remaining(),
+            });
+            const normalized = (results || []).map((c, i) => normalizeCompany(c, companies.length + i + 1));
+            const count = addCompanies(normalized, 'findy');
+            console.log('[Discover] Findy result:', { returned: results?.length || 0, added: count });
+            waterfallLog.push({ key: 'findy', tried: true, count });
+          } catch (err) {
+            console.warn('[Discover] Findy failed:', err.message);
+            waterfallLog.push({ key: 'findy', tried: true, error: err.message });
+          }
+        } else if (key === 'wiza' || key === 'leadsmagix') {
+          waterfallLog.push({ key, tried: false, reason: 'not_implemented_for_discovery' });
         }
+      }
+    }
+
+    // 4. Last resort: if APIs also returned nothing, fall back to loose Postgres search
+    if (companies.length === 0 && dbStrictCount === 0) {
+      console.log('[Discover] APIs returned nothing — falling back to loose Postgres search');
+      const pgResult = await searchCompaniesForDiscovery(orgId, criteria);
+      const pgResults = pgResult.companies || [];
+      sqlQueries = pgResult.sqlQueries || [];
+      if (pgResults.length > 0) {
+        companies = pgResults.map((c, i) => ({ ...c, id: c.id || `pg-${i + 1}` }));
+        source = 'postgres_fallback';
       }
     }
 
     // Strip internal _source field before response
     const cleanCompanies = companies.map(({ _source, ...rest }) => rest);
+
+    let persistResult = null;
+    if (cleanCompanies.length > 0) {
+      try {
+        await ensureOrgExists(orgId);
+        persistResult = await persistDiscoveryResults(orgId, cleanCompanies, {
+          source,
+          queryJson: criteria,
+          projectId: criteria.projectId || null,
+        });
+        console.log('[Discover] Persisted:', persistResult);
+      } catch (e) {
+        console.warn('[Discover] Persist error (non-fatal):', e.message);
+      }
+    }
 
     res.json({
       success: true,
@@ -264,6 +328,7 @@ router.post('/discover', async (req, res) => {
       source,
       sqlQueries: sqlQueries || [],
       waterfallLog: waterfallLog || [],
+      persisted: persistResult || null,
     });
   } catch (err) {
     console.error('Discover error:', err);
@@ -287,16 +352,17 @@ function expandRegionsForIcyPeas(regions) {
   const out = [];
   for (const r of regions) {
     const s = String(r || '').trim().toLowerCase();
-    if (s.includes('north america') || s === 'na') out.push('US', 'CA', 'MX');
-    else if (s.includes('latin america')) out.push('BR', 'MX', 'AR', 'CO', 'CL', 'PE');
-    else if (s.includes('europe') || s === 'eu') out.push('GB', 'DE', 'FR', 'NL', 'ES', 'IT', 'SE', 'CH', 'BE', 'IE', 'PL');
-    else if (s.includes('dach')) out.push('DE', 'AT', 'CH');
-    else if (s.includes('nordic')) out.push('SE', 'NO', 'DK', 'FI', 'IS');
-    else if ((s.includes('asia') && s.includes('pacific')) || s === 'apac') out.push('JP', 'AU', 'SG', 'IN', 'KR', 'HK', 'NZ');
-    else if (s.includes('australia') && s.includes('nz')) out.push('AU', 'NZ');
-    else if (s.includes('mena')) out.push('AE', 'SA', 'IL', 'EG');
-    else if (s.includes('africa')) out.push('ZA', 'NG', 'KE', 'EG');
-    else if (s.includes('uk') && s.includes('ireland')) out.push('GB', 'IE');
+    if (s.includes('north america') || s === 'na') out.push('US', 'CA', 'MX', 'United States', 'Canada');
+    else if (s === 'dach' || s.includes('dach')) out.push('DE', 'AT', 'CH', 'Germany', 'Austria', 'Switzerland');
+    else if (s === 'nordics' || s === 'nordic' || s.includes('nordic')) out.push('SE', 'NO', 'DK', 'FI', 'IS', 'Sweden', 'Norway', 'Denmark', 'Finland');
+    else if (s.includes('australia') && s.includes('nz')) out.push('AU', 'NZ', 'Australia', 'New Zealand');
+    else if (s.includes('latin america') || s === 'latam') out.push('BR', 'MX', 'AR', 'CO', 'CL', 'PE', 'Brazil', 'Mexico', 'Argentina', 'Colombia');
+    else if (s === 'africa' || s.includes('africa')) out.push('ZA', 'NG', 'KE', 'EG', 'GH', 'South Africa', 'Nigeria', 'Kenya', 'Egypt');
+    else if (s.includes('europe') || s === 'eu') out.push('GB', 'DE', 'FR', 'NL', 'ES', 'IT', 'SE', 'CH', 'BE', 'IE', 'PL', 'United Kingdom', 'Germany', 'France');
+    else if ((s.includes('asia') && s.includes('pacific')) || s === 'apac') out.push('JP', 'AU', 'SG', 'IN', 'KR', 'HK', 'NZ', 'Japan', 'Australia');
+    else if (s.includes('mena')) out.push('AE', 'SA', 'IL', 'EG', 'United Arab Emirates');
+    else if (s.includes('uk') || s.includes('ireland')) out.push('GB', 'IE', 'United Kingdom', 'Ireland');
+    else if (s === 'global') out.push('US', 'CA', 'GB', 'DE', 'FR', 'AU', 'JP', 'IN', 'BR');
     else if (s.length === 2) out.push(s.toUpperCase());
     else out.push(r.trim());
   }
@@ -508,6 +574,175 @@ async function verifyEmailWaterfall(orgId, email) {
   throw lastErr || new Error('No verification integration available');
 }
 
+// ============================================================================
+// AUTO-CASCADE: discover → find people → find email → verify → persist
+// Reusable function called from /discover after API results return.
+// ============================================================================
+
+async function runEnrichmentCascade(orgId, companies, opts = {}) {
+  const {
+    roles = ['CEO', 'Founder', 'CTO', 'VP of Sales', 'Head of Growth'],
+    listName,
+    source = 'cascade',
+    projectId,
+    maxPeoplePerCompany = 5,
+  } = opts;
+  const cascadeLog = [];
+  const log = (msg, type = 'info') => {
+    cascadeLog.push({ msg, type, ts: Date.now() });
+    console.log(`[Cascade] ${msg}`);
+  };
+
+  if (!companies?.length) return { contacts: [], listId: null, cascadeLog };
+
+  await ensureOrgExists(orgId);
+  const listId = listName ? await createDiscoveryList(orgId, listName, { projectId }) : null;
+  const allContacts = [];
+
+  const icypeasCreds = await getIntegrationCredentials(orgId, 'icypeas');
+  const icypeasKey = getApiKeyFromCredentials(icypeasCreds);
+
+  const findyCreds = await getIntegrationCredentials(orgId, 'findy');
+  let findyKey = getApiKeyFromCredentials(findyCreds);
+  if (!findyKey) {
+    const fmCreds = await getIntegrationCredentials(orgId, 'findymail');
+    findyKey = getApiKeyFromCredentials(fmCreds);
+  }
+
+  if (!icypeasKey && !findyKey) {
+    log('No people-search integration available (IcyPeas or Findy). Skipping enrichment cascade.', 'warn');
+    return { contacts: [], listId, cascadeLog };
+  }
+
+  log(`Starting cascade for ${companies.length} companies — roles: ${roles.join(', ')}`, 'info');
+
+  for (const comp of companies) {
+    const companyName = comp.name || comp.company || '';
+    const domain = (comp.domain || comp.website || '').replace(/^https?:\/\//, '').split('/')[0].trim();
+    if (!companyName && !domain) continue;
+
+    const companyId = await upsertDiscoveredCompany(orgId, comp, { source, projectId });
+    if (!companyId) {
+      log(`${companyName || domain} — failed to upsert company`, 'warn');
+      continue;
+    }
+
+    let people = [];
+
+    if (icypeasKey) {
+      try {
+        const cleanDomain = domain && /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(domain)
+          ? domain : null;
+        const icypeasCriteria = {
+          companies: [companyName],
+          jobTitles: roles,
+          limit: maxPeoplePerCompany,
+          apiKey: icypeasKey,
+        };
+        if (cleanDomain) icypeasCriteria.companyDomains = [cleanDomain];
+        const result = await findPeopleIcyPeas(icypeasCriteria);
+        people = result.leads || result.people?.leads || result.people || result.data || (Array.isArray(result) ? result : []);
+        if (!Array.isArray(people)) people = [];
+        if (people.length > 0) log(`${companyName} — IcyPeas found ${people.length} people`, 'info');
+      } catch (e) {
+        log(`${companyName} — IcyPeas people search failed: ${e.message}`, 'warn');
+      }
+    }
+
+    if (people.length === 0 && findyKey && domain) {
+      try {
+        const result = await findEmployeesFindy(findyKey, {
+          website: domain,
+          jobTitles: roles,
+          count: maxPeoplePerCompany,
+        });
+        people = Array.isArray(result) ? result : (result?.employees || result?.contacts || []);
+        if (people.length > 0) log(`${companyName} — Findy found ${people.length} people`, 'info');
+      } catch (e) {
+        log(`${companyName} — Findy people search failed: ${e.message}`, 'warn');
+      }
+    }
+
+    if (people.length === 0) {
+      log(`${companyName} — no people found`, 'warn');
+      continue;
+    }
+
+    for (const person of people) {
+      const firstName = person.firstname || person.firstName || person.first_name || '';
+      const lastName = person.lastname || person.lastName || person.last_name || '';
+      const fullName = `${firstName} ${lastName}`.trim();
+      if (!fullName) continue;
+
+      let email = person.email || person.emailAddress || person.email_address || null;
+
+      if (!email) {
+        try {
+          const dom = domain || (companyName.includes('.') ? companyName : '');
+          const emailData = await findEmailWaterfall(orgId, {
+            firstName, lastName,
+            company: companyName,
+            domain: dom,
+          });
+          email = emailData?.email || null;
+          if (email) log(`${fullName} — email found via ${emailData.source}`, 'info');
+        } catch (_) {}
+      }
+
+      let bounceRisk = 'unknown';
+      let validationStatus = 'pending';
+      if (email) {
+        try {
+          const v = await verifyEmailWaterfall(orgId, email);
+          bounceRisk = v.verified ? 'low' : 'high';
+          validationStatus = v.verified ? 'valid' : 'invalid';
+        } catch (_) {}
+      }
+
+      const contact = {
+        name: fullName,
+        firstName, lastName,
+        title: person.lastJobTitle || person.headline || person.title || person.job_title || 'Unknown',
+        email: email || 'Not found',
+        linkedin: person.profileUrl || person.linkedinUrl || person.linkedin_url || '',
+        company: companyName,
+        companyId,
+        bounceRisk,
+        validationStatus,
+        fromCache: false,
+      };
+      allContacts.push(contact);
+
+      if (companyId && email && email !== 'Not found') {
+        try {
+          await upsertDiscoveredLead(orgId, {
+            first_name: firstName,
+            last_name: lastName,
+            email,
+            title: contact.title,
+            company: companyName,
+            company_domain: domain || null,
+            companyId,
+            linkedin_url: contact.linkedin || null,
+            email_bounce_risk: bounceRisk,
+            email_validation_status: validationStatus,
+            rawData: { headline: person.headline, about: person.description },
+          }, { listId, source: source + '_cascade' });
+        } catch (e) {
+          log(`${fullName} — lead upsert error: ${e.message}`, 'warn');
+        }
+      }
+    }
+  }
+
+  if (listId) {
+    try { await updateListCounts(listId); } catch (_) {}
+  }
+
+  log(`Cascade done: ${allContacts.length} contacts from ${companies.length} companies`, allContacts.length > 0 ? 'success' : 'warn');
+  return { contacts: allContacts, listId, cascadeLog };
+}
+
 // POST /api/lead-generation/enrich/email
 router.post('/enrich/email', async (req, res) => {
   try {
@@ -559,59 +794,9 @@ router.post('/verify/email', async (req, res) => {
   }
 });
 
-// Helper: find people for a company using Lead Search cascade (not just IcyPeas)
-async function findPeopleCascade(orgId, { companyName, domain, roles, limit = 5 }) {
-  const orderRow = await getIntegrationServiceOrder(orgId);
-  const searchOrder = orderRow?.lead_search_order || ['icypeas', 'ai_ark'];
-  const cleanDomain = domain && /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(domain.replace(/^https?:\/\//, '').split('/')[0])
-    ? domain.replace(/^https?:\/\//, '').split('/')[0]
-    : null;
-  const errors = [];
-
-  for (const key of searchOrder) {
-    const creds = await getIntegrationCredentials(orgId, key);
-    const apiKey = getApiKeyFromCredentials(creds);
-    if (!apiKey) continue;
-
-    try {
-      if (key === 'icypeas') {
-        const icypeasCriteria = {
-          companies: [companyName],
-          jobTitles: roles,
-          limit,
-          apiKey,
-        };
-        if (cleanDomain) icypeasCriteria.companyDomains = [cleanDomain];
-        const result = await findPeopleIcyPeas(icypeasCriteria);
-        let people = result.leads || result.people?.leads || result.people || result.data || (Array.isArray(result) ? result : []);
-        if (!Array.isArray(people)) people = [];
-        if (people.length > 0) return { people, source: key };
-      } else if (key === 'ai_ark') {
-        const results = await findCompaniesAiArkSemantic(apiKey, {
-          industry: null,
-          keywords: [companyName],
-          companySize: [],
-          regions: [],
-          maxLeads: limit,
-        });
-        if (results?.length > 0) {
-          const people = results.map(c => ({
-            companyName: c.name,
-            currentCompanyName: c.name,
-            companyWebsite: c.domain,
-            industry: c.industry,
-          }));
-          return { people, source: key, isCompanyLevel: true };
-        }
-      }
-    } catch (e) {
-      errors.push({ key, error: e.message });
-    }
-  }
-  return { people: [], source: null, errors };
-}
-
-// POST /api/lead-generation/enrich/bulk — Check Postgres status (Enriched < 30 days), skip or run cascade
+// POST /api/lead-generation/enrich/bulk — Triggered by "ENRICH N COMPANIES →" button.
+// Takes only user-selected companies, checks cache, then runs the full cascade
+// (find people → find email → verify → persist) using the enrichment service order.
 router.post('/enrich/bulk', async (req, res) => {
   const enrichmentLog = [];
   const log = (msg, type = 'info') => {
@@ -631,38 +816,9 @@ router.post('/enrich/bulk', async (req, res) => {
 
     const rolesList = Array.isArray(roles) ? roles : (roles ? [roles] : ['CEO', 'CTO', 'VP Sales']);
     const allContacts = [];
-    let listId = null;
 
-    // Pre-check: need at least one lead search provider for person discovery
-    const orderRow = await getIntegrationServiceOrder(orgId);
-    const searchOrder = orderRow?.lead_search_order || ['icypeas', 'ai_ark'];
-    let hasAnySearchProvider = false;
-    for (const key of searchOrder) {
-      const creds = await getIntegrationCredentials(orgId, key);
-      if (getApiKeyFromCredentials(creds)) { hasAnySearchProvider = true; break; }
-    }
-    if (!hasAnySearchProvider) {
-      log('No lead search integrations connected — configure at least one (IcyPeas, AI Ark, etc.) in Settings > Integrations', 'error');
-      return res.status(400).json({
-        error: 'At least one lead search integration required for contact enrichment. Connect providers in Settings > Integrations.',
-        contacts: [],
-        enrichmentLog,
-      });
-    }
-
-    log(`Processing ${companiesInput.length} companies with roles: ${rolesList.join(', ')}`, 'info');
-    log(`Lead search cascade: ${searchOrder.join(' > ')}`, 'info');
-
-    if (listName) {
-      const listRes = await query(
-        `INSERT INTO lead_lists (org_id, name, source, status, total_contacts, enriched_count)
-         VALUES ($1, $2, 'discovery', 'draft', 0, 0)
-         RETURNING id`,
-        [orgId, listName]
-      );
-      listId = listRes.rows[0]?.id;
-    }
-
+    // Separate cached vs fresh companies
+    const toEnrich = [];
     for (const comp of companiesInput) {
       const companyName = comp.name || comp.company;
       const domain = comp.domain || comp.website?.replace?.(/^https?:\/\//, '') || '';
@@ -688,112 +844,58 @@ router.post('/enrich/bulk', async (req, res) => {
             company: l.company || companyName,
             companyId: status.id,
             bounceRisk: l.email_bounce_risk === 'low' ? 'low' : l.email_bounce_risk === 'high' ? 'high' : 'unknown',
+            validationStatus: l.email_bounce_risk === 'low' ? 'valid' : l.email_bounce_risk === 'high' ? 'invalid' : 'pending',
             linkedinData: l.company_data_json?.linkedinData || null,
             fromCache: true,
           });
         }
-        continue;
-      }
-
-      // Cascade through Lead Search providers for person discovery
-      const { people, source: peopleSource, errors: peopleErrors } = await findPeopleCascade(orgId, {
-        companyName,
-        domain,
-        roles: rolesList,
-        limit: 5,
-      });
-
-      if (peopleErrors?.length) {
-        for (const e of peopleErrors) log(`${companyName} — ${e.key} failed: ${e.error}`, 'warn');
-      }
-      if (people.length === 0) {
-        log(`${companyName} — no people found from any provider`, 'warn');
-        continue;
-      }
-      log(`${companyName} — found ${people.length} people via ${peopleSource}`, 'info');
-
-      const companyId = await upsertCompanyForEnrichment(orgId, {
-        name: companyName,
-        domain: domain || undefined,
-        industry: comp.industry,
-      });
-
-      for (const person of people) {
-        const firstName = person.firstname || person.firstName || '';
-        const lastName = person.lastname || person.lastName || '';
-        const fullName = `${firstName} ${lastName}`.trim();
-        if (!fullName) continue;
-
-        let email = person.email || person.emailAddress;
-        if (!email) {
-          try {
-            const dom = (domain || companyName).replace(/^https?:\/\//, '').split('/')[0];
-            const emailData = await findEmailWaterfall(orgId, {
-              firstName,
-              lastName,
-              company: companyName,
-              domain: dom,
-            });
-            email = emailData?.email;
-          } catch (_) {}
-        }
-
-        let bounceRisk = 'unknown';
-        if (email) {
-          try {
-            const v = await verifyEmailWaterfall(orgId, email);
-            bounceRisk = v.verified ? 'low' : 'high';
-          } catch (_) {}
-        }
-
-        const contact = {
-          id: `gen-${allContacts.length + 1}`,
-          name: fullName,
-          title: person.lastJobTitle || person.headline || 'Unknown',
-          email: email || 'Not found',
-          linkedin: person.profileUrl || person.linkedinUrl || '',
-          company: companyName,
-          companyId,
-          bounceRisk,
-          linkedinData: person.profileUrl ? { about: (person.description || '').substring(0, 200), recentActivity: person.headline || '' } : null,
-          fromCache: false,
-        };
-        allContacts.push(contact);
-
-        if (listId && companyId && email && email !== 'Not found') {
-          try {
-            await query(
-              `INSERT INTO leads (org_id, list_id, company_id, first_name, last_name, email, title, company, company_domain, linkedin_url, email_verified, email_bounce_risk, company_data_json, enriched_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, now())`,
-              [
-                orgId,
-                listId,
-                companyId,
-                firstName,
-                lastName,
-                email,
-                contact.title,
-                companyName,
-                domain || null,
-                contact.linkedin || null,
-                bounceRisk === 'low',
-                bounceRisk,
-                JSON.stringify(contact.linkedinData || {}),
-              ]
-            );
-          } catch (e) {
-            console.log('[Enrich] Lead insert error:', e.message);
-          }
-        }
+      } else {
+        toEnrich.push(comp);
       }
     }
 
-    log(`Done: ${allContacts.length} contacts from ${companiesInput.length} companies`, allContacts.length > 0 ? 'success' : 'warn');
+    const fromCache = allContacts.length;
+    if (fromCache > 0) log(`Loaded ${fromCache} contacts from cache (enriched < 30 days)`, 'info');
+
+    // Run the enrichment cascade for companies that need fresh data
+    let cascade = { contacts: [], listId: null, cascadeLog: [] };
+    if (toEnrich.length > 0) {
+      log(`Running enrichment cascade for ${toEnrich.length} companies — roles: ${rolesList.join(', ')}`, 'info');
+      cascade = await runEnrichmentCascade(orgId, toEnrich, {
+        roles: rolesList,
+        listName: listName || `Enrichment ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
+        source: 'enrichment',
+        maxPeoplePerCompany: 5,
+      });
+
+      for (const entry of cascade.cascadeLog) {
+        enrichmentLog.push(entry);
+      }
+
+      for (const c of cascade.contacts) {
+        allContacts.push({
+          id: `gen-${allContacts.length + 1}`,
+          name: c.name,
+          title: c.title,
+          email: c.email,
+          linkedin: c.linkedin,
+          company: c.company,
+          companyId: c.companyId,
+          bounceRisk: c.bounceRisk,
+          validationStatus: c.validationStatus,
+          linkedinData: null,
+          fromCache: false,
+        });
+      }
+    }
+
+    const enriched = allContacts.length - fromCache;
+    log(`Done: ${allContacts.length} contacts (${fromCache} cached, ${enriched} enriched) from ${companiesInput.length} companies`, allContacts.length > 0 ? 'success' : 'warn');
     if (allContacts.length === 0) {
       log('Tip: Ensure company names are real (e.g. "Acme Corp") not generic (e.g. "B2B SaaS"). Providers find people by company name.', 'info');
     }
 
-    res.json({ success: true, contacts: allContacts, enrichmentLog });
+    res.json({ success: true, contacts: allContacts, listId: cascade.listId, enrichmentLog });
   } catch (err) {
     log(`Bulk enrichment error: ${err.message}`, 'error');
     console.error('Bulk enrichment error:', err);
@@ -886,9 +988,8 @@ router.post('/outreach/heyreach', async (req, res) => {
       return res.status(400).json({ error: 'leads array is required' });
     }
 
-    const result = await addLeadsToHeyReach(leads);
-    
     const orgId = req.orgId;
+    const result = await addLeadsToHeyReach(leads, orgId);
     if (orgId) {
       const emails = leads.map(l => l.email).filter(Boolean);
       if (emails.length) await updateLeadsOutreachSentByEmails(orgId, emails, project_id || null);
@@ -913,9 +1014,8 @@ router.post('/outreach/instantly', async (req, res) => {
       return res.status(400).json({ error: 'leads array is required' });
     }
 
-    const results = await addLeadsToInstantly(leads);
-    
     const orgId = req.orgId;
+    const results = await addLeadsToInstantly(leads, orgId);
     if (orgId) {
       const emails = leads.map(l => l.email).filter(Boolean);
       if (emails.length) await updateLeadsOutreachSentByEmails(orgId, emails, project_id || null);

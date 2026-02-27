@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { api, AuthError } from "./api.js";
 
-// --- Saved Prompts ---
-const DEFAULT_PROMPT = `You are a world-class cold email copywriter. Write a personalized cold email for each lead using the enrichment data provided.
+// --- Saved Prompts (loaded from API, with fallback defaults) ---
+const FALLBACK_DEFAULT_PROMPT = `You are a world-class cold email copywriter. Write a personalized cold email for each lead using the enrichment data provided.
 
 Rules:
 - Open with something specific to THEM (recent news, LinkedIn activity, company milestone)
@@ -18,49 +18,20 @@ Available data per lead:
 - LinkedIn bio, recent posts, connections
 - Tech stack, employee count, revenue`;
 
-const SAVED_PROMPTS = {
-  default: { label: "Cold Intro — Pain Point Focused", text: DEFAULT_PROMPT },
-  warm: { label: "Warm Referral Style", text: `You are writing a warm, referral-style cold email. The tone should feel like a mutual connection introduced you, even though they didn't.
-
-Rules:
-- Lead with a specific observation about their work or company
-- Frame your outreach as "I came across X and thought of Y"
-- Be conversational and brief — under 80 words
-- Use their first name only
-- CTA: "Would it make sense to connect?"
-- No hard sell, no features list
-
-Available data per lead:
-- Name, title, company, industry
-- Company news & recent events
-- LinkedIn bio, recent posts` },
-  direct: { label: "Direct Value Prop", text: `You are writing a direct, no-nonsense cold email. Get to the point fast.
-
-Rules:
-- One sentence of context about them
-- One sentence about what you do and the result
-- One sentence with a specific metric or proof point
-- CTA: specific time ask ("15 min this week?")
-- Total: under 60 words
-- No fluff, no pleasantries beyond "Hi [name]"
-
-Available data per lead:
-- Name, title, company
-- Company news` },
-  founder: { label: "Founder-to-Founder", text: `You are a founder writing to another founder or CEO. The tone is peer-to-peer, not vendor-to-buyer.
-
-Rules:
-- Reference something specific they've built or achieved
-- Share a brief insight or perspective (not just a pitch)
-- Position the conversation as an exchange of ideas
-- Keep it under 100 words
-- CTA: "Would love to compare notes"
-
-Available data per lead:
-- Name, title, company, industry
-- LinkedIn bio, recent activity
-- Company milestones` },
+let SAVED_PROMPTS = {
+  default: { label: "Cold Intro — Pain Point Focused", text: FALLBACK_DEFAULT_PROMPT },
 };
+
+(async () => {
+  try {
+    const defaults = await api.prompts.getDefaults();
+    if (defaults && typeof defaults === 'object') SAVED_PROMPTS = { ...SAVED_PROMPTS, ...defaults };
+  } catch {}
+  try {
+    const saved = await api.prompts.list();
+    if (Array.isArray(saved)) saved.forEach(p => { if (p.key || p.id) SAVED_PROMPTS[p.key || p.id] = { label: p.label || p.name, text: p.text || p.content }; });
+  } catch {}
+})();
 
 // --- Utility Components ---
 
@@ -901,18 +872,18 @@ export default function App() {
       try {
         const leadsData = emailContacts.map(contact => ({
           email: contact.email,
-          firstName: contact.name.split(" ")[0],
-          lastName: contact.name.split(" ").slice(1).join(" "),
+          first_name: contact.name.split(" ")[0],
+          last_name: contact.name.split(" ").slice(1).join(" "),
           company: contact.company,
-          personalizedMessage: personalizedEmails[contact.id]?.body || '',
+          personalization: personalizedEmails[contact.id]?.body || '',
         }));
         
-        const result = await api.leadGeneration.sendToInstantly(leadsData);
+        const result = await api.instantly.leads.bulk(leadsData);
         
-        const successful = result.results.filter(r => r.success).length;
+        const successful = (result.results || []).filter(r => r.success).length;
         addLog(`✓ ${successful}/${emailContacts.length} leads added to Instantly campaign`, "success");
         
-        for (const r of result.results) {
+        for (const r of (result.results || [])) {
           if (r.success) {
             addLog(`  ✓ ${r.email}`, "data");
           } else {
@@ -941,15 +912,15 @@ export default function App() {
       
       try {
         const leadsData = linkedinContacts.map(contact => ({
-          linkedinUrl: contact.linkedin,
+          profileUrl: contact.linkedin,
           firstName: contact.name.split(" ")[0],
           lastName: contact.name.split(" ").slice(1).join(" "),
-          email: contact.email,
-          company: contact.company,
-          title: contact.title,
+          emailAddress: contact.email,
+          companyName: contact.company,
+          position: contact.title,
         }));
         
-        await api.leadGeneration.sendToHeyReach(leadsData);
+        await api.heyreach.campaigns.addLeadsDefault(leadsData);
         addLog(`✓ ${linkedinContacts.length} leads added to HeyReach campaign`, "success");
         
         for (const contact of linkedinContacts) {
@@ -1990,13 +1961,17 @@ function Stat({ label, value }) {
 function CampaignSetupPanel({ contacts, emails, channelAssignments, setChannelAssignments, emailPlatform, setEmailPlatform, emailCampaign, setEmailCampaign, linkedinPlatform, setLinkedinPlatform, linkedinCampaign, setLinkedinCampaign, showEmailPreview, setShowEmailPreview, onQueue, isProcessing, listName }) {
   const [listOnly, setListOnly] = useState(false);
 
+  const [instantlyCampaignList, setInstantlyCampaignList] = useState([]);
+  useEffect(() => {
+    api.instantly.campaigns.list().then(data => {
+      const items = Array.isArray(data) ? data : data.data || data.campaigns || [];
+      setInstantlyCampaignList(items.map(c => ({ id: c.id, name: c.name || `Campaign ${c.id?.slice(0, 8)}` })));
+    }).catch(() => {});
+  }, []);
   const EMAIL_CAMPAIGNS = {
-    instantly: [
-      "Q1 SaaS VP Growth — Cold Intro",
-      "Series B Companies — Feb 2026",
-      "Healthcare Decision Makers",
-      "Product-Led Growth Leaders",
-    ],
+    instantly: instantlyCampaignList.length > 0
+      ? instantlyCampaignList.map(c => c.name)
+      : ["Q1 SaaS VP Growth — Cold Intro", "Series B Companies — Feb 2026", "Healthcare Decision Makers", "Product-Led Growth Leaders"],
     smartlead: [
       "Enterprise Outbound — Q1",
       "Mid-Market SaaS Campaign",
@@ -2004,12 +1979,17 @@ function CampaignSetupPanel({ contacts, emails, channelAssignments, setChannelAs
       "Founder Direct — Warm Style",
     ],
   };
+  const [heyreachCampaignList, setHeyreachCampaignList] = useState([]);
+  useEffect(() => {
+    api.heyreach.campaigns.list().then(data => {
+      const items = Array.isArray(data) ? data : data.items || data.campaigns || [];
+      setHeyreachCampaignList(items.map(c => ({ id: c.id, name: c.name || c.campaignName || `Campaign ${c.id}` })));
+    }).catch(() => {});
+  }, []);
   const LINKEDIN_CAMPAIGNS = {
-    heyreach: [
-      "Connection Request — Warm Intro",
-      "Content Engagement Sequence",
-      "Decision Maker Outreach — Q1",
-    ],
+    heyreach: heyreachCampaignList.length > 0
+      ? heyreachCampaignList.map(c => c.name)
+      : ["Connection Request — Warm Intro", "Content Engagement Sequence", "Decision Maker Outreach — Q1"],
     aimfox: [
       "LinkedIn Drip — VP Level",
       "Founder Connect Campaign",
@@ -3781,15 +3761,25 @@ function UniboxView({ projectId }) {
     }
   };
 
-  const [conversations, setConversations] = useState([
-    { id: 1, name: "Sarah Chen", company: "ScaleFlow", channel: "email", subject: "Re: AI Automation for your sales team", preview: "Thanks for sending this over. I've shared it with our VP of Sales and we'd love to explore this further...", time: "2h ago", unread: true, stage: "Replied" },
-    { id: 2, name: "David Kim", company: "SynthWave", channel: "linkedin", subject: "Your connection request", preview: "Hey! Thanks for reaching out. I saw your post about AI audits — we've actually been looking at something similar...", time: "5h ago", unread: true, stage: "Replied" },
-    { id: 3, name: "Marcus Webb", company: "DataPulse", channel: "email", subject: "Re: Proposal — AI Implementation", preview: "The proposal looks comprehensive. Quick question about the timeline — could we accelerate Phase 1?", time: "8h ago", unread: false, stage: "Proposal Sent" },
-    { id: 4, name: "Lisa Thompson", company: "CloudMetrics", channel: "email", subject: "Re: Quick question about your outbound", preview: "Not right now, but can you follow up next quarter? We're mid-migration currently.", time: "1d ago", unread: false, stage: "Replied" },
-    { id: 5, name: "Robert Chang", company: "PipelineHQ", channel: "linkedin", subject: "Meeting confirmation", preview: "Tomorrow at 10am works perfectly. Looking forward to it.", time: "1d ago", unread: false, stage: "Meeting Booked" },
-    { id: 6, name: "Tom Bradley", company: "GrowthLoop", channel: "email", subject: "Re: Scaling outbound with AI", preview: "This is interesting. Can you send me a case study?", time: "2d ago", unread: false, stage: "Replied" },
-  ]);
-  const [selectedConvo, setSelectedConvo] = useState(conversations[0]);
+  const [conversations, setConversations] = useState([]);
+  const [selectedConvo, setSelectedConvo] = useState(null);
+  const [threadMessages, setThreadMessages] = useState([]);
+
+  useEffect(() => {
+    api.conversations.list().then(data => {
+      const convos = Array.isArray(data) ? data : data.conversations || [];
+      setConversations(convos);
+      if (convos.length > 0 && !selectedConvo) setSelectedConvo(convos[0]);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (selectedConvo?.id) {
+      api.messages.list(selectedConvo.id).then(data => {
+        setThreadMessages(Array.isArray(data) ? data : data.messages || []);
+      }).catch(() => setThreadMessages([]));
+    }
+  }, [selectedConvo?.id]);
   const [replyText, setReplyText] = useState("");
   const [aiAssist, setAiAssist] = useState(false);
   const [aiGoal, setAiGoal] = useState("Book a meeting");
@@ -3797,10 +3787,12 @@ function UniboxView({ projectId }) {
   const [generatingDrafts, setGeneratingDrafts] = useState(false);
   const [filter, setFilter] = useState("all");
 
-  const THREAD = [
-    { from: "You", time: "3d ago", content: `Hi ${selectedConvo?.name?.split(" ")[0]},\n\nI noticed ${selectedConvo?.company} has been scaling rapidly — congrats on the recent growth.\n\nWe help companies like yours automate outbound sales using AI, typically adding 15-25 qualified meetings per month without hiring additional SDRs.\n\nWould you be open to a quick 15-min call to see if there's a fit?\n\nBest,\nAndrew` },
-    { from: selectedConvo?.name, time: selectedConvo?.time, content: selectedConvo?.preview },
-  ];
+  const THREAD = threadMessages.length > 0
+    ? threadMessages.map(m => ({ from: m.direction === 'outbound' ? 'You' : (selectedConvo?.name || 'Contact'), time: m.sent_at || m.created_at || '', content: m.body || m.content || '' }))
+    : [
+        { from: "You", time: "3d ago", content: `Hi ${selectedConvo?.name?.split(" ")[0]},\n\nI noticed ${selectedConvo?.company} has been scaling rapidly — congrats on the recent growth.\n\nWe help companies like yours automate outbound sales using AI, typically adding 15-25 qualified meetings per month without hiring additional SDRs.\n\nWould you be open to a quick 15-min call to see if there's a fit?\n\nBest,\nAndrew` },
+        { from: selectedConvo?.name, time: selectedConvo?.time, content: selectedConvo?.preview },
+      ];
 
   const generateAIDrafts = async () => {
     setGeneratingDrafts(true);
@@ -4193,19 +4185,14 @@ function ImplementationView({ project }) {
 
 function WorkflowsLibraryView() {
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [WORKFLOWS, setWorkflows] = useState([]);
 
-  const WORKFLOWS = [
-    { id: "w1", name: "Lead Enrichment Pipeline", desc: "Discover companies via AI Ark → Enrich contacts via BetterContact + Icypeas → Verify emails via Wiza → Export to campaign tool", category: "lead_gen", tools: ["AI Ark", "BetterContact", "Icypeas", "Wiza"], steps: 4, downloads: 142, rating: 4.8 },
-    { id: "w2", name: "Cold Email Sequence Builder", desc: "Generate personalised email sequences from ICP data → A/B test subject lines → Auto-schedule via Instantly → Track open/reply rates", category: "outreach", tools: ["Claude API", "Instantly"], steps: 3, downloads: 98, rating: 4.6 },
-    { id: "w3", name: "LinkedIn Content Engine", desc: "Scrape competitor posts → Generate topic ideas → Create text/carousel posts → Schedule via API → Track performance", category: "content", tools: ["LinkedIn API", "Claude API"], steps: 5, downloads: 76, rating: 4.5 },
-    { id: "w4", name: "Community Auto-Responder", desc: "Monitor Skool/Reddit/Facebook groups for keywords → Draft voice-matched replies → Auto-post or queue for review", category: "content", tools: ["Skool API", "Reddit API", "Claude API"], steps: 3, downloads: 64, rating: 4.3 },
-    { id: "w5", name: "AI Audit Transcript Analyzer", desc: "Upload interview transcripts → Extract themes & pain points → Cross-reference with survey data → Generate strategic deck", category: "consulting", tools: ["Claude API", "PPTX Generator"], steps: 4, downloads: 187, rating: 4.9 },
-    { id: "w6", name: "Lease Tracking Automation", desc: "Monitor lease expiry dates → Auto-send renewal reminders → Track compliance status → Generate monthly reports", category: "operations", tools: ["Custom CRM", "Email API"], steps: 3, downloads: 34, rating: 4.2 },
-    { id: "w7", name: "Sales Call → Content Pipeline", desc: "Record calls via Fathom → Extract key insights → Generate LinkedIn posts from call highlights → Schedule publishing", category: "content", tools: ["Fathom", "Claude API", "LinkedIn API"], steps: 4, downloads: 89, rating: 4.7 },
-    { id: "w8", name: "Multi-Channel Outreach Orchestrator", desc: "Sync lead lists → Send cold emails via Instantly → Connection requests via HeyReach → Track unified response rates", category: "outreach", tools: ["Instantly", "HeyReach", "Custom CRM"], steps: 5, downloads: 112, rating: 4.5 },
-    { id: "w9", name: "Board Report Generator", desc: "Pull data from CRM + accounting → Generate financial summary → Create formatted report → Email to stakeholders", category: "consulting", tools: ["Xero API", "Claude API", "Email API"], steps: 4, downloads: 56, rating: 4.4 },
-    { id: "w10", name: "Competitor Intelligence Monitor", desc: "Track competitor LinkedIn profiles → Monitor website changes → Alert on key updates → Generate weekly digest", category: "lead_gen", tools: ["LinkedIn API", "Web Scraper", "Claude API"], steps: 4, downloads: 71, rating: 4.3 },
-  ];
+  useEffect(() => {
+    api.workflows.list().then(data => {
+      const wfs = Array.isArray(data) ? data : data.workflows || [];
+      setWorkflows(wfs.map(w => ({ ...w, tools: w.tools || [], desc: w.description || w.desc || '' })));
+    }).catch(() => {});
+  }, []);
 
   const CATEGORIES = [
     { key: "all", label: "All Workflows", count: WORKFLOWS.length },
@@ -4369,11 +4356,14 @@ function AICouncilView() {
 
 function AuditView({ project, projects, selectedProject, setSelectedProject }) {
   const [activeTab, setActiveTab] = useState("overview");
-  const [transcripts, setTranscripts] = useState([
-    { id: 1, name: "CFO Interview - Financial Operations", speaker: "Sarah Mitchell", role: "CFO", department: "Finance", duration: 45, tags: ["finance", "operations"] },
-    { id: 2, name: "CEO Interview - Strategic Vision", speaker: "James Richardson", role: "CEO", department: "Leadership", duration: 60, tags: ["strategy", "leadership"] },
-    { id: 3, name: "Estate Manager Interview", speaker: "Mike Thompson", role: "Estate Manager", department: "Operations", duration: 50, tags: ["operations", "estates"] },
-  ]);
+  const [transcripts, setTranscripts] = useState([]);
+
+  useEffect(() => {
+    api.audit.transcripts.list().then(data => {
+      const ts = Array.isArray(data) ? data : data.transcripts || [];
+      setTranscripts(ts.map(t => ({ ...t, tags: t.tags || [], speaker: t.speaker || t.speaker_name || '', role: t.role || t.speaker_role || '' })));
+    }).catch(() => {});
+  }, []);
 
   if (!project) return <div style={{ padding: 28, color: COLORS.textDim, fontFamily: FONT_BODY }}>Select a project from the sidebar.</div>;
 
@@ -4431,18 +4421,17 @@ function AuditCompanyTab({ transcripts }) {
   const [isResearching, setIsResearching] = useState(false);
   const [researchDone, setResearchDone] = useState(false);
   const [overview, setOverview] = useState("Hastingwood Securities is a private equity-backed property management firm managing 150 high-value commercial and residential properties across London. Founded in 2015, the company has grown from 5 properties to 150 through strategic acquisitions.");
-  const [metrics, setMetrics] = useState([
-    { key: "founded", label: "Founded", value: "2015", editing: false },
-    { key: "employees", label: "Employees", value: "45-50", editing: false },
-    { key: "properties", label: "Properties", value: "150", editing: false },
-    { key: "aum", label: "AUM", value: "£450M+", editing: false },
-  ]);
+  const [metrics, setMetrics] = useState([]);
   const [customSections, setCustomSections] = useState([]);
-  const [transcriptInsights, setTranscriptInsights] = useState([
-    { id: "ti1", text: "CFO mentioned plans to double the portfolio to 300 properties by 2028", source: "Sarah Mitchell — CFO Interview", accepted: false },
-    { id: "ti2", text: "Estate Manager flagged 3 critical compliance gaps in current lease tracking process", source: "Mike Thompson — Estate Manager Interview", accepted: false },
-    { id: "ti3", text: "CEO confirmed annual technology budget of £200-250K with willingness to increase for proven ROI", source: "James Richardson — CEO Interview", accepted: false },
-  ]);
+  const [transcriptInsights, setTranscriptInsights] = useState([]);
+
+  useEffect(() => {
+    api.settings.get('audit_company').then(data => {
+      const s = data?.settings || data || {};
+      if (s.metrics?.length) setMetrics(s.metrics);
+      if (s.insights?.length) setTranscriptInsights(s.insights);
+    }).catch(() => {});
+  }, []);
 
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
 
@@ -4973,11 +4962,14 @@ function AuditSurveysTab() {
 }
 
 function AuditInterviewsTab() {
-  const [interviewees, setInterviewees] = useState([
-    { id: 1, name: "Sarah Mitchell", role: "CFO", type: "Stakeholder", department: "Finance", status: "generated", questionCount: 12 },
-    { id: 2, name: "James Richardson", role: "CEO", type: "Stakeholder", department: "Leadership", status: "generated", questionCount: 15 },
-    { id: 3, name: "Mike Thompson", role: "Estate Manager", type: "Employee", department: "Operations", status: "generated", questionCount: 10 },
-  ]);
+  const [interviewees, setInterviewees] = useState([]);
+
+  useEffect(() => {
+    api.audit.interviews.list().then(data => {
+      const interviews = Array.isArray(data) ? data : data.interviews || [];
+      setInterviewees(interviews.map(i => ({ ...i, questionCount: i.question_count || i.questionCount || 0 })));
+    }).catch(() => {});
+  }, []);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ name: "", role: "", type: "Stakeholder", department: "", context: "" });
   const [generating, setGenerating] = useState(false);
@@ -5154,29 +5146,22 @@ function AuditProcessMapsTab() {
   const [editingProcess, setEditingProcess] = useState(null); // { pillarId, procId }
   const [editingStep, setEditingStep] = useState(null); // { procId, stepIdx }
   const [editForm, setEditForm] = useState({});
-  const [pillars, setPillars] = useState([
-    { id: "acquisition", label: "Acquisition", icon: "🎯", desc: "Stranger → Customer", processes: [
-      { id: "a1", label: "Lead Capture", owner: "SDR", time: "3 hrs/day", tag: "timesink", tools: "LinkedIn Sales Nav, manual search", aiRec: "AI Ark auto-discovery + enrichment pipeline", savings: "2.5 hrs/day" },
-      { id: "a2", label: "Lead Qualification", owner: "SDR", time: "1 hr/day", tag: "aiready", tools: "Manual review, gut feel", aiRec: "ICP scoring algorithm, auto-qualification", savings: "45 min/day" },
-      { id: "a3", label: "Outreach", owner: "SDR", time: "2 hrs/day", tag: "timesink", tools: "Manual emails, some Instantly", aiRec: "AI SDR + Instantly automation", savings: "1.5 hrs/day" },
-      { id: "a4", label: "Sales Conversations", owner: "AE / CEO", time: "4 calls/week", tag: "optimised", tools: "Zoom, Fathom recording", aiRec: "Already well-structured", savings: "—" },
-      { id: "a5", label: "Closing", owner: "CEO", time: "2 hrs/deal", tag: "qualityrisk", tools: "Manual proposals, Word docs", aiRec: "AI proposal generation + template automation", savings: "1 hr/deal" },
-    ]},
-    { id: "delivery", label: "Delivery", icon: "🚀", desc: "Customer → Outcome", processes: [
-      { id: "d1", label: "Onboarding", owner: "Operations", time: "4 hrs/client", tag: "aiready", tools: "Manual emails, Notion checklist", aiRec: "Automated onboarding sequences", savings: "3 hrs/client" },
-      { id: "d2", label: "Discovery / Scoping", owner: "Consultant", time: "3 hrs/client", tag: "timesink", tools: "Manual interviews, note-taking", aiRec: "AI transcript analysis + auto-scoping", savings: "2 hrs/client" },
-      { id: "d3", label: "Execution", owner: "Technical", time: "20 hrs/project", tag: "optimised", tools: "Various — project dependent", aiRec: "AI-assisted implementation where applicable", savings: "~4 hrs/project" },
-      { id: "d4", label: "Reporting", owner: "Consultant", time: "2 hrs/week", tag: "qualityrisk", tools: "Manual reports in Google Docs", aiRec: "Auto-generated progress reports", savings: "1.5 hrs/week" },
-      { id: "d5", label: "Handoff / Completion", owner: "Consultant", time: "2 hrs/client", tag: "qualityrisk", tools: "Manual documentation", aiRec: "AI knowledge base generation", savings: "1 hr/client" },
-    ]},
-    { id: "support", label: "Support", icon: "🛟", desc: "Issue → Resolution", processes: [
-      { id: "s1", label: "Issue Intake", owner: "Support", time: "30 min/ticket", tag: "timesink", tools: "Email, phone, ad-hoc", aiRec: "AI chatbot for intake + auto-logging", savings: "20 min/ticket" },
-      { id: "s2", label: "Triage", owner: "Support Lead", time: "15 min/ticket", tag: "aiready", tools: "Manual assignment", aiRec: "AI auto-categorisation and routing", savings: "12 min/ticket" },
-      { id: "s3", label: "Resolution", owner: "Technical", time: "2 hrs avg", tag: "optimised", tools: "Project dependent", aiRec: "AI knowledge base for common fixes", savings: "~30 min/ticket" },
-      { id: "s4", label: "Follow-up", owner: "Support", time: "20 min/ticket", tag: "qualityrisk", tools: "Manual email follow-up", aiRec: "Automated follow-up sequences", savings: "15 min/ticket" },
-      { id: "s5", label: "Retention", owner: "Account Mgr", time: "1 hr/month/client", tag: "qualityrisk", tools: "Manual check-ins", aiRec: "Automated check-ins + sentiment analysis", savings: "40 min/month" },
-    ]},
-  ]);
+  const [pillars, setPillars] = useState([]);
+
+  useEffect(() => {
+    api.audit.processMaps.list().then(data => {
+      const maps = Array.isArray(data) ? data : data.process_maps || [];
+      if (maps.length > 0) {
+        const grouped = {};
+        maps.forEach(m => {
+          const pillarId = m.pillar_id || m.category || 'other';
+          if (!grouped[pillarId]) grouped[pillarId] = { id: pillarId, label: m.pillar_label || pillarId, icon: m.pillar_icon || '📋', desc: m.pillar_desc || '', processes: [] };
+          grouped[pillarId].processes.push({ id: m.id, label: m.name || m.label || '', owner: m.owner || '', time: m.time_estimate || m.time || '', tag: m.tag || 'neutral', tools: m.tools || '', aiRec: m.ai_recommendation || m.aiRec || '', savings: m.estimated_savings || m.savings || '' });
+        });
+        setPillars(Object.values(grouped));
+      }
+    }).catch(() => {});
+  }, []);
   const [processFlows, setProcessFlows] = useState({
     a1: [
       { step: 1, label: "Open LinkedIn Sales Navigator", owner: "SDR", time: "5 min", tag: "timesink", aiOverlay: null },
@@ -6180,60 +6165,20 @@ function MessagingWorkshopView() {
   const [playbookName, setPlaybookName] = useState("");
   const [saveSelections, setSaveSelections] = useState({});
 
-  const MOCK_PLAYBOOKS = [
-    { id: "pb1", name: "Q1 SaaS VP Growth — Cold Intro", audience: "VPs of Growth at Series B+ SaaS", created: "Feb 8, 2026",
-      emails: [
-        { id: "pb1e1", label: "Initial Email — Pain-Led", subject: "{{first_name}}, quick question about outbound", body: "Hi {{first_name}},\n\nQuick question: how much time are your reps spending on lead research vs. actually selling?..." },
-        { id: "pb1e2", label: "Initial Email — Result-Led", subject: "47 meetings in 6 weeks", body: "Hi {{first_name}},\n\nA quick stat: one of our clients went from 12 booked meetings per month to 47..." },
-        { id: "pb1e3", label: "Follow-up #1", subject: "re: quick question", body: "Hi {{first_name}},\n\nJust bumping this up..." },
-      ],
-      linkedin: [
-        { id: "pb1l1", label: "Connection Request — A", body: "Hi {{first_name}} — saw {{company_name}} is scaling. I work with similar companies on AI outbound..." },
-        { id: "pb1l2", label: "Follow-up after accept", body: "Thanks for connecting! Quick question — how are you handling outbound personalisation?..." },
-      ],
-      subjects: [
-        "{{first_name}}, quick question about outbound",
-        "47 meetings in 6 weeks (here's how)",
-        "saw {{company_name}} is hiring SDRs — what if you didn't need to?",
-        "your competitors are automating outbound",
-        "{{first_name}}, are your reps still researching leads manually?",
-      ],
-    },
-    { id: "pb2", name: "Healthcare Decision Makers", audience: "CTOs & CIOs at healthcare orgs (200+)", created: "Jan 22, 2026",
-      emails: [
-        { id: "pb2e1", label: "Initial Email — Compliance-Led", subject: "{{first_name}}, a question about {{company_name}}'s data ops", body: "Hi {{first_name}},\n\nHealthcare data is messy. Compliance makes it messier..." },
-        { id: "pb2e2", label: "Follow-up #1", subject: "re: data ops", body: "Hi {{first_name}},\n\nJust following up..." },
-        { id: "pb2e3", label: "Follow-up #2", subject: "one last thing", body: "Hi {{first_name}},\n\nLast note..." },
-        { id: "pb2e4", label: "Follow-up #3 — Breakup", subject: "closing the loop", body: "Hi {{first_name}},\n\nLooks like timing isn't right..." },
-      ],
-      linkedin: [
-        { id: "pb2l1", label: "Connection Request", body: "Hi {{first_name}} — I help healthcare orgs streamline data operations with AI..." },
-        { id: "pb2l2", label: "Follow-up", body: "Thanks for connecting! Curious — how is {{company_name}} handling data compliance right now?..." },
-      ],
-      subjects: [
-        "{{first_name}}, a question about {{company_name}}'s data ops",
-        "healthcare data doesn't have to be this hard",
-        "how [similar org] cut compliance overhead by 40%",
-        "{{first_name}}, quick thought on {{company_name}}'s data stack",
-      ],
-    },
-    { id: "pb3", name: "FinTech CROs — EMEA", audience: "CROs at FinTech companies, European market", created: "Jan 15, 2026",
-      emails: [
-        { id: "pb3e1", label: "Initial Email", subject: "{{first_name}}, quick question re: pipeline", body: "Hi {{first_name}},\n\nI noticed {{company_name}} just raised..." },
-        { id: "pb3e2", label: "Follow-up #1", subject: "re: pipeline", body: "Hi {{first_name}},\n\nBumping this up..." },
-        { id: "pb3e3", label: "Follow-up #2", subject: "last note", body: "Hi {{first_name}},\n\nFinal follow-up..." },
-      ],
-      linkedin: [
-        { id: "pb3l1", label: "Connection Request", body: "{{first_name}}, congrats on the raise at {{company_name}}. I help FinTech CROs scale outbound..." },
-        { id: "pb3l2", label: "Follow-up", body: "Appreciate the connection! Quick Q — what's your biggest challenge scaling pipeline right now?..." },
-      ],
-      subjects: [
-        "{{first_name}}, congrats on the raise",
-        "how FinTech CROs are scaling pipeline in 2026",
-        "{{company_name}} + AI outbound = more pipeline",
-      ],
-    },
-  ];
+  const [MOCK_PLAYBOOKS, setPlaybooks] = useState([]);
+
+  useEffect(() => {
+    api.messagingCopies.list().then(data => {
+      const copies = Array.isArray(data) ? data : data.messaging_copies || [];
+      setPlaybooks(copies.map(c => ({
+        id: c.id, name: c.name || c.title || 'Untitled',
+        audience: c.audience || '', created: c.created_at ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
+        emails: c.emails || c.content?.emails || [],
+        linkedin: c.linkedin || c.content?.linkedin || [],
+        subjects: c.subjects || c.content?.subjects || [],
+      })));
+    }).catch(() => {});
+  }, []);
 
   const AGENT_QUESTIONS = [
     { message: "Hey! Let's build your outbound messaging. First — who are you targeting with this campaign? You can describe them or pick from one of your existing ICP lists.", field: "audience" },
@@ -6842,13 +6787,46 @@ function ColdEmailCampaignsView() {
     followups: [{ id: 1, delay: 1, subjectLine: false, bodies: [{ id: 1, value: "", mode: "manual" }] }, { id: 2, delay: 2, subjectLine: false, bodies: [{ id: 1, value: "", mode: "manual" }] }],
     dailyLimit: 50, startDate: "", endDate: "", openTracking: true, timezone: "Europe/London", sendStart: "09:00", sendEnd: "17:00", sendDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
   });
-  const MOCK_CAMPAIGNS = [
-    { id: 1, name: "Q1 SaaS VP Growth — Cold Intro", status: "active", leads: 342, sent: 289, opened: 187, replied: 34, bounced: 4, dailyLimit: 50, startDate: "2026-01-15" },
-    { id: 2, name: "Series B Companies — Feb 2026", status: "active", leads: 156, sent: 98, opened: 54, replied: 12, bounced: 2, dailyLimit: 40, startDate: "2026-02-01" },
-    { id: 3, name: "Healthcare Decision Makers", status: "paused", leads: 210, sent: 210, opened: 132, replied: 28, bounced: 6, dailyLimit: 50, startDate: "2025-12-01" },
-    { id: 4, name: "Product-Led Growth Leaders", status: "draft", leads: 0, sent: 0, opened: 0, replied: 0, bounced: 0, dailyLimit: 50, startDate: "" },
-  ];
-  const MOCK_SENDERS = [
+  const [MOCK_CAMPAIGNS, setEmailCampaigns] = useState([]);
+  const [senderAccounts, setSenderAccounts] = useState([]);
+
+  useEffect(() => {
+    const STATUS_MAP = { 0: 'draft', 1: 'active', 2: 'paused', 3: 'completed' };
+    api.instantly.campaigns.list().then(data => {
+      const items = Array.isArray(data) ? data : data.data || data.campaigns || [];
+      const campIds = items.map(c => c.id).filter(Boolean);
+      setEmailCampaigns(items.map(c => ({
+        id: c.id,
+        name: c.name || `Campaign ${c.id?.slice(0, 8)}`,
+        status: STATUS_MAP[c.status] || (typeof c.status === 'string' ? c.status.toLowerCase() : 'draft'),
+        leads: c.leads_count ?? 0,
+        sent: 0, opened: 0, replied: 0, bounced: 0,
+        dailyLimit: c.daily_limit || 50,
+        startDate: c.campaign_schedule?.start_date || '',
+      })));
+      if (campIds.length) {
+        api.instantly.analytics({ id: campIds[0] }).then(analytics => {
+          const arr = Array.isArray(analytics) ? analytics : [];
+          setEmailCampaigns(prev => prev.map(camp => {
+            const a = arr.find(x => x.campaign_id === camp.id);
+            if (!a) return camp;
+            return { ...camp, leads: a.leads_count ?? camp.leads, sent: a.emails_sent_count ?? 0, opened: a.open_count_unique ?? 0, replied: a.reply_count_unique ?? 0, bounced: a.bounced_count ?? 0 };
+          }));
+        }).catch(() => {});
+      }
+    }).catch(() => {
+      api.campaigns.list().then(data => {
+        const camps = (Array.isArray(data) ? data : data.campaigns || []).filter(c => c.channel === 'email' || !c.channel);
+        setEmailCampaigns(camps.map(c => ({ ...c, leads: c.lead_count || c.leads || 0, sent: c.sent_count || c.sent || 0, opened: c.opened_count || c.opened || 0, replied: c.replied_count || c.replied || 0, bounced: c.bounced_count || c.bounced || 0, dailyLimit: c.daily_limit || c.dailyLimit || 50, startDate: c.start_date || c.startDate || '' })));
+      }).catch(() => {});
+    });
+
+    api.instantly.accounts().then(data => {
+      const items = Array.isArray(data) ? data : data.data || data.accounts || [];
+      setSenderAccounts(items.map(a => ({ email: a.email, status: a.status === 1 || a.status === 'active' ? 'active' : 'inactive' })));
+    }).catch(() => {});
+  }, []);
+  const MOCK_SENDERS = senderAccounts.length > 0 ? senderAccounts : [
     { email: "andrew@dunnco.co.uk", status: "inactive" }, { email: "andrewdunn@gbiw.co.uk", status: "active" },
     { email: "adunn@gbiw.co.uk", status: "active" }, { email: "andrew@gbiw.co.uk", status: "active" }, { email: "a.dunn@outreach.io", status: "active" },
   ];
@@ -7051,11 +7029,33 @@ function ColdEmailCampaignsView() {
 
 function LinkedInCampaignsView() {
   const [addLeadsCampaign, setAddLeadsCampaign] = useState(null);
-  const MOCK_CAMPAIGNS = [
-    { id: 1, name: "Connection Request — Warm Intro", status: "active", leads: 180, sent: 145, accepted: 62, replied: 18, platform: "HeyReach" },
-    { id: 2, name: "Content Engagement Sequence", status: "active", leads: 95, sent: 72, accepted: 34, replied: 11, platform: "HeyReach" },
-    { id: 3, name: "Decision Maker Outreach — Q1", status: "paused", leads: 220, sent: 220, accepted: 88, replied: 24, platform: "AimFox" },
-  ];
+  const [MOCK_CAMPAIGNS, setLiCampaigns] = useState([]);
+  const [heyreachStats, setHeyreachStats] = useState(null);
+
+  useEffect(() => {
+    api.heyreach.campaigns.list().then(data => {
+      const items = Array.isArray(data) ? data : data.items || data.campaigns || [];
+      setLiCampaigns(items.map(c => ({
+        id: c.id,
+        name: c.name || c.campaignName || `Campaign ${c.id}`,
+        status: (c.status || c.campaignStatus || '').toLowerCase() === 'active' ? 'active' : (c.status || 'paused').toLowerCase(),
+        leads: c.leadCount ?? c.leads ?? 0,
+        sent: c.sentCount ?? c.sent ?? 0,
+        accepted: c.acceptedCount ?? c.accepted ?? 0,
+        replied: c.repliedCount ?? c.replied ?? 0,
+        platform: 'HeyReach',
+      })));
+      const ids = items.map(c => c.id).filter(Boolean);
+      if (ids.length) {
+        api.heyreach.stats({ campaignIds: ids }).then(s => setHeyreachStats(s)).catch(() => {});
+      }
+    }).catch(() => {
+      api.campaigns.list().then(data => {
+        const camps = (Array.isArray(data) ? data : data.campaigns || []).filter(c => c.channel === 'linkedin');
+        setLiCampaigns(camps.map(c => ({ ...c, leads: c.lead_count || c.leads || 0, sent: c.sent_count || c.sent || 0, accepted: c.accepted_count || c.accepted || 0, replied: c.replied_count || c.replied || 0, platform: c.platform || 'HeyReach' })));
+      }).catch(() => {});
+    });
+  }, []);
 
   const addLeadsBtn = (c) => (
     <button onClick={() => setAddLeadsCampaign(c)} style={{ padding: "7px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap" }}
@@ -7156,8 +7156,8 @@ const INTEGRATIONS_META = [
   { key: "zerobounce", label: "ZeroBounce", icon: "🛡️", desc: "Email verification & validation", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.008/verify", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/zerobounce/connect" },
   { key: "neverbounce", label: "NeverBounce", icon: "✉️", desc: "Email verification & deliverability", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.008/verify", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/neverbounce/connect" },
   { key: "ai_ark", label: "AI Ark", icon: "🦅", desc: "B2B data enrichment — people & company lookup", category: "enrichment", orderTypes: ["lead_search", "lead_enrichment"], costLabel: "~$0.02/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/ai-ark/connect" },
-  { key: "findy", label: "Findy", icon: "🔍", desc: "Lead discovery & enrichment", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.03/lead", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/findy/connect" },
-  { key: "findymail", label: "FindyMail", icon: "✉️", desc: "Email finder & verification — find by name+domain, verify address", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.01/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/findymail/connect" },
+  { key: "findy", label: "Findy", icon: "🔍", desc: "Lead discovery & enrichment — FindyMail IntelliMatch + employee search", category: "enrichment", orderTypes: ["lead_search", "lead_enrichment"], costLabel: "~$0.03/lead", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/findy/connect" },
+  { key: "findymail", label: "FindyMail", icon: "✉️", desc: "Email finder & verification — find by name+domain, verify address (same key as Findy)", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.01/lead", costTier: 1, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/findy/connect" },
   { key: "cleanlist", label: "Cleanlist", icon: "🧹", desc: "List cleaning & verification", category: "enrichment", orderTypes: ["lead_enrichment"], costLabel: "~$0.012/verify", costTier: 2, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/cleanlist/connect" },
   { key: "wiza", label: "Wiza", icon: "📊", desc: "Sales intelligence & lead data", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.04/lead", costTier: 4, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }], connectEndpoint: "/wiza/connect" },
   { key: "leadsmagix", label: "Leads Magix", icon: "✨", desc: "B2B lead generation platform", category: "enrichment", orderTypes: ["lead_search"], costLabel: "~$0.025/lead", costTier: 3, credentialFields: [{ name: "api_key", label: "API Key", type: "password" }, { name: "workspace_id", label: "Workspace ID", type: "text" }], connectEndpoint: "/leadsmagix/connect" },
@@ -7693,10 +7693,14 @@ function SettingsView() {
 function NicheResearcherView() {
   const [view, setView] = useState("library"); // library, chat, detail
   const [selectedNiche, setSelectedNiche] = useState(null);
-  const [savedNiches, setSavedNiches] = useState([
-    { id: "sn1", name: "AI Automation for Mid-Market B2B SaaS", score: 92, size: "~12,000 companies", competition: "Medium", demand: "High", avgDeal: "£15-30K", savedDate: "Feb 8", audience: "VPs of Sales & CROs at Series B+ B2B SaaS (50-500 employees)", positioning: "The one-person AI consultancy delivering enterprise-level outbound systems", monetisation: "AI Audit (£2-5K) → Implementation (£15-30K) → Retainer (£3-5K/mo)", advantage: "AI-native methodology, 100+ testimonials, rapid deployment", channels: "LinkedIn, Skool, cold outreach, referral network", why: "High willingness to pay, proven demand, your methodology gives unfair speed advantage" },
-    { id: "sn2", name: "AI Ops for Property Management Firms", score: 87, size: "~8,500 companies", competition: "Low", demand: "High", avgDeal: "£20-45K", savedDate: "Feb 5", audience: "Managing Directors & COOs at property firms (50-500 units)", positioning: "AI-powered operations transformation specialist for property management", monetisation: "Operations Audit (£3-5K) → System Build (£20-45K) → Support (£2-4K/mo)", advantage: "Direct experience with Hastingwood case study", channels: "LinkedIn, property conferences, referral from existing clients", why: "Low competition, high pain points, you have a proven case study" },
-  ]);
+  const [savedNiches, setSavedNiches] = useState([]);
+
+  useEffect(() => {
+    api.niches.list().then(data => {
+      const niches = Array.isArray(data) ? data : data.niches || [];
+      setSavedNiches(niches.map(n => ({ ...n, avgDeal: n.avg_deal || n.avgDeal || '', savedDate: n.created_at ? new Date(n.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '' })));
+    }).catch(() => {});
+  }, []);
   const [chatMessages, setChatMessages] = useState([{ role: "agent", text: "Hey! I'm your Niche Research assistant. I'll help you find the ideal niche. What are your core skills and areas of expertise?" }]);
   const [userInput, setUserInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -7896,13 +7900,14 @@ function SalesScriptGeneratorView() {
   const [step, setStep] = useState(0);
   const [generatedScript, setGeneratedScript] = useState(null);
   const chatEndRef = React.useRef(null);
-  const [savedScripts, setSavedScripts] = useState([
-    { id: "ss1", name: "B2B SaaS VP Cold Call", type: "Cold Call", created: "Feb 8", sections: 5, uses: 24, audience: "VPs of Sales at SaaS companies" },
-    { id: "ss2", name: "AI Audit Discovery Call", type: "Discovery Call", created: "Feb 5", sections: 5, uses: 18, audience: "CTOs & COOs at mid-market firms" },
-    { id: "ss3", name: "Follow-up After Demo", type: "Follow-up Call", created: "Jan 28", sections: 4, uses: 12, audience: "Decision-makers post-demo" },
-    { id: "ss4", name: "Insurance Agency Cold Call", type: "Cold Call", created: "Jan 20", sections: 5, uses: 31, audience: "Insurance agency principals" },
-    { id: "ss5", name: "Objection Handling Playbook", type: "Objection Handling", created: "Jan 15", sections: 6, uses: 45, audience: "All prospects" },
-  ]);
+  const [savedScripts, setSavedScripts] = useState([]);
+
+  useEffect(() => {
+    api.salesScripts.list().then(data => {
+      const scripts = Array.isArray(data) ? data : data.sales_scripts || [];
+      setSavedScripts(scripts.map(s => ({ ...s, type: s.script_type || s.type || '', created: s.created_at ? new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '', sections: s.section_count || s.sections || 0, uses: s.use_count || s.uses || 0 })));
+    }).catch(() => {});
+  }, []);
 
   React.useEffect(() => { if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: "smooth" }); }, [chatMessages, isTyping]);
 
@@ -8054,10 +8059,14 @@ function VideoScriptView() {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveScriptName, setSaveScriptName] = useState("");
   const [selectedScripts, setSelectedScripts] = useState({});
-  const [savedVideoScripts, setSavedVideoScripts] = useState([
-    { id: "vs1", name: "AI Usage Hot Take", scripts: 2, created: "Feb 7", style: "educational", topic: "Why most people use AI wrong" },
-    { id: "vs2", name: "Client Testimonial Series", scripts: 3, created: "Feb 4", style: "storytelling", topic: "From 0 to 100 testimonials" },
-  ]);
+  const [savedVideoScripts, setSavedVideoScripts] = useState([]);
+
+  useEffect(() => {
+    api.contentPosts.list({ format: 'video_script' }).then(data => {
+      const scripts = Array.isArray(data) ? data : data.content_posts || [];
+      setSavedVideoScripts(scripts.map(s => ({ id: s.id, name: s.title || s.name || 'Untitled', scripts: s.script_count || 1, created: s.created_at ? new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '', style: s.style || '', topic: s.topic || '' })));
+    }).catch(() => {});
+  }, []);
   const [useHookTemplate, setUseHookTemplate] = useState(false);
   const [selectedHookStyle, setSelectedHookStyle] = useState(null);
   const [selectedHook, setSelectedHook] = useState(null);
@@ -8354,14 +8363,14 @@ function SalesCallAnalyserView() {
   const [analysing, setAnalysing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
 
-  const CALL_HISTORY = [
-    { id: "c1", name: "Sarah Chen — Acme SaaS", date: "Feb 10", duration: "22 min", score: 7.2, outcome: "Meeting booked", source: "Fathom" },
-    { id: "c2", name: "Mark Davies — TechCorp", date: "Feb 9", duration: "18 min", score: 8.1, outcome: "Proposal sent", source: "Fathom" },
-    { id: "c3", name: "Lisa Wang — CloudBase", date: "Feb 8", duration: "25 min", score: 6.5, outcome: "Follow-up needed", source: "Fathom" },
-    { id: "c4", name: "Tom Harris — DataFlow", date: "Feb 7", duration: "15 min", score: 5.8, outcome: "No interest", source: "Manual" },
-    { id: "c5", name: "Emma Wilson — ScaleUp AI", date: "Feb 6", duration: "30 min", score: 8.7, outcome: "Closed won", source: "Fathom" },
-    { id: "c6", name: "James Lee — PropTech Inc", date: "Feb 5", duration: "20 min", score: 7.5, outcome: "Demo scheduled", source: "Fathom" },
-  ];
+  const [CALL_HISTORY, setCallHistory] = useState([]);
+
+  useEffect(() => {
+    api.callAnalyses.list().then(data => {
+      const calls = Array.isArray(data) ? data : data.call_analyses || [];
+      setCallHistory(calls.map(c => ({ ...c, name: c.call_name || c.name || '', date: c.call_date || c.date || '', duration: c.duration || '', score: c.overall_score || c.score || 0, outcome: c.outcome || '', source: c.source || 'Manual' })));
+    }).catch(() => {});
+  }, []);
 
   const COMMON_OBJECTIONS = [
     { objection: "We already have tools for that", count: 8, winRate: 62, bestResponse: "Reframe around integration vs individual tools" },
@@ -8591,23 +8600,28 @@ function LinkedInContentView() {
     { id: "c4", title: "\"I didn't know you could do all this with a one-person team\"", quote: "Founder was shocked when they saw the full automation stack in action. They assumed you needed a team of 5+ to run outbound at scale.", source: "Call with Jake Morrison — Jan 30", callDate: "Jan 30" },
   ];
 
-  const MOCK_COMPETITORS = [
-    { id: "comp1", name: "Chris Walker", handle: "@chris_walker", followers: "142K", recentPost: "The demand gen playbook is broken. Here's what's replacing it...", engagement: "2.4K likes", tracked: true },
-    { id: "comp2", name: "Justin Welsh", handle: "@justinwelsh", followers: "580K", recentPost: "I've made $5M as a solopreneur. My biggest advantage? Systems, not hustle.", engagement: "5.1K likes", tracked: true },
-    { id: "comp3", name: "Alex Hormozi", handle: "@hormozi", followers: "1.2M", recentPost: "Most businesses don't have a lead problem. They have an offer problem.", engagement: "8.7K likes", tracked: true },
-  ];
+  const [MOCK_COMPETITORS, setCompetitors] = useState([]);
 
-  const MOCK_SCHEDULED = [
-    { id: "s1", content: "Stop overthinking your AI strategy. Start with one process...", format: "text", date: "Feb 12, 2026", time: "09:00", status: "scheduled" },
-    { id: "s2", content: "3 tools that replaced my entire lead gen team →", format: "carousel", date: "Feb 13, 2026", time: "11:00", status: "scheduled" },
-    { id: "s3", content: "The ROI of AI consulting isn't what you think...", format: "image", date: "Feb 14, 2026", time: "08:30", status: "scheduled" },
-  ];
+  useEffect(() => {
+    api.trackedCompetitors.list().then(data => {
+      const comps = Array.isArray(data) ? data : data.tracked_competitors || [];
+      setCompetitors(comps.map(c => ({ ...c, handle: c.handle || '', followers: c.followers || '', recentPost: c.recent_post || c.recentPost || '', engagement: c.engagement || '', tracked: true })));
+    }).catch(() => {});
+  }, []);
 
-  const MOCK_PUBLISHED = [
-    { id: "p1", content: "I built a one-person agency that competes with firms 10x my size. Here's how AI made it possible...", format: "text", date: "Feb 10, 2026", impressions: 12400, likes: 234, comments: 47, reposts: 18 },
-    { id: "p2", content: "Your cold emails are failing because of one thing: they sound like cold emails...", format: "text", date: "Feb 8, 2026", impressions: 8900, likes: 167, comments: 32, reposts: 11 },
-    { id: "p3", content: "The AI automation stack I recommend to every client →", format: "carousel", date: "Feb 6, 2026", impressions: 15200, likes: 312, comments: 58, reposts: 34 },
-  ];
+  const [MOCK_SCHEDULED, setScheduledPosts] = useState([]);
+  const [MOCK_PUBLISHED, setPublishedPosts] = useState([]);
+
+  useEffect(() => {
+    api.contentPosts.list({ status: 'scheduled', platform: 'linkedin' }).then(data => {
+      const posts = Array.isArray(data) ? data : data.content_posts || [];
+      setScheduledPosts(posts.map(p => ({ ...p, date: p.scheduled_date || p.date || '', time: p.scheduled_time || p.time || '' })));
+    }).catch(() => {});
+    api.contentPosts.list({ status: 'published', platform: 'linkedin' }).then(data => {
+      const posts = Array.isArray(data) ? data : data.content_posts || [];
+      setPublishedPosts(posts.map(p => ({ ...p, date: p.published_date || p.date || '', impressions: p.impressions || 0, likes: p.likes || 0, comments: p.comments || 0, reposts: p.reposts || 0 })));
+    }).catch(() => {});
+  }, []);
 
   const MOCK_GENERATED = [
     {
@@ -8931,21 +8945,22 @@ function LinkedInContentView() {
 function CommunityView() {
   const [activeTab, setActiveTab] = useState("feed");
   const [mode, setMode] = useState("review");
-  const [accounts, setAccounts] = useState([
-    { id: 1, platform: "skool", name: "AI Automation Community", connected: true },
-    { id: 2, platform: "linkedin", name: "SaaS Growth Leaders", connected: true },
-    { id: 3, platform: "facebook", name: "Entrepreneurs Hub", connected: true },
-  ]);
-  const [keywords, setKeywords] = useState(["AI automation", "lead generation", "cold outreach", "AI agent", "vibe coding"]);
+  const [accounts, setAccounts] = useState([]);
+  const [keywords, setKeywords] = useState([]);
   const [newKeyword, setNewKeyword] = useState("");
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [newAccountPlatform, setNewAccountPlatform] = useState("skool");
   const [newAccountName, setNewAccountName] = useState("");
-  const [voiceSamples, setVoiceSamples] = useState([
-    { id: 1, type: "linkedin_post", title: "Why AI won't replace consultants", preview: "Hot take: AI won't replace consultants. But consultants who use AI will replace those who don't...", date: "Jan 28, 2026" },
-    { id: 2, type: "blog", title: "The One-Person Agency Playbook", preview: "I've been running a one-person consulting business for 2 years now. Here's what I've learned about leveraging AI to compete with teams 10x your size...", date: "Jan 15, 2026" },
-    { id: 3, type: "comment", title: "Reply on Skool — AI tools thread", preview: "Great question! The key is layering tools rather than relying on one platform. I use AI Ark for discovery, BetterContact for verification...", date: "Feb 3, 2026" },
-  ]);
+  const [voiceSamples, setVoiceSamples] = useState([]);
+
+  useEffect(() => {
+    api.community.accounts.list().then(data => setAccounts(Array.isArray(data) ? data : data.accounts || [])).catch(() => {});
+    api.community.keywords.list().then(data => {
+      const kws = Array.isArray(data) ? data : data.keywords || [];
+      setKeywords(kws.map(k => typeof k === 'string' ? k : k.keyword || k.text || ''));
+    }).catch(() => {});
+    api.community.voiceSamples.list().then(data => setVoiceSamples(Array.isArray(data) ? data : data.voice_samples || [])).catch(() => {});
+  }, []);
   const [newSampleText, setNewSampleText] = useState("");
   const [newSampleType, setNewSampleType] = useState("linkedin_post");
   const [showAgentWarning, setShowAgentWarning] = useState(false);
@@ -8969,40 +8984,14 @@ function CommunityView() {
     { key: "video_script", label: "Video Script" },
   ];
 
-  const MOCK_FEED = [
-    {
-      id: 1, platform: "skool", community: "AI Automation Community", author: "Jake Morrison",
-      content: "Has anyone successfully set up an AI agent for lead generation? I've been trying to automate my cold outreach but keep hitting walls with personalization. Would love to hear what tools people are using.",
-      matchedKeywords: ["AI agent", "lead generation", "cold outreach"],
-      timestamp: "2h ago", likes: 14, comments: 8,
-      draftReply: "Great question Jake! I've been running AI-powered lead gen for a while now. The key is layering tools — use AI Ark for discovery, BetterContact for email verification, then Claude for personalization. The personalization piece is what makes or breaks reply rates. Happy to share my exact workflow if you're interested. What's your current tech stack looking like?",
-      url: "https://www.skool.com/ai-automation/post/abc123",
-    },
-    {
-      id: 2, platform: "linkedin", community: "SaaS Growth Leaders", author: "Sarah Chen",
-      content: "Hot take: Most companies are using AI wrong. They're automating tasks that shouldn't be automated and ignoring the areas where AI could genuinely 10x their output. Specifically in content creation and lead qualification — these are where I'm seeing the biggest ROI.",
-      matchedKeywords: ["AI automation"],
-      timestamp: "4h ago", likes: 89, comments: 23,
-      draftReply: "Couldn't agree more Sarah. The companies I work with that see the biggest results are the ones using AI for the high-leverage stuff — personalised outreach at scale, intelligent lead scoring, content repurposing. The trap is automating for the sake of it rather than automating strategically. What specific content creation workflows have you seen work best?",
-      url: "https://linkedin.com/feed/update/def456",
-    },
-    {
-      id: 3, platform: "skool", community: "AI Automation Community", author: "Marcus Williams",
-      content: "Just discovered vibe coding with Claude and it's completely changed how I build. Went from idea to working prototype in 3 hours. The trick is treating it like a conversation with a CTO rather than just writing prompts.",
-      matchedKeywords: ["vibe coding"],
-      timestamp: "6h ago", likes: 32, comments: 15,
-      draftReply: "Love hearing this Marcus! You've nailed the key insight — the conversation-first approach is everything. I've found that spending 10-15 minutes upfront mapping out the architecture in plain English with Claude before writing a single line of code saves hours. What did you build? Would love to see it!",
-      url: "https://www.skool.com/ai-automation/post/ghi789",
-    },
-    {
-      id: 4, platform: "facebook", community: "Entrepreneurs Hub", author: "Lisa Park",
-      content: "Looking for recommendations on AI tools for lead generation. Currently spending about £500/month on Apollo and not seeing great results. Is there something better out there?",
-      matchedKeywords: ["AI", "lead generation"],
-      timestamp: "8h ago", likes: 7, comments: 12,
-      draftReply: "Hey Lisa! I was in the exact same boat with Apollo. Switched to a stacked approach — AI Ark for smarter company discovery, Icypeas + BetterContact for email verification (waterfall method gets 95%+ accuracy), and then AI personalization for each email. Total cost is comparable but the results are significantly better because you're getting verified contacts with genuinely personalised messaging. Happy to break down the full stack if that helps!",
-      url: "https://facebook.com/groups/entrepreneurs/posts/xyz789",
-    },
-  ];
+  const [MOCK_FEED, setFeedPosts] = useState([]);
+
+  useEffect(() => {
+    api.community.feed.list().then(data => {
+      const posts = Array.isArray(data) ? data : data.feed || [];
+      setFeedPosts(posts.map(p => ({ ...p, matchedKeywords: p.matched_keywords || p.matchedKeywords || [], draftReply: p.draft_reply || p.draftReply || '' })));
+    }).catch(() => {});
+  }, []);
 
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
   const labelStyle = { display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 6 };
@@ -9504,12 +9493,13 @@ function SolutionAIAssistantView() {
     const userMsg = input;
     const nm = [...messages, { role: "user", text: userMsg }];
     setMessages(nm); setInput(""); setIsTyping(true);
-    await new Promise(r => setTimeout(r, 1800));
-    
-    // TODO: Integrate with OpenAI API for real responses using org context
-    const reply = "I understand you're asking about: \"" + userMsg + "\"\n\nI can help with that! Currently processing your request based on your account data...\n\nThis feature will be fully integrated with your CRM, leads, campaigns, and all Pipeline data to provide contextual answers. Would you like me to elaborate on any specific area?";
-    
-    setMessages([...nm, { role: "agent", text: reply }]);
+    try {
+      const data = await api.assistant.chat({ message: userMsg });
+      const reply = data.reply || data.message || data.text || "I couldn't generate a response. Please try again.";
+      setMessages([...nm, { role: "agent", text: reply }]);
+    } catch (err) {
+      setMessages([...nm, { role: "agent", text: "Sorry, I encountered an error: " + (err.message || "Unknown error") + ". Please try again." }]);
+    }
     setIsTyping(false);
   };
 

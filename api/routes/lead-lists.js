@@ -83,4 +83,42 @@ router.post('/', async (req, res) => {
   }
 });
 
+// POST /api/lead-lists/import — import CSV rows into a new list
+router.post('/import', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    await ensureOrgExists(orgId);
+    const { name, rows } = req.body || {};
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: 'rows array required and must not be empty' });
+    }
+    const listResult = await query(
+      `INSERT INTO lead_lists (org_id, name, source, status, total_contacts, enriched_count)
+       VALUES ($1, $2, 'import', 'draft', $3, 0)
+       RETURNING id, name, source, status, total_contacts, enriched_count, created_at`,
+      [orgId, name || `Import ${new Date().toISOString().slice(0, 10)}`, rows.length]
+    );
+    const list = listResult.rows[0];
+    const imported = [];
+    for (const row of rows) {
+      const r = await query(
+        `INSERT INTO leads (org_id, list_id, first_name, last_name, email, title, company, company_domain, linkedin_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, first_name, last_name, email`,
+        [orgId, list.id, row.first_name || null, row.last_name || null, row.email || null,
+         row.title || null, row.company || null, row.company_domain || null, row.linkedin_url || null]
+      );
+      if (r.rows[0]) imported.push(r.rows[0]);
+    }
+    res.status(201).json({
+      id: list.id, listId: list.id, name: list.name, source: list.source,
+      total_contacts: imported.length, contacts: imported,
+    });
+  } catch (err) {
+    console.error('lead-lists/import POST', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

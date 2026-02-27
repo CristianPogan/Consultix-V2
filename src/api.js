@@ -46,6 +46,14 @@ async function getToken() {
   return token;
 }
 
+function toQS(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(obj)) if (v != null) p.set(k, v);
+  const s = p.toString();
+  return s ? `?${s}` : '';
+}
+
 async function req(method, path, body) {
   const token = await getToken();
   const opt = {
@@ -135,6 +143,7 @@ export const api = {
   leadLists: {
     list: () => req('GET', '/lead-lists'),
     create: (data) => req('POST', '/lead-lists', data),
+    import: (data) => req('POST', '/lead-lists/import', data),
   },
   companies: {
     list: (params) => req('GET', '/companies' + (params?.list_id ? `?list_id=${params.list_id}` : '')),
@@ -212,6 +221,51 @@ export const api = {
     getLeadSearchOrder: () => req('GET', '/integrations/order/lead-search'),
     saveLeadSearchOrder: (order) => req('POST', '/integrations/order/lead-search', order),
   },
+  instantly: {
+    campaigns: {
+      list: (opts) => req('GET', '/instantly/campaigns' + toQS(opts)),
+      get: (id) => req('GET', `/instantly/campaigns/${id}`),
+      activate: (id) => req('POST', `/instantly/campaigns/${id}/activate`),
+      pause: (id) => req('POST', `/instantly/campaigns/${id}/pause`),
+    },
+    analytics: (opts) => req('GET', '/instantly/analytics' + toQS(opts)),
+    analyticsOverview: (opts) => req('GET', '/instantly/analytics/overview' + toQS(opts)),
+    leads: {
+      create: (data) => req('POST', '/instantly/leads', data),
+      bulk: (leads, campaign) => req('POST', '/instantly/leads/bulk', { leads, campaign }),
+      get: (id) => req('GET', `/instantly/leads/${id}`),
+      list: (opts) => req('POST', '/instantly/leads/list', opts || {}),
+    },
+    accounts: (opts) => req('GET', '/instantly/accounts' + toQS(opts)),
+    emails: {
+      list: (opts) => req('GET', '/instantly/emails' + toQS(opts)),
+      unreadCount: () => req('GET', '/instantly/emails/unread/count'),
+    },
+    leadLists: {
+      list: (opts) => req('GET', '/instantly/lead-lists' + toQS(opts)),
+      create: (name) => req('POST', '/instantly/lead-lists', { name }),
+    },
+  },
+  heyreach: {
+    campaigns: {
+      list: (opts) => req('GET', '/heyreach/campaigns' + toQS(opts)),
+      get: (id) => req('GET', `/heyreach/campaigns/${id}`),
+      pause: (id) => req('POST', `/heyreach/campaigns/${id}/pause`),
+      resume: (id) => req('POST', `/heyreach/campaigns/${id}/resume`),
+      addLeads: (id, leads) => req('POST', `/heyreach/campaigns/${id}/leads`, { leads }),
+      addLeadsDefault: (leads, campaignId) => req('POST', '/heyreach/campaigns/add-leads', { leads, campaignId }),
+    },
+    leads: {
+      lookup: (profileUrl) => req('POST', '/heyreach/leads/lookup', { profileUrl }),
+    },
+    conversations: (opts) => req('POST', '/heyreach/conversations', opts || {}),
+    stats: (opts) => req('POST', '/heyreach/stats', opts || {}),
+    lists: {
+      list: (opts) => req('GET', '/heyreach/lists' + toQS(opts)),
+      create: (name, listType) => req('POST', '/heyreach/lists', { name, listType }),
+    },
+    network: (senderId) => req('POST', '/heyreach/network', { senderId }),
+  },
   calendar: {
     getEvents: (date) => req('GET', '/calendar/events' + (date ? `?date=${encodeURIComponent(date)}` : '')),
   },
@@ -231,5 +285,206 @@ export const api = {
   organisations: {
     list: () => req('GET', '/organisations'),
     create: (data) => req('POST', '/organisations', data),
+  },
+  conversations: {
+    list: () => req('GET', '/conversations'),
+    get: (id) => req('GET', `/conversations/${id}`),
+    create: (data) => req('POST', '/conversations', data),
+    update: (id, data) => req('PUT', `/conversations/${id}`, data),
+    delete: (id) => req('DELETE', `/conversations/${id}`),
+  },
+  messages: {
+    list: (conversationId) => req('GET', `/messages?conversation_id=${conversationId}`),
+    create: (data) => req('POST', '/messages', data),
+  },
+  activity: {
+    list: (params) => {
+      const q = new URLSearchParams(params || {}).toString();
+      return req('GET', '/activity' + (q ? `?${q}` : ''));
+    },
+    create: (data) => req('POST', '/activity', data),
+  },
+  audit: {
+    research: (data) => req('POST', '/audit/research', data),
+    surveys: {
+      list: (params) => {
+        const q = new URLSearchParams(params || {}).toString();
+        return req('GET', '/audit/surveys' + (q ? `?${q}` : ''));
+      },
+      get: (id) => req('GET', `/audit/surveys/${id}`),
+      create: (data) => req('POST', '/audit/surveys', data),
+      update: (id, data) => req('PUT', `/audit/surveys/${id}`, data),
+      delete: (id) => req('DELETE', `/audit/surveys/${id}`),
+      listResponses: (id) => req('GET', `/audit/surveys/${id}/responses`),
+      submitResponse: (id, data) => req('POST', `/audit/surveys/${id}/responses`, data),
+    },
+    interviews: {
+      list: () => req('GET', '/audit/interviews'),
+      create: (data) => req('POST', '/audit/interviews', data),
+      update: (id, data) => req('PUT', `/audit/interviews/${id}`, data),
+      delete: (id) => req('DELETE', `/audit/interviews/${id}`),
+    },
+    transcripts: {
+      list: () => req('GET', '/audit/transcripts'),
+      create: (data) => req('POST', '/audit/transcripts', data),
+      update: (id, data) => req('PUT', `/audit/transcripts/${id}`, data),
+      delete: (id) => req('DELETE', `/audit/transcripts/${id}`),
+    },
+    processMaps: {
+      list: () => req('GET', '/audit/process-maps'),
+      create: (data) => req('POST', '/audit/process-maps', data),
+      update: (id, data) => req('PUT', `/audit/process-maps/${id}`, data),
+      delete: (id) => req('DELETE', `/audit/process-maps/${id}`),
+    },
+    analyse: (data) => req('POST', '/audit/analyse', data),
+    analyses: {
+      list: (params) => {
+        const q = new URLSearchParams(params || {}).toString();
+        return req('GET', '/audit/analyses' + (q ? `?${q}` : ''));
+      },
+    },
+  },
+  implementation: {
+    list: (params) => {
+      const q = new URLSearchParams(params || {}).toString();
+      return req('GET', '/implementation/phases' + (q ? `?${q}` : ''));
+    },
+    create: (data) => req('POST', '/implementation/phases', data),
+    update: (id, data) => req('PUT', `/implementation/phases/${id}`, data),
+    delete: (id) => req('DELETE', `/implementation/phases/${id}`),
+  },
+  workflows: {
+    list: () => req('GET', '/workflows'),
+    create: (data) => req('POST', '/workflows', data),
+    update: (id, data) => req('PUT', `/workflows/${id}`, data),
+    delete: (id) => req('DELETE', `/workflows/${id}`),
+  },
+  messagingCopies: {
+    list: () => req('GET', '/messaging-copies'),
+    create: (data) => req('POST', '/messaging-copies', data),
+    update: (id, data) => req('PUT', `/messaging-copies/${id}`, data),
+    delete: (id) => req('DELETE', `/messaging-copies/${id}`),
+    generate: (data) => req('POST', '/messaging-copies/generate', data),
+  },
+  campaigns: {
+    list: () => req('GET', '/campaigns'),
+    get: (id) => req('GET', `/campaigns/${id}`),
+    create: (data) => req('POST', '/campaigns', data),
+    update: (id, data) => req('PUT', `/campaigns/${id}`, data),
+    delete: (id) => req('DELETE', `/campaigns/${id}`),
+  },
+  niches: {
+    list: () => req('GET', '/niches'),
+    create: (data) => req('POST', '/niches', data),
+    update: (id, data) => req('PUT', `/niches/${id}`, data),
+    delete: (id) => req('DELETE', `/niches/${id}`),
+    research: (data) => req('POST', '/niches/research', data),
+  },
+  salesScripts: {
+    list: () => req('GET', '/sales-scripts'),
+    create: (data) => req('POST', '/sales-scripts', data),
+    update: (id, data) => req('PUT', `/sales-scripts/${id}`, data),
+    delete: (id) => req('DELETE', `/sales-scripts/${id}`),
+    generate: (data) => req('POST', '/sales-scripts/generate', data),
+  },
+  callAnalyses: {
+    list: () => req('GET', '/call-analyses'),
+    get: (id) => req('GET', `/call-analyses/${id}`),
+    create: (data) => req('POST', '/call-analyses', data),
+  },
+  contentPosts: {
+    list: (params) => {
+      const q = new URLSearchParams(params || {}).toString();
+      return req('GET', '/content-posts' + (q ? `?${q}` : ''));
+    },
+    create: (data) => req('POST', '/content-posts', data),
+    update: (id, data) => req('PUT', `/content-posts/${id}`, data),
+    delete: (id) => req('DELETE', `/content-posts/${id}`),
+  },
+  trackedCompetitors: {
+    list: () => req('GET', '/tracked-competitors'),
+    create: (data) => req('POST', '/tracked-competitors', data),
+    delete: (id) => req('DELETE', `/tracked-competitors/${id}`),
+  },
+  community: {
+    accounts: {
+      list: () => req('GET', '/community/accounts'),
+      create: (data) => req('POST', '/community/accounts', data),
+      delete: (id) => req('DELETE', `/community/accounts/${id}`),
+    },
+    keywords: {
+      list: () => req('GET', '/community/keywords'),
+      create: (data) => req('POST', '/community/keywords', data),
+      delete: (id) => req('DELETE', `/community/keywords/${id}`),
+    },
+    voiceSamples: {
+      list: () => req('GET', '/community/voice-samples'),
+      create: (data) => req('POST', '/community/voice-samples', data),
+      delete: (id) => req('DELETE', `/community/voice-samples/${id}`),
+    },
+    feed: {
+      list: (params) => {
+        const q = new URLSearchParams(params || {}).toString();
+        return req('GET', '/community/feed' + (q ? `?${q}` : ''));
+      },
+      updateReply: (id, data) => req('PUT', `/community/feed/${id}/reply`, data),
+      updateStatus: (id, data) => req('PUT', `/community/feed/${id}/status`, data),
+    },
+  },
+  assistant: {
+    chat: (data) => req('POST', '/assistant/chat', data),
+    history: () => req('GET', '/assistant/history'),
+    clearHistory: () => req('DELETE', '/assistant/history'),
+  },
+  billing: {
+    plan: () => req('GET', '/billing/plan'),
+    invoices: () => req('GET', '/billing/invoices'),
+    credits: () => req('GET', '/billing/credits'),
+    creditHistory: () => req('GET', '/billing/credits/history'),
+  },
+  notifications: {
+    list: (params) => {
+      const q = new URLSearchParams(params || {}).toString();
+      return req('GET', '/notifications' + (q ? `?${q}` : ''));
+    },
+    markRead: (id) => req('PUT', `/notifications/${id}/read`),
+    markAllRead: () => req('PUT', '/notifications/read-all'),
+  },
+  admin: {
+    agencies: {
+      list: () => req('GET', '/admin/agencies'),
+      create: (data) => req('POST', '/admin/agencies', data),
+      update: (id, data) => req('PUT', `/admin/agencies/${id}`, data),
+      delete: (id) => req('DELETE', `/admin/agencies/${id}`),
+    },
+    organisations: {
+      list: () => req('GET', '/admin/organisations'),
+      get: (id) => req('GET', `/admin/organisations/${id}`),
+      adjustCredits: (id, data) => req('PUT', `/admin/organisations/${id}/credits`, data),
+      changePlan: (id, data) => req('PUT', `/admin/organisations/${id}/plan`, data),
+    },
+    users: {
+      list: (params) => {
+        const q = new URLSearchParams(params || {}).toString();
+        return req('GET', '/admin/users' + (q ? `?${q}` : ''));
+      },
+    },
+    supportTickets: {
+      list: (params) => {
+        const q = new URLSearchParams(params || {}).toString();
+        return req('GET', '/admin/support-tickets' + (q ? `?${q}` : ''));
+      },
+      create: (data) => req('POST', '/admin/support-tickets', data),
+      update: (id, data) => req('PUT', `/admin/support-tickets/${id}`, data),
+    },
+    featureFlags: {
+      list: () => req('GET', '/admin/feature-flags'),
+      update: (id, data) => req('PUT', `/admin/feature-flags/${id}`, data),
+    },
+    systemHealth: () => req('GET', '/admin/system-health'),
+    errors: {
+      list: () => req('GET', '/admin/errors'),
+      resolve: (id, data) => req('PUT', `/admin/errors/${id}/resolve`, data),
+    },
   },
 };

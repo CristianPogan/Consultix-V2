@@ -512,6 +512,59 @@ function expandRegionForSql(region) {
 }
 
 /**
+ * Strict count: how many companies in the DB match the criteria with no fallbacks?
+ * Used as a pre-check — if 0, external APIs should be called instead of using stale DB data.
+ * Only counts rows where ALL provided filters match (AND logic, no progressive relaxation).
+ */
+export async function countStrictMatchingCompanies(orgId, criteria) {
+  if (!orgId) return 0;
+  const { industry, keywords, employeeSizes, regions } = criteria || {};
+
+  const kwList = keywords ? String(keywords).split(',').map(k => k.trim()).filter(Boolean) : [];
+  const topicPatterns = [...new Set([
+    industry?.trim() ? `%${industry.trim()}%` : null,
+    ...kwList.map(k => `%${k}%`),
+  ].filter(Boolean))];
+
+  if (topicPatterns.length === 0) return 0;
+
+  let sql = 'SELECT COUNT(*) FROM companies c WHERE c.org_id = $1';
+  const params = [orgId];
+  let idx = 2;
+
+  const topicParts = [];
+  for (const p of topicPatterns) {
+    topicParts.push(`(COALESCE(c.industry, '') ILIKE $${idx} OR COALESCE(c.description, '') ILIKE $${idx} OR COALESCE(c.keywords, '') ILIKE $${idx})`);
+    params.push(p);
+    idx++;
+  }
+  sql += ` AND (${topicParts.join(' OR ')})`;
+
+  const empRanges = (employeeSizes || []).map(r => EMPLOYEE_RANGE_MAP[r] || null).filter(Boolean);
+  if (empRanges.length) {
+    const minV = Math.min(...empRanges.map(([a]) => a));
+    const maxV = Math.max(...empRanges.map(([, b]) => b));
+    sql += ` AND (c.employee_count IS NOT NULL AND c.employee_count BETWEEN ${minV} AND ${maxV})`;
+  }
+
+  const regionPatterns = (regions || []).length
+    ? [...new Set((regions || []).flatMap(r => expandRegionForSql(r)))]
+    : [];
+  if (regionPatterns.length) {
+    const orParts = [];
+    for (const p of regionPatterns) {
+      orParts.push(`COALESCE(c.headquarters_country, '') ILIKE $${idx}`);
+      params.push(p);
+      idx++;
+    }
+    sql += ` AND (${orParts.join(' OR ')})`;
+  }
+
+  const res = await query(sql, params);
+  return parseInt(res.rows[0]?.count || '0', 10);
+}
+
+/**
  * Build discovery SQL and run it. Returns { companies, sqlQueries }.
  * sqlQueries: array of { sql, params, label, rowCount } for agent log.
  */
@@ -838,6 +891,292 @@ export async function upsertCompanyForEnrichment(orgId, { name, domain, industry
     [orgId, name, dom, industry || null]
   );
   return res.rows[0]?.id || null;
+}
+
+// ============================================================================
+// LEAD SEARCH PERSISTENCE — full upsert for discovered companies & leads
+// ============================================================================
+
+let _leadPersistColumnsReady = false;
+async function ensureLeadPersistColumns() {
+  if (_leadPersistColumnsReady) return;
+  const cols = [
+    "ALTER TABLE companies ADD COLUMN IF NOT EXISTS search_source TEXT",
+    "ALTER TABLE companies ADD COLUMN IF NOT EXISTS discovery_query_json JSONB",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS search_source TEXT",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS email_validation_status TEXT DEFAULT 'pending'",
+  ];
+  for (const sql of cols) await query(sql).catch(() => {});
+  _leadPersistColumnsReady = true;
+}
+
+const normDom = (d) => (d || '').replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
+
+/**
+ * Upsert a discovered company with all available fields.
+ * Matches on (org_id + domain) first, then (org_id + name).
+ * Returns the company UUID.
+ */
+export async function upsertDiscoveredCompany(orgId, company, meta = {}) {
+  await ensureLeadPersistColumns();
+  if (!orgId || (!company.name && !company.domain)) return null;
+
+  const dom = normDom(company.domain || company.website);
+  const name = (company.name || '').trim();
+
+  let existing = null;
+  if (dom) {
+    const r = await query(
+      `SELECT id FROM companies WHERE org_id = $1 AND LOWER(REPLACE(REPLACE(REPLACE(COALESCE(domain,''), 'https://', ''), 'http://', ''), '/', '')) = $2 LIMIT 1`,
+      [orgId, dom]
+    );
+    existing = r.rows[0] || null;
+  }
+  if (!existing && name) {
+    const r = await query(
+      `SELECT id FROM companies WHERE org_id = $1 AND LOWER(TRIM(name)) = LOWER(TRIM($2)) LIMIT 1`,
+      [orgId, name]
+    );
+    existing = r.rows[0] || null;
+  }
+
+  const parseEmployees = (val) => {
+    if (val == null || val === 'N/A' || val === '') return null;
+    if (typeof val === 'number') return val > 0 ? val : null;
+    const n = parseInt(String(val).replace(/[^0-9]/g, ''), 10);
+    return n > 0 ? n : null;
+  };
+
+  const empCount = parseEmployees(company.employees || company.employee_count);
+  const loc = company.location || '';
+  const locParts = loc.split(',').map(s => s.trim());
+  const hqCountry = company.headquarters_country || locParts[locParts.length - 1] || null;
+  const hqState = company.headquarters_state || (locParts.length >= 2 ? locParts[locParts.length - 2] : null);
+  const hqCity = company.headquarters_city || (locParts.length >= 3 ? locParts[0] : null);
+
+  if (existing) {
+    await query(
+      `UPDATE companies SET
+         domain = COALESCE($2, domain),
+         industry = COALESCE($3, industry),
+         employee_count = COALESCE($4, employee_count),
+         headquarters_city = COALESCE($5, headquarters_city),
+         headquarters_state = COALESCE($6, headquarters_state),
+         headquarters_country = COALESCE($7, headquarters_country),
+         description = COALESCE($8, description),
+         icp_fit_score = COALESCE($9, icp_fit_score),
+         linkedin_url = COALESCE($10, linkedin_url),
+         search_source = COALESCE($11, search_source),
+         discovery_query_json = COALESCE($12, discovery_query_json),
+         website = COALESCE($13, website),
+         updated_at = now()
+       WHERE id = $1`,
+      [
+        existing.id,
+        dom || null,
+        company.industry || null,
+        empCount,
+        hqCity, hqState, hqCountry,
+        company.description || null,
+        company.icpScore || company.icp_fit_score || null,
+        company.linkedin_url || company.linkedinUrl || null,
+        meta.source || null,
+        meta.queryJson ? JSON.stringify(meta.queryJson) : null,
+        dom ? `https://${dom}` : null,
+      ]
+    );
+    return existing.id;
+  }
+
+  const res = await query(
+    `INSERT INTO companies (
+       org_id, name, domain, website, industry, employee_count,
+       headquarters_city, headquarters_state, headquarters_country,
+       description, icp_fit_score, linkedin_url,
+       search_source, discovery_query_json, enriched_at, project_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now(),$15)
+     RETURNING id`,
+    [
+      orgId, name, dom || null, dom ? `https://${dom}` : null,
+      company.industry || null, empCount,
+      hqCity, hqState, hqCountry,
+      company.description || null,
+      company.icpScore || company.icp_fit_score || 90,
+      company.linkedin_url || company.linkedinUrl || null,
+      meta.source || null,
+      meta.queryJson ? JSON.stringify(meta.queryJson) : null,
+      meta.projectId || null,
+    ]
+  );
+  return res.rows[0]?.id || null;
+}
+
+/**
+ * Upsert a discovered lead (person) linked to a company.
+ * Matches on (org_id + email) or (org_id + first_name + last_name + company_id).
+ * Returns the lead UUID.
+ */
+export async function upsertDiscoveredLead(orgId, lead, meta = {}) {
+  await ensureLeadPersistColumns();
+  if (!orgId) return null;
+  const email = (lead.email || '').trim().toLowerCase() || null;
+  const firstName = (lead.first_name || lead.firstName || '').trim();
+  const lastName = (lead.last_name || lead.lastName || '').trim();
+  if (!email && !firstName) return null;
+
+  const companyId = lead.companyId || lead.company_id || null;
+  const listId = meta.listId || null;
+
+  let existing = null;
+  if (email) {
+    const r = await query(
+      'SELECT id FROM leads WHERE org_id = $1 AND LOWER(TRIM(email)) = $2 LIMIT 1',
+      [orgId, email]
+    );
+    existing = r.rows[0] || null;
+  }
+  if (!existing && firstName && lastName && companyId) {
+    const r = await query(
+      'SELECT id FROM leads WHERE org_id = $1 AND LOWER(TRIM(first_name)) = LOWER($2) AND LOWER(TRIM(last_name)) = LOWER($3) AND company_id = $4 LIMIT 1',
+      [orgId, firstName, lastName, companyId]
+    );
+    existing = r.rows[0] || null;
+  }
+
+  const VALID_BOUNCE_RISK = new Set(['low', 'medium', 'high']);
+  const rawBounce = lead.email_bounce_risk || lead.bounceRisk || null;
+  const bounceRisk = VALID_BOUNCE_RISK.has(rawBounce) ? rawBounce : null;
+  const validationStatus = lead.email_validation_status
+    || (rawBounce === 'low' ? 'valid' : rawBounce === 'high' ? 'invalid' : 'pending');
+
+  if (existing) {
+    await query(
+      `UPDATE leads SET
+         email = COALESCE($2, email),
+         first_name = COALESCE($3, first_name),
+         last_name = COALESCE($4, last_name),
+         title = COALESCE($5, title),
+         company = COALESCE($6, company),
+         company_domain = COALESCE($7, company_domain),
+         company_id = COALESCE($8, company_id),
+         linkedin_url = COALESCE($9, linkedin_url),
+         phone = COALESCE($10, phone),
+         email_verified = COALESCE($11, email_verified),
+         email_bounce_risk = COALESCE($12, email_bounce_risk),
+         search_source = COALESCE($13, search_source),
+         email_validation_status = COALESCE($14, email_validation_status),
+         updated_at = now()
+       WHERE id = $1`,
+      [
+        existing.id,
+        email,
+        firstName || null, lastName || null,
+        lead.title || lead.jobTitle || null,
+        lead.company || lead.companyName || null,
+        normDom(lead.company_domain || lead.companyDomain) || null,
+        companyId,
+        lead.linkedin_url || lead.linkedinUrl || lead.profileUrl || null,
+        lead.phone || null,
+        bounceRisk === 'low',
+        bounceRisk,
+        meta.source || null,
+        validationStatus,
+      ]
+    );
+    return existing.id;
+  }
+
+  if (!listId) return null;
+  const res = await query(
+    `INSERT INTO leads (
+       org_id, list_id, company_id, first_name, last_name, email,
+       title, company, company_domain, linkedin_url, phone,
+       email_verified, email_bounce_risk, search_source, email_validation_status,
+       icp_score, company_data_json, project_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18)
+     RETURNING id`,
+    [
+      orgId, listId, companyId,
+      firstName || null, lastName || null, email,
+      lead.title || lead.jobTitle || null,
+      lead.company || lead.companyName || null,
+      normDom(lead.company_domain || lead.companyDomain) || null,
+      lead.linkedin_url || lead.linkedinUrl || lead.profileUrl || null,
+      lead.phone || null,
+      bounceRisk === 'low',
+      bounceRisk,
+      meta.source || null,
+      validationStatus,
+      lead.icp_score || lead.icpScore || null,
+      JSON.stringify(lead.rawData || {}),
+      meta.projectId || null,
+    ]
+  );
+  return res.rows[0]?.id || null;
+}
+
+/**
+ * Create a lead_list for a discovery run. Returns the list UUID.
+ */
+export async function createDiscoveryList(orgId, name, meta = {}) {
+  if (!orgId) return null;
+  const listName = name || `Discovery ${new Date().toISOString().slice(0, 10)}`;
+  const res = await query(
+    `INSERT INTO lead_lists (org_id, name, source, status, total_contacts, enriched_count, project_id)
+     VALUES ($1, $2, 'discovery', 'draft', 0, 0, $3)
+     RETURNING id`,
+    [orgId, listName, meta.projectId || null]
+  );
+  return res.rows[0]?.id || null;
+}
+
+/**
+ * Update lead_list contact counts.
+ */
+export async function updateListCounts(listId) {
+  if (!listId) return;
+  await query(
+    `UPDATE lead_lists SET
+       total_contacts = (SELECT COUNT(*) FROM leads WHERE list_id = $1),
+       enriched_count = (SELECT COUNT(*) FROM leads WHERE list_id = $1 AND email IS NOT NULL AND email != ''),
+       updated_at = now()
+     WHERE id = $1`,
+    [listId]
+  );
+}
+
+/**
+ * Persist discovery results — upserts companies and optionally creates a list.
+ * Called from the discover endpoint after external APIs return results.
+ * @param {string} orgId
+ * @param {Array} companies - normalised company objects from the waterfall
+ * @param {Object} opts - { source, listName, queryJson, projectId }
+ * @returns {{ listId, companySaved, companyIds }}
+ */
+export async function persistDiscoveryResults(orgId, companies, opts = {}) {
+  await ensureLeadPersistColumns();
+  if (!orgId || !companies?.length) return { listId: null, companySaved: 0, companyIds: [] };
+
+  let listId = null;
+  if (opts.listName) {
+    listId = await createDiscoveryList(orgId, opts.listName, { projectId: opts.projectId });
+  }
+
+  const companyIds = [];
+  for (const comp of companies) {
+    try {
+      const id = await upsertDiscoveredCompany(orgId, comp, {
+        source: opts.source || 'unknown',
+        queryJson: opts.queryJson || null,
+        projectId: opts.projectId || null,
+      });
+      if (id) companyIds.push(id);
+    } catch (e) {
+      console.warn('[persistDiscovery] company upsert error:', e.message);
+    }
+  }
+
+  return { listId, companySaved: companyIds.length, companyIds };
 }
 
 async function ensureAppUsersTable() {

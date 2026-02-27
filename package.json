@@ -15,6 +15,13 @@
     "pretest": "npm run build",
     "test": "node --test tests/api.test.js",
     "test:api": "node --test tests/api.test.js",
+    "test:gaps": "node --test tests/api-gaps.test.js",
+    "test:heyreach": "node --test tests/heyreach.test.js",
+    "test:instantly": "node --test tests/instantly.test.js",
+    "test:lead-search": "node --test tests/lead-search-integrations.test.js",
+    "test:findy": "node --test tests/findy.test.js",
+    "test:lead-persist": "node --test tests/lead-persistence.test.js",
+    "test:all": "node --test tests/api.test.js tests/api-gaps.test.js tests/heyreach.test.js tests/instantly.test.js tests/lead-search-integrations.test.js tests/findy.test.js tests/lead-persistence.test.js",
     "seed-signup-token": "node scripts/seed-signup-token.js",
     "seed-organisations": "node scripts/seed-organisations.js",
     "set-admin": "node scripts/set-admin-role.js"
