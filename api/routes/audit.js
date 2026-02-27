@@ -329,8 +329,13 @@ async function ensureInterviewsTable() {
   `);
   await query('CREATE INDEX IF NOT EXISTS idx_audit_interviews_org ON audit_interview_questions(org_id)').catch(() => {});
   await query(`ALTER TABLE audit_interview_questions ALTER COLUMN project_id DROP NOT NULL`).catch(() => {});
-  await query(`ALTER TABLE audit_interview_questions ALTER COLUMN interviewee_type TYPE TEXT`).catch(() => {});
-  await query(`ALTER TABLE audit_interview_questions ALTER COLUMN interviewee_type SET DEFAULT 'Stakeholder'`).catch(() => {});
+  try {
+    await query(`ALTER TABLE audit_interview_questions ALTER COLUMN interviewee_type DROP DEFAULT`);
+    await query(`ALTER TABLE audit_interview_questions ALTER COLUMN interviewee_type TYPE TEXT USING interviewee_type::TEXT`);
+    await query(`ALTER TABLE audit_interview_questions ALTER COLUMN interviewee_type SET DEFAULT 'Stakeholder'`);
+  } catch (e) {
+    console.log('interviewee_type migration (may already be TEXT):', e.message);
+  }
   const cols = [
     { name: 'interviewee_type', type: "TEXT DEFAULT 'Stakeholder'" },
   ];
