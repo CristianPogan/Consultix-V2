@@ -552,20 +552,284 @@ router.delete('/process-maps/:id', async (req, res) => {
 });
 
 // --- Analysis ---
+let _analysisTableReady = false;
+async function ensureAnalysesTable() {
+  if (_analysisTableReady) return;
+  await query(`
+    CREATE TABLE IF NOT EXISTS audit_analyses (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL,
+      project_id TEXT,
+      status TEXT DEFAULT 'pending',
+      analysis_json JSONB DEFAULT '{}',
+      source_summary JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    )
+  `);
+  await query('CREATE INDEX IF NOT EXISTS idx_audit_analyses_org ON audit_analyses(org_id)').catch(() => {});
+  const cols = [
+    { name: 'source_summary', type: "JSONB DEFAULT '{}'" },
+  ];
+  for (const c of cols) {
+    await query(`ALTER TABLE audit_analyses ADD COLUMN IF NOT EXISTS ${c.name} ${c.type}`).catch(() => {});
+  }
+  _analysisTableReady = true;
+}
+
+async function getAnthropicKeyForAudit(orgId) {
+  const row = await getIntegrationCredentials(orgId, 'anthropic');
+  return row?.credentials_json?.api_key || process.env.ANTHROPIC_API_KEY;
+}
+
+async function callClaude(apiKey, systemPrompt, userPrompt, maxTokens = 4096) {
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey.trim(),
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    }),
+  });
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => '');
+    throw new Error(`Anthropic API error ${resp.status}: ${errBody}`);
+  }
+  const data = await resp.json();
+  return data.content?.[0]?.text || '';
+}
+
+const ANALYSIS_SYSTEM_PROMPT = `You are an expert AI strategy consultant conducting an in-depth analysis of audit data for a client organisation. You have been given interview transcripts, survey responses, and interview question sets.
+
+Your task: Analyse ALL provided data and produce a comprehensive strategic analysis as a JSON object.
+
+Return ONLY a JSON object with this exact structure (no markdown fences, no extra text):
+{
+  "reasoning_steps": [
+    { "type": "reading", "text": "description of data source being read", "detail": "what you're extracting" },
+    { "type": "insight", "text": "specific finding from the data", "tag": "PAIN POINT|BUDGET|STRATEGIC|CRITICAL RISK|COMPLIANCE|SURVEY|OPPORTUNITY" },
+    { "type": "theme", "text": "cross-cutting theme identified", "detail": "supporting evidence" },
+    { "type": "matrix", "text": "opportunity classification" },
+    { "type": "roadmap", "text": "implementation phase" },
+    { "type": "value", "text": "ROI/value projection" },
+    { "type": "complete", "text": "summary of analysis completion" }
+  ],
+  "themes": [
+    { "title": "Theme title", "description": "Detailed description", "evidence": "Data sources supporting this", "impact": "high|medium|low" }
+  ],
+  "opportunities": [
+    { "title": "Opportunity title", "description": "What to do", "category": "quick_win|big_swing|strategic|foundation", "impact": "high|medium|low", "complexity": "high|medium|low", "estimated_value": "£X" }
+  ],
+  "roadmap": [
+    { "phase": 1, "title": "Phase title", "timeline": "Month X-Y", "description": "What happens", "estimated_cost": "£X-Y", "key_deliverables": ["item1", "item2"] }
+  ],
+  "executive_summary": "2-3 paragraph executive summary of the findings",
+  "roi_summary": { "total_investment": "£X-Y", "year1_value": "£X-Y", "roi_multiple": "X.Xx", "payback_months": N }
+}
+
+IMPORTANT:
+- Base ALL findings on the actual data provided — do NOT fabricate or assume data not present.
+- If there are no transcripts or surveys, state that in the analysis.
+- reasoning_steps should show your work — include 15-25 steps showing how you processed each data source.
+- Be specific with numbers, names, and quotes from the data.
+- For financial projections, be conservative and clearly mark estimates.`;
+
+const ANALYSIS_CHAT_SYSTEM = `You are an AI strategy analyst who has completed a comprehensive audit analysis. You have access to the full analysis results and the original source data.
+
+Answer the user's questions based on the analysis data and source transcripts/surveys provided. Be specific, cite data points, and reference specific people's names and roles when relevant.
+
+If the user asks to modify analysis findings or deck content, provide the updated content. If they ask questions about data you don't have, say so honestly.
+
+Keep responses concise but substantive. Use markdown-style formatting (bold with **, lists with •).`;
+
 router.post('/analyse', async (req, res) => {
   try {
     const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    await ensureAnalysesTable();
+
+    const apiKey = await getAnthropicKeyForAudit(orgId);
+    if (!apiKey) {
+      return res.status(503).json({ error: 'Anthropic API key not configured. Add it in Settings > Integrations > LLM.' });
+    }
+
     const { project_id } = req.body || {};
-    if (!project_id) return res.status(400).json({ error: 'project_id required' });
+
+    const [transcriptsRes, interviewsRes, surveysRes] = await Promise.all([
+      query('SELECT * FROM audit_transcripts WHERE org_id = $1 ORDER BY created_at DESC', [orgId]).catch(() => ({ rows: [] })),
+      query('SELECT * FROM audit_interview_questions WHERE org_id = $1 ORDER BY created_at DESC', [orgId]).catch(() => ({ rows: [] })),
+      query(`SELECT s.*, COALESCE(rc.cnt, 0) AS response_count
+             FROM audit_surveys s
+             LEFT JOIN (SELECT survey_id, COUNT(*) AS cnt FROM audit_responses GROUP BY survey_id) rc ON rc.survey_id = s.id
+             WHERE s.org_id = $1 ORDER BY s.created_at DESC`, [orgId]).catch(() => ({ rows: [] })),
+    ]);
+
+    const surveyIds = surveysRes.rows.map(s => s.id);
+    let allResponses = [];
+    if (surveyIds.length > 0) {
+      const respRes = await query('SELECT * FROM audit_responses WHERE survey_id = ANY($1) ORDER BY completed_at DESC', [surveyIds]).catch(() => ({ rows: [] }));
+      allResponses = respRes.rows;
+    }
+
+    let dataPrompt = 'Here is the audit data to analyse:\n\n';
+
+    if (transcriptsRes.rows.length > 0) {
+      dataPrompt += '=== INTERVIEW TRANSCRIPTS ===\n';
+      for (const t of transcriptsRes.rows) {
+        dataPrompt += `\n--- Transcript: ${t.name || 'Untitled'} ---\n`;
+        dataPrompt += `Speaker: ${t.speaker_name || 'Unknown'}, Role: ${t.speaker_role || 'Unknown'}, Department: ${t.department || 'Unknown'}\n`;
+        if (t.content_text) dataPrompt += `Content:\n${t.content_text.substring(0, 8000)}\n`;
+        if (t.ai_summary) dataPrompt += `AI Summary: ${t.ai_summary}\n`;
+      }
+    } else {
+      dataPrompt += '=== NO INTERVIEW TRANSCRIPTS AVAILABLE ===\n';
+    }
+
+    if (interviewsRes.rows.length > 0) {
+      dataPrompt += '\n=== INTERVIEW QUESTION SETS ===\n';
+      for (const iv of interviewsRes.rows) {
+        dataPrompt += `\nInterviewee: ${iv.interviewee_name || 'Unknown'}, Role: ${iv.interviewee_role || 'Unknown'}, Department: ${iv.department || 'Unknown'}, Type: ${iv.interviewee_type || 'Stakeholder'}\n`;
+        const q = iv.questions_json || [];
+        if (Array.isArray(q)) {
+          for (const section of q) {
+            if (section.section) dataPrompt += `  Section: ${section.section}\n`;
+            if (Array.isArray(section.questions)) {
+              for (const qText of section.questions) dataPrompt += `    - ${qText}\n`;
+            }
+          }
+        }
+        if (iv.notes) dataPrompt += `  Notes: ${iv.notes}\n`;
+      }
+    }
+
+    if (surveysRes.rows.length > 0) {
+      dataPrompt += '\n=== SURVEYS & RESPONSES ===\n';
+      for (const s of surveysRes.rows) {
+        const questions = s.questions_json || [];
+        const responses = allResponses.filter(r => r.survey_id === s.id);
+        dataPrompt += `\n--- Survey: ${s.title} (${responses.length} responses, status: ${s.status}) ---\n`;
+        if (s.description) dataPrompt += `Description: ${s.description}\n`;
+        dataPrompt += 'Questions:\n';
+        for (const q of questions) {
+          dataPrompt += `  Q (${q.type}): ${q.question}\n`;
+          if (q.options?.length > 0) dataPrompt += `    Options: ${q.options.join(', ')}\n`;
+        }
+        if (responses.length > 0) {
+          dataPrompt += 'Responses:\n';
+          for (const r of responses) {
+            dataPrompt += `  Respondent: ${r.respondent_name || 'Anonymous'}${r.respondent_role ? ` (${r.respondent_role})` : ''}\n`;
+            const answers = r.answers_json || {};
+            for (const [qId, ans] of Object.entries(answers)) {
+              dataPrompt += `    ${qId}: ${typeof ans === 'string' ? ans : JSON.stringify(ans)}\n`;
+            }
+          }
+        }
+      }
+    } else {
+      dataPrompt += '\n=== NO SURVEYS AVAILABLE ===\n';
+    }
+
+    dataPrompt += '\n\nNow perform the full analysis and return the JSON result.';
+
+    const rawContent = await callClaude(apiKey, ANALYSIS_SYSTEM_PROMPT, dataPrompt, 8192);
+
+    let analysis;
+    try {
+      const cleaned = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      analysis = JSON.parse(cleaned);
+    } catch {
+      analysis = {
+        reasoning_steps: [{ type: 'complete', text: rawContent.substring(0, 500) }],
+        themes: [],
+        opportunities: [],
+        roadmap: [],
+        executive_summary: rawContent,
+        roi_summary: {},
+      };
+    }
+
+    const sourceSummary = {
+      transcripts: transcriptsRes.rows.length,
+      interviews: interviewsRes.rows.length,
+      surveys: surveysRes.rows.length,
+      total_responses: allResponses.length,
+    };
+
     const result = await query(
-      `INSERT INTO audit_analyses (org_id, project_id, status, analysis_json)
-       VALUES ($1, $2, 'completed', '{}'::jsonb) RETURNING *`,
-      [orgId, project_id]
+      `INSERT INTO audit_analyses (org_id, project_id, status, analysis_json, source_summary)
+       VALUES ($1, $2, 'completed', $3::jsonb, $4::jsonb) RETURNING *`,
+      [orgId, project_id || null, JSON.stringify(analysis), JSON.stringify(sourceSummary)]
     );
-    res.json(result.rows[0]);
+
+    res.json({
+      ...result.rows[0],
+      analysis: analysis,
+      source_summary: sourceSummary,
+    });
   } catch (err) {
     console.error('audit/analyse POST', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/analyse/chat', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+
+    const apiKey = await getAnthropicKeyForAudit(orgId);
+    if (!apiKey) {
+      return res.status(503).json({ error: 'Anthropic API key not configured.' });
+    }
+
+    const { message, analysis_context, history } = req.body || {};
+    if (!message) return res.status(400).json({ error: 'message required' });
+
+    let contextPrompt = ANALYSIS_CHAT_SYSTEM;
+    if (analysis_context) {
+      contextPrompt += `\n\nHere is the completed analysis data:\n${JSON.stringify(analysis_context).substring(0, 12000)}`;
+    }
+
+    const messages = [];
+    if (Array.isArray(history)) {
+      for (const h of history.slice(-10)) {
+        messages.push({ role: h.role === 'agent' ? 'assistant' : 'user', content: h.text || h.content || '' });
+      }
+    }
+    messages.push({ role: 'user', content: message });
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey.trim(),
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2048,
+        system: contextPrompt,
+        messages,
+      }),
+    });
+
+    if (!resp.ok) {
+      const errBody = await resp.text().catch(() => '');
+      return res.status(resp.status).json({ error: `LLM error: ${errBody}` });
+    }
+
+    const data = await resp.json();
+    const reply = data.content?.[0]?.text || 'I was unable to generate a response.';
+
+    res.json({ role: 'agent', text: reply });
+  } catch (err) {
+    console.error('audit/analyse/chat POST', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -574,13 +838,17 @@ router.get('/analyses', async (req, res) => {
   try {
     const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    await ensureAnalysesTable();
     const { project_id } = req.query;
     let sql = 'SELECT * FROM audit_analyses WHERE org_id = $1';
     const params = [orgId];
     if (project_id) { sql += ' AND project_id = $2'; params.push(project_id); }
     sql += ' ORDER BY created_at DESC';
     const result = await query(sql, params);
-    res.json(result.rows);
+    res.json(result.rows.map(r => ({
+      ...r,
+      analysis: r.analysis_json || {},
+    })));
   } catch (err) {
     console.error('audit/analyses GET', err);
     res.status(500).json({ error: err.message });

@@ -5801,60 +5801,71 @@ function AuditProcessMapsTab() {
 }
 
 function AuditAnalysisTab({ project }) {
-  const [chatMessages, setChatMessages] = useState([
-    { role: "agent", text: "Welcome to the Analysis workspace. I've loaded 3 interview transcripts and 2 survey datasets for this project.\n\nYou can ask me questions about the data, or when you're ready, tell me to run the full analysis and I'll work through everything — extracting themes, mapping opportunities, and building a strategic roadmap.\n\nWhat would you like to do?" },
-  ]);
+  const [chatMessages, setChatMessages] = useState([]);
   const [userInput, setUserInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [analysisRun, setAnalysisRun] = useState(false);
+  const [analysisData, setAnalysisData] = useState(null);
   const [reasoningLogs, setReasoningLogs] = useState([]);
   const [isReasoning, setIsReasoning] = useState(false);
   const [deckGenerated, setDeckGenerated] = useState(false);
   const [showGenerateBtn, setShowGenerateBtn] = useState(false);
   const [showFullDeck, setShowFullDeck] = useState(false);
+  const [sourceSummary, setSourceSummary] = useState(null);
+  const [analysisError, setAnalysisError] = useState(null);
   const chatEndRef = React.useRef(null);
 
   React.useEffect(() => {
     if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages, reasoningLogs, isTyping]);
 
-  const REASONING_STEPS = [
-    { type: "thinking", text: "Starting analysis of Hastingwood Securities audit data..." },
-    { type: "reading", text: "📄 Reading transcript: CFO Interview — Sarah Mitchell (45 min)", detail: "Extracting financial operations pain points, technology gaps, budget indicators..." },
-    { type: "insight", text: "Key finding: Month-end reconciliation takes 3 days due to manual data pulling from 6+ systems", tag: "PAIN POINT" },
-    { type: "reading", text: "📄 Reading transcript: CEO Interview — James Richardson (60 min)", detail: "Extracting strategic vision, growth targets, technology appetite..." },
-    { type: "insight", text: "CEO confirmed annual tech budget of £200-250K with willingness to increase for proven ROI", tag: "BUDGET" },
-    { type: "insight", text: "Growth target: Double portfolio from 150 to 300 properties by 2028 — current systems won't scale", tag: "STRATEGIC" },
-    { type: "reading", text: "📄 Reading transcript: Estate Manager Interview — Mike Thompson (50 min)", detail: "Extracting operational bottlenecks, compliance gaps, day-to-day friction..." },
-    { type: "insight", text: "Manual lease tracking across 150 properties — estate manager maintains everything in spreadsheets", tag: "CRITICAL RISK" },
-    { type: "insight", text: "3 compliance gaps identified in current lease tracking process — potential regulatory exposure", tag: "COMPLIANCE" },
-    { type: "thinking", text: "Processing survey data: AI Readiness Assessment (8/12 responses)..." },
-    { type: "insight", text: "67% of respondents rated AI adoption at 2/5 or below — significant readiness gap", tag: "SURVEY" },
-    { type: "insight", text: "Top barriers: Budget (58%), Lack of expertise (50%), Unclear ROI (42%)", tag: "SURVEY" },
-    { type: "thinking", text: "Processing survey data: Technology Stack Review (8/8 responses)..." },
-    { type: "insight", text: "75% dissatisfied with current tech stack — top frustrations: too many tools, poor integration, data silos", tag: "SURVEY" },
-    { type: "thinking", text: "Cross-referencing themes across all data sources..." },
-    { type: "theme", text: "Theme 1: Manual processes creating revenue risk — lease tracking, reconciliation, reporting all manual", detail: "Appears in 3/3 transcripts + both surveys. Estimated £100K+ annual revenue leakage." },
-    { type: "theme", text: "Theme 2: Key-person dependency — critical knowledge locked in individuals", detail: "Estate manager is single point of failure. No documentation system." },
-    { type: "theme", text: "Theme 3: Growth blocked by systems — current infrastructure can't support 2x portfolio growth", detail: "CEO growth target requires fundamentally different operational backbone." },
-    { type: "theme", text: "Theme 4: Data silos preventing decision-making — 6+ disconnected systems", detail: "CFO spends 3 days/month just assembling board reports manually." },
-    { type: "thinking", text: "Building opportunity matrix — mapping impact vs. complexity..." },
-    { type: "matrix", text: "Quick Wins: Automated lease tracking (£100K+ protection), Director dashboard (20hr/month saved)" },
-    { type: "matrix", text: "Big Swings: Knowledge management system (de-risk key-person), AI contract analysis (unlock efficiency)" },
-    { type: "thinking", text: "Constructing 3-phase implementation roadmap..." },
-    { type: "roadmap", text: "Phase 1 (Month 1-2): Foundation — Lease tracking + data consolidation. Est. £35-45K" },
-    { type: "roadmap", text: "Phase 2 (Month 3-4): Unlock — Director dashboard + knowledge base. Est. £40-55K" },
-    { type: "roadmap", text: "Phase 3 (Month 5-6): Scale — AI contract analysis + predictive insights. Est. £50-70K" },
-    { type: "thinking", text: "Calculating ROI projections..." },
-    { type: "value", text: "Total investment: £125-170K over 6 months. Projected annual value: £280-350K (2.1x ROI in Year 1)" },
-    { type: "complete", text: "✅ Analysis complete — 4 themes identified, opportunity matrix built, 3-phase roadmap constructed." },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      api.audit.transcripts.list().catch(() => []),
+      api.audit.surveys.list().catch(() => []),
+      api.audit.interviews.list().catch(() => []),
+    ]).then(([transcripts, surveys, interviews]) => {
+      if (cancelled) return;
+      const tCount = Array.isArray(transcripts) ? transcripts.length : 0;
+      const sCount = Array.isArray(surveys) ? surveys.length : 0;
+      const iCount = Array.isArray(interviews) ? interviews.length : 0;
+      setSourceSummary({ transcripts: tCount, surveys: sCount, interviews: iCount });
+      const parts = [];
+      if (tCount > 0) parts.push(`${tCount} transcript${tCount > 1 ? "s" : ""}`);
+      if (sCount > 0) parts.push(`${sCount} survey${sCount > 1 ? "s" : ""}`);
+      if (iCount > 0) parts.push(`${iCount} interview set${iCount > 1 ? "s" : ""}`);
+      const dataDesc = parts.length > 0 ? parts.join(", ") : "no data sources";
+      setChatMessages([{
+        role: "agent",
+        text: `Welcome to the Analysis workspace. I've found ${dataDesc} for this project.\n\n${parts.length > 0 ? "You can ask me questions about the data, or when you're ready, tell me to run the full analysis and I'll work through everything — extracting themes, mapping opportunities, and building a strategic roadmap." : "Add some transcripts, surveys, or interviews first, then come back to run the analysis."}\n\nWhat would you like to do?`,
+      }]);
+    });
+    api.audit.analyses.list().then(data => {
+      if (cancelled) return;
+      const analyses = Array.isArray(data) ? data : [];
+      if (analyses.length > 0 && analyses[0].analysis_json) {
+        const latest = analyses[0];
+        const analysis = latest.analysis_json || latest.analysis || {};
+        setAnalysisData(analysis);
+        setAnalysisRun(true);
+        setShowGenerateBtn(true);
+        if (Array.isArray(analysis.reasoning_steps)) {
+          setReasoningLogs(analysis.reasoning_steps);
+        }
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const getTagColor = (tag) => {
-    if (tag === "CRITICAL RISK") return COLORS.danger;
-    if (tag === "BUDGET" || tag === "STRATEGIC") return COLORS.blue;
-    if (tag === "COMPLIANCE") return COLORS.warn;
-    if (tag === "SURVEY") return "#7B61FF";
+    if (!tag) return COLORS.accent;
+    const t = tag.toUpperCase();
+    if (t === "CRITICAL RISK") return COLORS.danger;
+    if (t === "BUDGET" || t === "STRATEGIC") return COLORS.blue;
+    if (t === "COMPLIANCE") return COLORS.warn;
+    if (t === "SURVEY") return "#7B61FF";
+    if (t === "OPPORTUNITY") return "#7B61FF";
     return COLORS.accent;
   };
 
@@ -5877,15 +5888,49 @@ function AuditAnalysisTab({ project }) {
     setIsReasoning(true);
     setAnalysisRun(true);
     setReasoningLogs([]);
+    setAnalysisError(null);
 
-    for (let i = 0; i < REASONING_STEPS.length; i++) {
-      await new Promise(r => setTimeout(r, 700));
-      setReasoningLogs(prev => [...prev, REASONING_STEPS[i]]);
+    setReasoningLogs([{ type: "thinking", text: "Starting analysis — fetching all audit data from database..." }]);
+
+    try {
+      const result = await api.audit.analyse({ project_id: project?.id || null });
+      const analysis = result.analysis || result.analysis_json || {};
+      setAnalysisData(analysis);
+
+      const steps = Array.isArray(analysis.reasoning_steps) ? analysis.reasoning_steps : [];
+      if (steps.length > 0) {
+        setReasoningLogs([]);
+        for (let i = 0; i < steps.length; i++) {
+          await new Promise(r => setTimeout(r, 200));
+          setReasoningLogs(prev => [...prev, steps[i]]);
+        }
+      } else {
+        setReasoningLogs(prev => [...prev, { type: "complete", text: "Analysis completed." }]);
+      }
+
+      setIsReasoning(false);
+      setShowGenerateBtn(true);
+
+      const themeCount = Array.isArray(analysis.themes) ? analysis.themes.length : 0;
+      const oppCount = Array.isArray(analysis.opportunities) ? analysis.opportunities.length : 0;
+      const phaseCount = Array.isArray(analysis.roadmap) ? analysis.roadmap.length : 0;
+
+      let summaryText = `Analysis complete.`;
+      if (themeCount > 0) summaryText += ` I've identified ${themeCount} key theme${themeCount > 1 ? "s" : ""}`;
+      if (oppCount > 0) summaryText += `, ${oppCount} opportunit${oppCount > 1 ? "ies" : "y"}`;
+      if (phaseCount > 0) summaryText += `, and mapped a ${phaseCount}-phase implementation roadmap`;
+      summaryText += ".\n\nYou can ask me questions about any of the findings, or hit Generate Deck to create your presentation.";
+      if (analysis.executive_summary) {
+        summaryText += `\n\nExecutive Summary:\n${analysis.executive_summary}`;
+      }
+
+      setChatMessages(prev => [...prev, { role: "agent", text: summaryText }]);
+    } catch (err) {
+      setIsReasoning(false);
+      setAnalysisError(err.message || "Analysis failed");
+      setReasoningLogs(prev => [...prev, { type: "complete", text: `Analysis failed: ${err.message || "Unknown error"}` }]);
+      setChatMessages(prev => [...prev, { role: "agent", text: `I encountered an error running the analysis: ${err.message || "Unknown error"}\n\nPlease check that your Anthropic API key is configured in Settings > Integrations, and that you have some data (transcripts, surveys, or interviews) available.` }]);
     }
-
-    setIsReasoning(false);
-    setShowGenerateBtn(true);
-    setChatMessages(prev => [...prev, { role: "agent", text: "Analysis complete. I've identified 4 key themes, built an opportunity matrix, and mapped a 3-phase implementation roadmap.\n\nYou can ask me questions about any of the findings, or hit **Generate Deck** to create your presentation.\n\nSome things you might ask:\n• What were the main pain points from Mike Thompson's interview?\n• Can you elaborate on the compliance risks?\n• What's the breakdown of the Phase 1 investment?" }]);
   };
 
   const generateDeck = async () => {
@@ -5895,7 +5940,7 @@ function AuditAnalysisTab({ project }) {
     await new Promise(r => setTimeout(r, 2500));
     setDeckGenerated(true);
     setIsTyping(false);
-    setChatMessages(prev => [...prev, { role: "agent", text: "Your deck is ready! 10 slides covering the full analysis — from current state through to next steps.\n\nClick any slide thumbnail on the right to preview it, or click **Open Editor** for the full-screen editor where you can click to edit any text.\n\nYou can also ask me to revise specific slides — for example:\n• \"Change slide 4 to focus more on compliance risk\"\n• \"Make the roadmap phases shorter — 4 months total\"\n• \"Add a slide about technology recommendations\"" }]);
+    setChatMessages(prev => [...prev, { role: "agent", text: "Your deck is ready! 10 slides covering the full analysis — from current state through to next steps.\n\nClick any slide thumbnail on the right to preview it, or click Open Editor for the full-screen editor where you can click to edit any text.\n\nYou can also ask me to revise specific slides." }]);
   };
 
   const sendMessage = async () => {
@@ -5906,36 +5951,24 @@ function AuditAnalysisTab({ project }) {
     setUserInput("");
     setIsTyping(true);
 
-    await new Promise(r => setTimeout(r, 1200));
-
-    // Check if user wants to run analysis
     if (!analysisRun && (msg.includes("run") || msg.includes("start") || msg.includes("analyse") || msg.includes("analyze") || msg.includes("go ahead") || msg.includes("full analysis"))) {
       setChatMessages([...newMessages, { role: "agent", text: "Starting the full analysis now. I'll work through all transcripts and surveys, identify themes, map opportunities, and build a roadmap. Watch the reasoning panel..." }]);
       setIsTyping(false);
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 400));
       runAnalysis();
       return;
     }
 
-    // Mock responses for different question types
-    let response = "";
-    if (msg.includes("mike") || msg.includes("thompson") || msg.includes("estate")) {
-      response = "From Mike Thompson's interview (Estate Manager, 50 min), the key issues were:\n\n1. **Lease tracking is entirely manual** — he maintains all 150 properties in spreadsheets. He described it as \"getting unmanageable\" and flagged that they've missed renewal windows multiple times.\n\n2. **Compliance gaps** — he identified 3 specific areas where their current tracking doesn't meet regulatory requirements. This is a potential exposure risk.\n\n3. **Single point of failure** — Mike is the only person who knows the full property portfolio status. If he's unavailable, there's no backup system or documentation.\n\n4. **No scalability** — with the CEO's target of 300 properties, Mike said his current process \"would completely break down\" beyond ~180 properties.";
-    } else if (msg.includes("sarah") || msg.includes("cfo") || msg.includes("finance")) {
-      response = "Sarah Mitchell (CFO) highlighted several financial operations pain points:\n\n• **Month-end reconciliation** takes 3 full days because they're pulling data manually from 6+ disconnected systems\n• **Board reporting** is a major time sink — assembling accurate financial reports requires cross-referencing multiple sources\n• She rated AI adoption at 4/5 but noted **budget and unclear ROI** as the main blockers\n• She expressed frustration with the current tech stack, particularly the reliance on Excel for critical financial processes\n• Her top priority would be automating the reconciliation process, which she estimated could save 40+ hours per month";
-    } else if (msg.includes("compliance") || msg.includes("risk")) {
-      response = "The compliance risks identified across the audit data:\n\n1. **Lease regulatory compliance** — Mike Thompson flagged 3 specific gaps in how they track lease obligations. Without a centralized system, they can't demonstrate compliance to regulators.\n\n2. **Data protection** — with tenant data spread across spreadsheets, personal email, and multiple tools, there are potential GDPR concerns.\n\n3. **Financial reporting accuracy** — the manual reconciliation process introduces risk of errors that could affect regulatory financial reporting.\n\n4. **Audit trail** — no systematic way to track who made what changes to lease terms or financial records.\n\nThe estimated exposure from compliance gaps is significant — industry benchmarks suggest fines and remediation costs could reach £50-100K+ for a portfolio of this size.";
-    } else if (msg.includes("slide") && msg.includes("change") || msg.includes("revise") || msg.includes("update slide") || msg.includes("modify slide")) {
-      response = "Got it — I've noted that revision. The changes will be reflected in the deck. You can click **Open Editor** to see the updated slide and make further inline edits.\n\nWant me to adjust anything else?";
-    } else if (msg.includes("roi") || msg.includes("investment") || msg.includes("cost") || msg.includes("budget")) {
-      response = "Here's the investment breakdown:\n\n**Total: £125-170K over 6 months**\n\n• Phase 1 (Foundation): £35-45K — Lease tracking system + data consolidation\n• Phase 2 (Unlock): £40-55K — Director dashboard + knowledge base\n• Phase 3 (Scale): £50-70K — AI contract analysis + predictive insights\n\n**Projected Returns:**\n• Year 1: £280-350K value (2.1x ROI)\n• Year 2: £400-500K (compounding efficiency gains)\n• Year 3: £600-750K (full AI maturity + scaled portfolio)\n\nThe CEO confirmed an annual tech budget of £200-250K, so this fits within their existing allocation with room for contingency.";
-    } else if (!analysisRun) {
-      response = "I can answer that once I've run the analysis. Would you like me to start the full analysis now? Just say \"run the analysis\" or \"go ahead\" and I'll work through everything.";
-    } else {
-      response = "That's a great question. Based on the data I've analysed, I can tell you that this relates to the broader themes we identified — particularly around operational efficiency and the key-person dependency risk.\n\nWould you like me to dig deeper into a specific aspect, or shall we move on to generating the deck?";
+    try {
+      const resp = await api.audit.analyseChat({
+        message: userInput,
+        analysis_context: analysisData || null,
+        history: newMessages.slice(-10),
+      });
+      setChatMessages(prev => [...prev, { role: "agent", text: resp.text || "I was unable to generate a response." }]);
+    } catch (err) {
+      setChatMessages(prev => [...prev, { role: "agent", text: `Error: ${err.message || "Could not connect to the AI analyst. Check your API key configuration."}` }]);
     }
-
-    setChatMessages(prev => [...prev, { role: "agent", text: response }]);
     setIsTyping(false);
   };
 
@@ -5945,7 +5978,6 @@ function AuditAnalysisTab({ project }) {
 
   return (
     <div style={{ flex: 1, display: "flex", height: "100%", overflow: "hidden", margin: -28, marginTop: -28 }}>
-      {/* Left — Chat */}
       <div style={{ width: 440, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: `1px solid ${COLORS.border}` }}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -5973,12 +6005,11 @@ function AuditAnalysisTab({ project }) {
                 borderBottomLeftRadius: msg.role === "agent" ? 4 : 12,
               }}>
                 {msg.role === "agent" && <div style={{ fontSize: 9, color: COLORS.accent, fontFamily: FONT, fontWeight: 600, letterSpacing: "0.06em", marginBottom: 4 }}>AI ANALYST</div>}
-                <div style={{ fontSize: 12, color: COLORS.text, lineHeight: 1.6, whiteSpace: "pre-line" }}>{msg.text.replace(/\*\*(.*?)\*\*/g, "$1")}</div>
+                <div style={{ fontSize: 12, color: COLORS.text, lineHeight: 1.6, whiteSpace: "pre-line" }}>{(msg.text || "").replace(/\*\*(.*?)\*\*/g, "$1")}</div>
               </div>
             </div>
           ))}
 
-          {/* Reasoning log embedded in chat */}
           {(isReasoning || (analysisRun && reasoningLogs.length > 0)) && (
             <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden", borderBottomLeftRadius: 4 }}>
               <div style={{ padding: "8px 12px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", gap: 6 }}>
@@ -6030,7 +6061,6 @@ function AuditAnalysisTab({ project }) {
         </div>
       </div>
 
-      {/* Right — Deck Preview */}
       <div style={{ flex: 1, overflow: "auto", padding: 24, display: "flex", flexDirection: "column" }}>
         {!deckGenerated ? (
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -6042,6 +6072,13 @@ function AuditAnalysisTab({ project }) {
                   ? "Analysis complete — click Generate Deck in the chat panel to build your presentation."
                   : "Chat with the AI Analyst on the left. Ask questions about the data, then run the full analysis to generate your consulting deck."}
               </div>
+              {sourceSummary && (
+                <div style={{ marginTop: 16, display: "flex", justifyContent: "center", gap: 12 }}>
+                  {sourceSummary.transcripts > 0 && <span style={{ fontSize: 11, color: COLORS.textDim }}>📄 {sourceSummary.transcripts} transcript{sourceSummary.transcripts > 1 ? "s" : ""}</span>}
+                  {sourceSummary.surveys > 0 && <span style={{ fontSize: 11, color: COLORS.textDim }}>📊 {sourceSummary.surveys} survey{sourceSummary.surveys > 1 ? "s" : ""}</span>}
+                  {sourceSummary.interviews > 0 && <span style={{ fontSize: 11, color: COLORS.textDim }}>🎤 {sourceSummary.interviews} interview{sourceSummary.interviews > 1 ? "s" : ""}</span>}
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -6057,21 +6094,18 @@ function AuditAnalysisTab({ project }) {
               </div>
             </div>
 
-            {/* Title slide large preview */}
             <div onClick={() => setShowFullDeck(true)} style={{ cursor: "pointer", marginBottom: 16 }}>
               <div style={{ width: "100%", aspectRatio: "16/9", borderRadius: 8, overflow: "hidden", border: `1px solid ${COLORS.border}`, background: "linear-gradient(135deg, #1e293b, #0f172a)", position: "relative", display: "flex", alignItems: "center" }}>
                 <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, background: "#eab308" }} />
                 <div style={{ padding: "0 40px" }}>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: "#fff", marginBottom: 8 }}>Hodge Insurance Agency</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: "#fff", marginBottom: 8 }}>Strategic Analysis</div>
                   <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 20 }}>Operations Assessment & Strategic Recommendations</div>
-                  <div style={{ fontSize: 8, color: "#eab308", fontWeight: 600, marginBottom: 2, letterSpacing: "0.04em" }}>PREPARED FOR PERRY SALVAGNE IV, PRESIDENT/CEO</div>
-                  <div style={{ fontSize: 8, color: "#64748b" }}>October 2024</div>
+                  <div style={{ fontSize: 8, color: "#eab308", fontWeight: 600, marginBottom: 2, letterSpacing: "0.04em" }}>AI-POWERED AUDIT ANALYSIS</div>
+                  <div style={{ fontSize: 8, color: "#64748b" }}>{new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</div>
                 </div>
-                <div style={{ position: "absolute", bottom: 8, left: 40, fontSize: 6, color: "#374151" }}>Confidential — Prepared for Hodge Insurance Agency, Inc.</div>
               </div>
             </div>
 
-            {/* Slide grid */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
               {SLIDE_LABELS.map((label, i) => (
                 <div key={i} onClick={() => setShowFullDeck(true)} style={{

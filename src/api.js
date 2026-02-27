@@ -337,6 +337,7 @@ export const api = {
       delete: (id) => req('DELETE', `/audit/process-maps/${id}`),
     },
     analyse: (data) => req('POST', '/audit/analyse', data),
+    analyseChat: (data) => req('POST', '/audit/analyse/chat', data),
     analyses: {
       list: (params) => {
         const q = new URLSearchParams(params || {}).toString();
