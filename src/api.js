@@ -378,7 +378,7 @@ export const api = {
     create: (data) => req('POST', '/niches', data),
     update: (id, data) => req('PUT', `/niches/${id}`, data),
     delete: (id) => req('DELETE', `/niches/${id}`),
-    research: (data) => req('POST', '/niches/research', data),
+    chat: (params) => req('POST', '/niches/chat', params),
   },
   salesScripts: {
     list: () => req('GET', '/sales-scripts'),

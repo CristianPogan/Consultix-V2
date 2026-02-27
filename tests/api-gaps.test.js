@@ -768,14 +768,24 @@ describe('API GAP: niches', () => {
     assert.ok([200, 201].includes(res.status));
   });
 
-  it('4. POST /api/niches/research triggers AI niche research', async function () {
+  it('4. POST /api/niches/chat without message returns 400', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/niches/chat').set(auth()).send({});
+    if (skip(this, res)) return;
+    assert.ok([400, 503].includes(res.status));
+  });
+
+  it('4b. POST /api/niches/chat with message returns agentText', async function () {
     if (!hasAuth || !hasDb) this.skip();
-    const res = await api.post('/api/niches/research').set(auth()).send({
-      niche: 'HVAC contractors',
-      geo: 'North America',
+    const res = await api.post('/api/niches/chat').set(auth()).send({
+      message: 'My skills are sales and AI automation',
+      messages: [],
     });
     if (skip(this, res)) return;
-    assert.ok([200, 202].includes(res.status));
+    assert.ok([200, 503].includes(res.status));
+    if (res.status === 200) {
+      assert.ok(typeof res.body.agentText === 'string');
+    }
   });
 
   it('5. DELETE /api/niches/:id returns 200/204 or 404', async function () {

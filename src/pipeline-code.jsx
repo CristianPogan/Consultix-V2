@@ -7782,37 +7782,59 @@ function NicheResearcherView({ setActivePage, setIcpForm }) {
     };
   };
 
-  const [chatMessages, setChatMessages] = useState([{ role: "agent", text: "Hey! I'm your Niche Research assistant. I'll help you find the ideal niche. What are your core skills and areas of expertise?" }]);
+  const [chatMessages, setChatMessages] = useState([{ role: "agent", text: "Let's research a new niche. What are your core skills and expertise?" }]);
   const [userInput, setUserInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [step, setStep] = useState(0);
   const [nichesGenerated, setNichesGenerated] = useState(false);
+  const [discoveredNiches, setDiscoveredNiches] = useState([]);
+  const [chatError, setChatError] = useState(null);
   const chatEndRef = React.useRef(null);
 
   React.useEffect(() => { if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: "smooth" }); }, [chatMessages, isTyping]);
 
-  const DISCOVERED_NICHES = [
-    { id: "n1", name: "AI Automation for Mid-Market B2B SaaS", score: 92, size: "~12,000 companies", competition: "Medium", demand: "High", avgDeal: "£15-30K", audience: "VPs of Sales & CROs at Series B+ B2B SaaS (50-500 employees)", positioning: "The one-person AI consultancy delivering enterprise-level outbound systems", monetisation: "AI Audit (£2-5K) → Implementation (£15-30K) → Retainer (£3-5K/mo)", advantage: "AI-native methodology, 100+ testimonials, rapid deployment", channels: "LinkedIn, Skool, cold outreach, referral network", why: "High willingness to pay, proven demand, your methodology gives unfair speed advantage" },
-    { id: "n2", name: "AI Ops for Property Management Firms", score: 87, size: "~8,500 companies", competition: "Low", demand: "High", avgDeal: "£20-45K", audience: "Managing Directors & COOs at property firms (50-500 units)", positioning: "AI-powered operations transformation for property management", monetisation: "Operations Audit (£3-5K) → System Build (£20-45K) → Support (£2-4K/mo)", advantage: "Hastingwood case study, deep domain knowledge", channels: "LinkedIn, property conferences, referrals", why: "Low competition, high pain points, proven case study" },
-    { id: "n3", name: "Lead Gen Automation for Agencies & Consultants", score: 84, size: "~45,000 businesses", competition: "High", demand: "Very High", avgDeal: "£5-15K", audience: "Solo consultants & agency founders (£100K-1M revenue)", positioning: "Done-for-you AI lead gen system replacing your £2K/mo tool stack", monetisation: "Setup (£5-10K) → Platform licence (£500-1K/mo)", advantage: "You're the target customer — built this for yourself first", channels: "LinkedIn, Skool, YouTube, cold outreach", why: "Massive market, you use the product yourself, easy to demonstrate ROI" },
-    { id: "n4", name: "AI Strategy for Insurance Agencies", score: 79, size: "~22,000 agencies", competition: "Very Low", demand: "Medium", avgDeal: "£10-25K", audience: "Agency principals at independent agencies (10-100 staff)", positioning: "The AI consultant who understands insurance — audit to implementation", monetisation: "AI Audit (£2-5K) → Implementation (£10-25K) → Quarterly review (£1-2K)", advantage: "Hodge Insurance case study, industry-specific knowledge", channels: "Insurance conferences, LinkedIn, industry publications", why: "Very low competition, industry behind on AI, direct case study proof" },
-  ];
-
-  const AGENT_FLOW = ["Who have you had the best results with? Industry, size, role?", "What problem do you solve better than anyone?", "Price range and model — project, retainer, productised?", "How competitive do you want your niche?", "Where do these people hang out?"];
-
   const sendMessage = async () => {
     if (!userInput.trim() || isTyping) return;
-    const nm = [...chatMessages, { role: "user", text: userInput }]; setChatMessages(nm); setUserInput(""); setIsTyping(true);
-    await new Promise(r => setTimeout(r, 1200));
-    if (step < AGENT_FLOW.length) { setChatMessages([...nm, { role: "agent", text: AGENT_FLOW[step] }]); setStep(step + 1); }
-    else if (!nichesGenerated) { setNichesGenerated(true); setChatMessages([...nm, { role: "agent", text: "I've identified 4 high-potential niches. Check the dashboard on the right — each card shows score, market size, and avg deal. Click any card for details.\n\nHit 💾 Save on any niche to add it to your library." }]); }
-    else { setChatMessages([...nm, { role: "agent", text: "Good point — I've factored that in. Take another look at the recommendations." }]); }
+    const msg = userInput.trim();
+    const nm = [...chatMessages, { role: "user", text: msg }];
+    setChatMessages(nm); setUserInput(""); setIsTyping(true); setChatError(null);
+    try {
+      const res = await api.niches.chat({ message: msg, messages: chatMessages });
+      const agentText = res.agentText || "I couldn't generate a response. Please try again.";
+      setChatMessages([...nm, { role: "agent", text: agentText }]);
+      if (res.niches && Array.isArray(res.niches) && res.niches.length > 0) {
+        setDiscoveredNiches(res.niches.map((n, i) => ({ ...n, id: `gen_${Date.now()}_${i}` })));
+        setNichesGenerated(true);
+      }
+    } catch (err) {
+      const errMsg = err?.message || err?.error || "Failed to reach AI. Check your Anthropic API key in Settings → Integrations.";
+      setChatError(errMsg);
+      setChatMessages([...nm, { role: "agent", text: `⚠️ ${errMsg}` }]);
+    }
     setIsTyping(false);
   };
 
-  const saveNiche = (niche) => {
-    if (!savedNiches.find(sn => sn.name === niche.name)) {
-      setSavedNiches(prev => [{ ...niche, id: `sn_${Date.now()}`, savedDate: "Just now" }, ...prev]);
+  const saveNiche = async (niche) => {
+    if (savedNiches.find(sn => sn.name === niche.name)) return;
+    const optimistic = { ...niche, id: `sn_${Date.now()}`, savedDate: "Just now" };
+    setSavedNiches(prev => [optimistic, ...prev]);
+    try {
+      const saved = await api.niches.create({
+        name: niche.name,
+        audience: niche.audience || null,
+        market_size: niche.size || niche.market_size || null,
+        competition: niche.competition || null,
+        demand: niche.demand || null,
+        avg_deal: niche.avgDeal || niche.avg_deal || null,
+        positioning: niche.positioning || null,
+        score: typeof niche.score === 'number' ? niche.score : null,
+        monetisation: niche.monetisation || null,
+        advantage: niche.advantage || null,
+        channels: niche.channels || null,
+        why_niche: niche.why || niche.why_niche || null,
+      });
+      setSavedNiches(prev => prev.map(sn => sn.id === optimistic.id ? { ...saved, avgDeal: saved.avg_deal, savedDate: "Just now" } : sn));
+    } catch (err) {
+      console.error('Failed to save niche:', err);
     }
   };
 
@@ -7864,7 +7886,7 @@ function NicheResearcherView({ setActivePage, setIcpForm }) {
       <div style={{ flex: 1, overflow: "auto", padding: 32 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
           <div><h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0 }}>Saved <span style={{ color: COLORS.accent }}>Niches</span></h2><p style={{ color: COLORS.textMuted, margin: "6px 0 0", fontSize: 13 }}>Your researched and saved niche profiles</p></div>
-          <button onClick={() => { setView("chat"); setNichesGenerated(false); setStep(0); setChatMessages([{ role: "agent", text: "Let's research a new niche. What are your core skills and expertise?" }]); }}
+          <button onClick={() => { setView("chat"); setNichesGenerated(false); setDiscoveredNiches([]); setChatError(null); setChatMessages([{ role: "agent", text: "Let's research a new niche. What are your core skills and expertise?" }]); }}
             style={{ padding: "10px 20px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Research New Niche</button>
         </div>
         <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
@@ -7910,7 +7932,7 @@ function NicheResearcherView({ setActivePage, setIcpForm }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={() => setView("library")} style={{ padding: "2px 6px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 4, color: COLORS.textMuted, fontSize: 10, cursor: "pointer" }}>←</button>
             <span style={{ fontSize: 14 }}>🎯</span>
-            <div><div style={{ fontWeight: 600, fontSize: 13 }}>Niche Researcher</div><div style={{ fontSize: 10, color: COLORS.textDim }}>{nichesGenerated ? `${DISCOVERED_NICHES.length} niches found` : `Step ${Math.min(step + 1, AGENT_FLOW.length + 1)}/${AGENT_FLOW.length + 1}`}</div></div>
+            <div><div style={{ fontWeight: 600, fontSize: 13 }}>Niche Researcher</div><div style={{ fontSize: 10, color: COLORS.textDim }}>{nichesGenerated ? `${discoveredNiches.length} niches found` : "AI-powered discovery"}</div></div>
           </div>
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -7926,7 +7948,7 @@ function NicheResearcherView({ setActivePage, setIcpForm }) {
           <div ref={chatEndRef} />
         </div>
         <div style={{ padding: "10px 14px", borderTop: `1px solid ${COLORS.border}`, display: "flex", gap: 8 }}>
-          <input value={userInput} onChange={e => setUserInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !isTyping) sendMessage(); }} placeholder={nichesGenerated ? "Refine..." : "Describe expertise..."} style={{ flex: 1, padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none" }} disabled={isTyping} />
+          <input value={userInput} onChange={e => setUserInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !isTyping) sendMessage(); }} placeholder={nichesGenerated ? "Refine niches..." : "Type your answer..."} style={{ flex: 1, padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none" }} disabled={isTyping} />
           <button onClick={sendMessage} disabled={isTyping || !userInput.trim()} style={{ padding: "10px 18px", background: userInput.trim() && !isTyping ? COLORS.accent : COLORS.border, color: userInput.trim() && !isTyping ? COLORS.bg : COLORS.textDim, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: userInput.trim() && !isTyping ? "pointer" : "default" }}>Send</button>
         </div>
       </div>
@@ -7941,7 +7963,7 @@ function NicheResearcherView({ setActivePage, setIcpForm }) {
               <h3 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 600, margin: 0 }}>Discovered <span style={{ color: COLORS.accent }}>Niches</span></h3>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              {DISCOVERED_NICHES.map(niche => {
+              {discoveredNiches.map(niche => {
                 const isSaved = savedNiches.some(sn => sn.name === niche.name);
                 return (
                   <div key={niche.id} style={{ padding: "20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
