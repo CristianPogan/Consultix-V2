@@ -4644,11 +4644,17 @@ function AuditCompanyTab({ transcripts }) {
 }
 
 function AuditSurveysTab() {
-  const [view, setView] = useState("list"); // "list", "builder", "responses", "distribute"
+  const [view, setView] = useState("list");
+  const [surveys, setSurveys] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [selectedSurvey, setSelectedSurvey] = useState(null);
+  const [responseData, setResponseData] = useState([]);
+  const [responsesLoading, setResponsesLoading] = useState(false);
   const [builderTitle, setBuilderTitle] = useState("");
   const [builderDesc, setBuilderDesc] = useState("");
   const [builderQuestions, setBuilderQuestions] = useState([]);
+  const [editingSurveyId, setEditingSurveyId] = useState(null);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [distEmails, setDistEmails] = useState("");
   const [distMessage, setDistMessage] = useState("");
@@ -4676,21 +4682,6 @@ function AuditSurveysTab() {
     ]},
   ];
 
-  const SURVEYS = [
-    { id: "s1", title: "AI Readiness Assessment", responses: 8, total: 12, status: "active", questions: TEMPLATES[1].questions,
-      responseData: [
-        { respondent: "Sarah Mitchell", role: "CFO", completedAt: "Feb 5", answers: { q1: "4/5", q2: "Finance", q3: "Budget, Unclear ROI", q4: "Month-end reconciliation — currently takes 3 days with manual data pulling from multiple systems.", q5: "Cautiously optimistic" } },
-        { respondent: "James Richardson", role: "CEO", completedAt: "Feb 4", answers: { q1: "3/5", q2: "Sales, Marketing", q3: "Lack of expertise, Data quality", q4: "Board reporting — pulling data from 6 different sources into one deck takes a full day each month.", q5: "Very enthusiastic" } },
-        { respondent: "Mike Thompson", role: "Estate Manager", completedAt: "Feb 6", answers: { q1: "2/5", q2: "None", q3: "Lack of expertise, Security concerns, Budget", q4: "Lease tracking — I maintain everything in spreadsheets and it's getting unmanageable with 150 properties.", q5: "Neutral" } },
-      ],
-    },
-    { id: "s2", title: "Technology Stack Review", responses: 8, total: 8, status: "closed", questions: TEMPLATES[2].questions,
-      responseData: [
-        { respondent: "Sarah Mitchell", role: "CFO", completedAt: "Jan 28", answers: { q1: "Excel, Xero, Sage, Outlook, SharePoint", q2: "Dissatisfied", q3: "Too many tools, Poor integration, Data silos", q4: "Excel for everything — we need a proper CRM and project management tool." } },
-      ],
-    },
-  ];
-
   const FIELD_TYPES = [
     { key: "multiple_choice", label: "Multiple Choice", icon: "○" },
     { key: "checkboxes", label: "Checkboxes", icon: "☐" },
@@ -4703,8 +4694,84 @@ function AuditSurveysTab() {
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
   const labelStyle = { display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 6 };
 
+  const loadSurveys = () => {
+    setLoading(true);
+    api.audit.surveys.list().then(data => {
+      setSurveys(Array.isArray(data) ? data : []);
+    }).catch(() => setSurveys([])).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { loadSurveys(); }, []);
+
+  const saveSurvey = async (andDistribute) => {
+    setSaving(true);
+    try {
+      const payload = {
+        title: builderTitle || "Untitled Survey",
+        description: builderDesc || null,
+        questions_json: builderQuestions,
+        status: "active",
+      };
+      let saved;
+      if (editingSurveyId) {
+        saved = await api.audit.surveys.update(editingSurveyId, payload);
+      } else {
+        saved = await api.audit.surveys.create(payload);
+      }
+      loadSurveys();
+      if (andDistribute && saved) {
+        const s = { ...saved, questions: saved.questions || saved.questions_json || builderQuestions, responseData: [] };
+        setSelectedSurvey(s);
+        setDistLink(`${window.location.origin}/survey/${saved.id}/${Math.random().toString(36).substring(7)}`);
+        setDistEmails("");
+        setDistMessage(`Hi,\n\nYou've been invited to complete the "${s.title}" survey as part of our AI audit. It should take about 5 minutes.\n\nPlease complete it at your earliest convenience.\n\nThank you`);
+        setView("distribute");
+      } else {
+        setView("list");
+      }
+    } catch (err) {
+      console.error("Save survey error:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteSurvey = async (id) => {
+    try {
+      await api.audit.surveys.delete(id);
+      setSurveys(prev => prev.filter(s => s.id !== id));
+    } catch (err) {
+      console.error("Delete survey error:", err);
+    }
+  };
+
+  const openResponses = async (survey) => {
+    setSelectedSurvey(survey);
+    setResponsesLoading(true);
+    setView("responses");
+    try {
+      const data = await api.audit.surveys.listResponses(survey.id);
+      setResponseData(Array.isArray(data) ? data : []);
+    } catch {
+      setResponseData([]);
+    } finally {
+      setResponsesLoading(false);
+    }
+  };
+
+  const openEdit = (survey) => {
+    setEditingSurveyId(survey.id);
+    setBuilderTitle(survey.title);
+    setBuilderDesc(survey.description || "");
+    const q = survey.questions || survey.questions_json || [];
+    setBuilderQuestions(Array.isArray(q) ? q : []);
+    setSelectedTemplate("editing");
+    setView("builder");
+  };
+
   const selectTemplate = (tpl) => {
     setSelectedTemplate(tpl.id);
+    setEditingSurveyId(null);
     setBuilderTitle(tpl.id === "blank" ? "" : tpl.name);
     setBuilderDesc(tpl.id === "blank" ? "" : tpl.desc);
     setBuilderQuestions(tpl.questions.map((q, i) => ({ ...q, id: `new_${i}` })));
@@ -4724,7 +4791,7 @@ function AuditSurveysTab() {
 
   const openDistribute = (survey) => {
     setSelectedSurvey(survey);
-    setDistLink(`https://app.pipeline.ai/survey/${survey.id}/${Math.random().toString(36).substring(7)}`);
+    setDistLink(`${window.location.origin}/survey/${survey.id}/${Math.random().toString(36).substring(7)}`);
     setDistEmails("");
     setDistMessage(`Hi,\n\nYou've been invited to complete the "${survey.title}" survey as part of our AI audit. It should take about 5 minutes.\n\nPlease complete it at your earliest convenience.\n\nThank you`);
     setView("distribute");
@@ -4739,35 +4806,44 @@ function AuditSurveysTab() {
             <span style={{ fontSize: 18 }}>📊</span>
             <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 600, margin: 0 }}>Surveys</h2>
           </div>
-          <button onClick={() => { setView("builder"); setSelectedTemplate(null); setBuilderTitle(""); setBuilderDesc(""); setBuilderQuestions([]); }}
+          <button onClick={() => { setView("builder"); setSelectedTemplate(null); setEditingSurveyId(null); setBuilderTitle(""); setBuilderDesc(""); setBuilderQuestions([]); }}
             style={{ padding: "10px 20px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ CREATE SURVEY</button>
         </div>
+        {loading && <div style={{ textAlign: "center", padding: 40, color: COLORS.textDim, fontSize: 13 }}>Loading surveys...</div>}
+        {!loading && surveys.length === 0 && <div style={{ textAlign: "center", padding: 40, color: COLORS.textDim, fontSize: 13 }}>No surveys yet. Create one to get started.</div>}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {SURVEYS.map(survey => (
-            <div key={survey.id} style={{ padding: "18px 22px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{survey.title}</div>
+          {surveys.map(survey => {
+            const pct = survey.total > 0 ? Math.round((survey.responses / survey.total) * 100) : (survey.responses > 0 ? 100 : 0);
+            return (
+              <div key={survey.id} style={{ padding: "18px 22px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{survey.title}</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{
+                      padding: "3px 10px", borderRadius: 6, fontFamily: FONT, fontSize: 10, fontWeight: 500,
+                      background: survey.status === "active" ? COLORS.accentBg : COLORS.surface,
+                      color: survey.status === "active" ? COLORS.accent : COLORS.textDim,
+                      border: `1px solid ${survey.status === "active" ? COLORS.accent + "33" : COLORS.border}`,
+                    }}>{survey.status}</span>
+                    <button onClick={() => deleteSurvey(survey.id)} style={{ background: "transparent", border: "none", color: COLORS.textDim, fontSize: 14, cursor: "pointer", padding: "2px 4px" }}
+                      onMouseEnter={e => e.currentTarget.style.color = COLORS.danger} onMouseLeave={e => e.currentTarget.style.color = COLORS.textDim}>×</button>
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>{survey.responses}{survey.total > 0 ? `/${survey.total}` : ""} responses</div>
+                {survey.total > 0 && <div style={{ width: "100%", height: 4, borderRadius: 2, background: COLORS.border, marginBottom: 12 }}>
+                  <div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, background: COLORS.accent }} />
+                </div>}
                 <div style={{ display: "flex", gap: 8 }}>
-                  <span style={{
-                    padding: "3px 10px", borderRadius: 6, fontFamily: FONT, fontSize: 10, fontWeight: 500,
-                    background: survey.status === "active" ? COLORS.accentBg : COLORS.surface,
-                    color: survey.status === "active" ? COLORS.accent : COLORS.textDim,
-                    border: `1px solid ${survey.status === "active" ? COLORS.accent + "33" : COLORS.border}`,
-                  }}>{survey.status}</span>
+                  <button onClick={() => openResponses(survey)}
+                    style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>View Responses</button>
+                  <button onClick={() => openEdit(survey)}
+                    style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Edit</button>
+                  <button onClick={() => openDistribute(survey)}
+                    style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>📨 Distribute</button>
                 </div>
               </div>
-              <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>{survey.responses}/{survey.total} responses</div>
-              <div style={{ width: "100%", height: 4, borderRadius: 2, background: COLORS.border, marginBottom: 12 }}>
-                <div style={{ width: `${(survey.responses / survey.total) * 100}%`, height: "100%", borderRadius: 2, background: COLORS.accent }} />
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => { setSelectedSurvey(survey); setView("responses"); }}
-                  style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>View Responses</button>
-                <button onClick={() => openDistribute(survey)}
-                  style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>📨 Distribute</button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -4775,90 +4851,95 @@ function AuditSurveysTab() {
 
   // RESPONSES VIEW
   if (view === "responses" && selectedSurvey) {
+    const questions = selectedSurvey.questions || selectedSurvey.questions_json || [];
+    const respCount = responseData.length;
+    const compRate = selectedSurvey.total > 0 ? Math.round((respCount / selectedSurvey.total) * 100) : (respCount > 0 ? 100 : 0);
     return (
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-          <button onClick={() => setView("list")} style={{ padding: "4px 10px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, cursor: "pointer" }}>← Back</button>
+          <button onClick={() => { setView("list"); loadSurveys(); }} style={{ padding: "4px 10px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, cursor: "pointer" }}>← Back</button>
           <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 600, margin: 0 }}>{selectedSurvey.title}</h2>
-          <span style={{ padding: "3px 10px", background: COLORS.accentBg, color: COLORS.accent, fontSize: 10, borderRadius: 6, fontFamily: FONT, fontWeight: 500, border: `1px solid ${COLORS.accent}22` }}>{selectedSurvey.responseData.length} responses</span>
+          <span style={{ padding: "3px 10px", background: COLORS.accentBg, color: COLORS.accent, fontSize: 10, borderRadius: 6, fontFamily: FONT, fontWeight: 500, border: `1px solid ${COLORS.accent}22` }}>{respCount} responses</span>
         </div>
 
-        {/* Summary Stats */}
-        <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
-          <StatCard label="Total Responses" value={selectedSurvey.responseData.length} accent={COLORS.accent} />
-          <StatCard label="Completion Rate" value={`${Math.round((selectedSurvey.responses / selectedSurvey.total) * 100)}%`} accent={COLORS.blue} />
-          <StatCard label="Questions" value={selectedSurvey.questions.length} accent={COLORS.warn} />
-        </div>
+        {responsesLoading && <div style={{ textAlign: "center", padding: 40, color: COLORS.textDim, fontSize: 13 }}>Loading responses...</div>}
 
-        {/* Per-question breakdown */}
-        <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12 }}>QUESTION BREAKDOWN</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
-          {selectedSurvey.questions.map((q, qi) => (
-            <div key={q.id} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <span style={{ fontFamily: FONT, fontSize: 10, color: COLORS.accent, fontWeight: 600 }}>Q{qi + 1}</span>
-                <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 10, background: COLORS.surface, border: `1px solid ${COLORS.border}`, color: COLORS.textDim, fontFamily: FONT }}>{q.type.replace("_", " ")}</span>
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text, marginBottom: 12 }}>{q.question}</div>
-              {(q.type === "multiple_choice" || q.type === "checkboxes") && q.options.length > 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  {q.options.map(opt => {
-                    const count = selectedSurvey.responseData.filter(r => {
-                      const ans = r.answers[q.id] || "";
-                      return ans.includes(opt);
-                    }).length;
-                    const pct = selectedSurvey.responseData.length > 0 ? Math.round((count / selectedSurvey.responseData.length) * 100) : 0;
-                    return (
-                      <div key={opt} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-                            <span style={{ fontSize: 12, color: COLORS.text }}>{opt}</span>
-                            <span style={{ fontSize: 11, color: COLORS.textDim }}>{count} ({pct}%)</span>
-                          </div>
-                          <div style={{ width: "100%", height: 4, borderRadius: 2, background: COLORS.border }}>
-                            <div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, background: COLORS.accent, transition: "width 0.3s" }} />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {selectedSurvey.responseData.map((r, ri) => r.answers[q.id] ? (
-                    <div key={ri} style={{ padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6 }}>
-                      <div style={{ fontSize: 12, color: COLORS.text, marginBottom: 2 }}>{r.answers[q.id]}</div>
-                      <div style={{ fontSize: 10, color: COLORS.textDim }}>— {r.respondent}, {r.role}</div>
-                    </div>
-                  ) : null)}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        {!responsesLoading && <>
+          <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
+            <StatCard label="Total Responses" value={respCount} accent={COLORS.accent} />
+            <StatCard label="Completion Rate" value={`${compRate}%`} accent={COLORS.blue} />
+            <StatCard label="Questions" value={questions.length} accent={COLORS.warn} />
+          </div>
 
-        {/* Individual Responses */}
-        <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12 }}>INDIVIDUAL RESPONSES</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {selectedSurvey.responseData.map((r, i) => (
-            <div key={i} style={{ padding: "14px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <div>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{r.respondent}</span>
-                  <span style={{ fontSize: 11, color: COLORS.textDim, marginLeft: 8 }}>{r.role}</span>
-                </div>
-                <span style={{ fontSize: 10, color: COLORS.textDim }}>{r.completedAt}</span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {Object.entries(r.answers).map(([qId, ans]) => (
-                  <div key={qId} style={{ padding: "4px 10px", background: COLORS.bg, borderRadius: 4, border: `1px solid ${COLORS.border}`, fontSize: 11, color: COLORS.textMuted, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {ans}
+          {questions.length > 0 && <>
+            <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12 }}>QUESTION BREAKDOWN</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+              {questions.map((q, qi) => (
+                <div key={q.id || qi} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontFamily: FONT, fontSize: 10, color: COLORS.accent, fontWeight: 600 }}>Q{qi + 1}</span>
+                    <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 10, background: COLORS.surface, border: `1px solid ${COLORS.border}`, color: COLORS.textDim, fontFamily: FONT }}>{(q.type || "").replace("_", " ")}</span>
                   </div>
-                ))}
-              </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text, marginBottom: 12 }}>{q.question}</div>
+                  {(q.type === "multiple_choice" || q.type === "checkboxes") && (q.options || []).length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {q.options.map(opt => {
+                        const count = responseData.filter(r => { const ans = (r.answers || {})[q.id] || ""; return typeof ans === "string" ? ans.includes(opt) : false; }).length;
+                        const pct = respCount > 0 ? Math.round((count / respCount) * 100) : 0;
+                        return (
+                          <div key={opt} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                                <span style={{ fontSize: 12, color: COLORS.text }}>{opt}</span>
+                                <span style={{ fontSize: 11, color: COLORS.textDim }}>{count} ({pct}%)</span>
+                              </div>
+                              <div style={{ width: "100%", height: 4, borderRadius: 2, background: COLORS.border }}>
+                                <div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, background: COLORS.accent, transition: "width 0.3s" }} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {responseData.map((r, ri) => { const ans = (r.answers || {})[q.id]; return ans ? (
+                        <div key={ri} style={{ padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6 }}>
+                          <div style={{ fontSize: 12, color: COLORS.text, marginBottom: 2 }}>{ans}</div>
+                          <div style={{ fontSize: 10, color: COLORS.textDim }}>— {r.respondent_name || "Anonymous"}{r.respondent_role ? `, ${r.respondent_role}` : ""}</div>
+                        </div>
+                      ) : null; })}
+                      {responseData.length === 0 && <div style={{ fontSize: 12, color: COLORS.textDim, padding: 8 }}>No responses yet</div>}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>}
+
+          <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12 }}>INDIVIDUAL RESPONSES</div>
+          {responseData.length === 0 && <div style={{ fontSize: 12, color: COLORS.textDim, padding: 8 }}>No responses submitted yet</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {responseData.map((r, i) => (
+              <div key={r.id || i} style={{ padding: "14px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{r.respondent_name || "Anonymous"}</span>
+                    {r.respondent_role && <span style={{ fontSize: 11, color: COLORS.textDim, marginLeft: 8 }}>{r.respondent_role}</span>}
+                  </div>
+                  <span style={{ fontSize: 10, color: COLORS.textDim }}>{r.completed_at ? new Date(r.completed_at).toLocaleDateString() : ""}</span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {Object.entries(r.answers || {}).map(([qId, ans]) => (
+                    <div key={qId} style={{ padding: "4px 10px", background: COLORS.bg, borderRadius: 4, border: `1px solid ${COLORS.border}`, fontSize: 11, color: COLORS.textMuted, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {typeof ans === "string" ? ans : JSON.stringify(ans)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>}
       </div>
     );
   }
@@ -4868,12 +4949,10 @@ function AuditSurveysTab() {
     return (
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-          <button onClick={() => setView("list")} style={{ padding: "4px 10px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, cursor: "pointer" }}>← Back</button>
+          <button onClick={() => { setView("list"); loadSurveys(); }} style={{ padding: "4px 10px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, cursor: "pointer" }}>← Back</button>
           <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 600, margin: 0 }}>Distribute: {selectedSurvey.title}</h2>
         </div>
-
         <div style={{ display: "flex", gap: 20 }}>
-          {/* Share Link */}
           <div style={{ flex: 1, padding: "24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
               <span style={{ fontSize: 16 }}>🔗</span>
@@ -4886,8 +4965,6 @@ function AuditSurveysTab() {
                 style={{ padding: "10px 16px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>Copy Link</button>
             </div>
           </div>
-
-          {/* Email Invites */}
           <div style={{ flex: 1, padding: "24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
               <span style={{ fontSize: 16 }}>📧</span>
@@ -4915,11 +4992,10 @@ function AuditSurveysTab() {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-        <button onClick={() => setView("list")} style={{ padding: "4px 10px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, cursor: "pointer" }}>← Back</button>
-        <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 600, margin: 0 }}>Create Survey</h2>
+        <button onClick={() => { setView("list"); loadSurveys(); }} style={{ padding: "4px 10px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, cursor: "pointer" }}>← Back</button>
+        <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 600, margin: 0 }}>{editingSurveyId ? "Edit Survey" : "Create Survey"}</h2>
       </div>
 
-      {/* Template Picker */}
       {!selectedTemplate && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12 }}>START FROM A TEMPLATE</div>
@@ -4943,7 +5019,6 @@ function AuditSurveysTab() {
 
       {selectedTemplate && (
         <div style={{ display: "flex", gap: 24 }}>
-          {/* Left — Builder */}
           <div style={{ flex: 1 }}>
             <div style={{ marginBottom: 16 }}>
               <label style={labelStyle}>SURVEY TITLE</label>
@@ -4954,7 +5029,6 @@ function AuditSurveysTab() {
               <input value={builderDesc} onChange={e => setBuilderDesc(e.target.value)} placeholder="Brief description of the survey..." style={inputStyle} />
             </div>
 
-            {/* Questions */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
               {builderQuestions.map((q, i) => {
                 const fieldType = FIELD_TYPES.find(f => f.key === q.type);
@@ -4971,16 +5045,14 @@ function AuditSurveysTab() {
                           Required
                         </label>
                         <button onClick={() => removeQuestion(i)} style={{ background: "transparent", border: "none", color: COLORS.textDim, fontSize: 14, cursor: "pointer" }}
-                          onMouseEnter={e => e.currentTarget.style.color = COLORS.danger}
-                          onMouseLeave={e => e.currentTarget.style.color = COLORS.textDim}
-                        >×</button>
+                          onMouseEnter={e => e.currentTarget.style.color = COLORS.danger} onMouseLeave={e => e.currentTarget.style.color = COLORS.textDim}>×</button>
                       </div>
                     </div>
                     <input value={q.question} onChange={e => updateQuestion(i, { question: e.target.value })}
-                      placeholder="Type your question..." style={{ ...inputStyle, background: COLORS.bg, marginBottom: q.options.length > 0 ? 10 : 0 }} />
+                      placeholder="Type your question..." style={{ ...inputStyle, background: COLORS.bg, marginBottom: q.options?.length > 0 ? 10 : 0 }} />
                     {(q.type === "multiple_choice" || q.type === "checkboxes" || q.type === "dropdown") && (
                       <div>
-                        {q.options.map((opt, oi) => (
+                        {(q.options || []).map((opt, oi) => (
                           <div key={oi} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                             <span style={{ color: COLORS.textDim, fontSize: 12 }}>{q.type === "checkboxes" ? "☐" : q.type === "dropdown" ? "▾" : "○"}</span>
                             <input value={opt} onChange={e => { const newOpts = [...q.options]; newOpts[oi] = e.target.value; updateQuestion(i, { options: newOpts }); }}
@@ -4989,7 +5061,7 @@ function AuditSurveysTab() {
                               style={{ background: "transparent", border: "none", color: COLORS.textDim, fontSize: 12, cursor: "pointer" }}>×</button>
                           </div>
                         ))}
-                        <button onClick={() => updateQuestion(i, { options: [...q.options, `Option ${q.options.length + 1}`] })}
+                        <button onClick={() => updateQuestion(i, { options: [...(q.options || []), `Option ${(q.options || []).length + 1}`] })}
                           style={{ padding: "4px 12px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: 4, color: COLORS.textDim, fontFamily: FONT, fontSize: 10, cursor: "pointer", marginTop: 4 }}>+ Add Option</button>
                       </div>
                     )}
@@ -5005,7 +5077,6 @@ function AuditSurveysTab() {
               })}
             </div>
 
-            {/* Add Question */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 8 }}>ADD QUESTION</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -5021,22 +5092,12 @@ function AuditSurveysTab() {
               </div>
             </div>
 
-            {/* Actions */}
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setView("list")} style={{ padding: "12px 24px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Save Survey</button>
-              <button onClick={() => {
-                const newSurvey = { id: "s_new", title: builderTitle || "Untitled Survey", responses: 0, total: 0, status: "active", questions: builderQuestions, responseData: [] };
-                setSelectedSurvey(newSurvey);
-                setDistLink(`https://app.pipeline.ai/survey/s_new/${Math.random().toString(36).substring(7)}`);
-                setDistEmails("");
-                setDistMessage(`Hi,\n\nYou've been invited to complete the "${builderTitle || "Untitled Survey"}" survey as part of our AI audit. It should take about 5 minutes.\n\nPlease complete it at your earliest convenience.\n\nThank you`);
-                setView("distribute");
-              }} style={{ padding: "12px 24px", background: COLORS.blue, color: "#fff", border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Save & Distribute →</button>
-              <button style={{ padding: "12px 24px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Save as Template</button>
+              <button onClick={() => saveSurvey(false)} disabled={saving} style={{ padding: "12px 24px", background: saving ? COLORS.border : COLORS.accent, color: saving ? COLORS.textDim : COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: saving ? "default" : "pointer" }}>{saving ? "Saving..." : "Save Survey"}</button>
+              <button onClick={() => saveSurvey(true)} disabled={saving} style={{ padding: "12px 24px", background: saving ? COLORS.border : COLORS.blue, color: saving ? COLORS.textDim : "#fff", border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: saving ? "default" : "pointer" }}>Save & Distribute →</button>
             </div>
           </div>
 
-          {/* Right — Preview */}
           <div style={{ width: 340, flexShrink: 0 }}>
             <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 10 }}>PREVIEW</div>
             <div style={{ padding: "24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, position: "sticky", top: 0 }}>
@@ -5052,7 +5113,7 @@ function AuditSurveysTab() {
                   {q.type === "text" && <div style={{ padding: "8px 10px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 4, fontSize: 11, color: COLORS.textDim }}>Short answer</div>}
                   {q.type === "long_text" && <div style={{ padding: "8px 10px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 4, fontSize: 11, color: COLORS.textDim, minHeight: 48 }}>Long answer</div>}
                   {q.type === "rating" && <div style={{ display: "flex", gap: 3 }}>{[1,2,3,4,5].map(n => <div key={n} style={{ width: 24, height: 24, borderRadius: 4, background: COLORS.bg, border: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: COLORS.textDim }}>{n}</div>)}</div>}
-                  {(q.type === "multiple_choice" || q.type === "checkboxes") && q.options.map((opt, oi) => (
+                  {(q.type === "multiple_choice" || q.type === "checkboxes") && (q.options || []).map((opt, oi) => (
                     <div key={oi} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
                       <span style={{ fontSize: 10, color: COLORS.textDim }}>{q.type === "checkboxes" ? "☐" : "○"}</span>
                       <span style={{ fontSize: 11, color: COLORS.textMuted }}>{opt}</span>
@@ -5071,41 +5132,105 @@ function AuditSurveysTab() {
 
 function AuditInterviewsTab() {
   const [interviewees, setInterviewees] = useState([]);
-
-  useEffect(() => {
-    api.audit.interviews.list().then(data => {
-      const interviews = Array.isArray(data) ? data : data.interviews || [];
-      setInterviewees(interviews.map(i => ({ ...i, questionCount: i.question_count || i.questionCount || 0 })));
-    }).catch(() => {});
-  }, []);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ name: "", role: "", type: "Stakeholder", department: "", context: "" });
   const [generating, setGenerating] = useState(false);
   const [selectedInterview, setSelectedInterview] = useState(null);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
   const labelStyle = { display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 6 };
 
-  const MOCK_QUESTIONS = [
+  const DEFAULT_QUESTIONS = [
     { section: "Opening & Context", questions: ["Can you walk me through your typical day-to-day responsibilities?", "How long have you been in this role and what's changed most since you started?", "What does success look like for your department this year?"] },
     { section: "Pain Points & Challenges", questions: ["What are the biggest bottlenecks or frustrations in your current workflow?", "Where do you feel the most time is wasted in your team's processes?", "If you could fix one thing about how your department operates, what would it be?", "What manual or repetitive tasks take up the most time?"] },
     { section: "Technology & Systems", questions: ["What tools and systems do you currently use? Which do you love and which frustrate you?", "How do you currently handle reporting and data analysis?", "Are there any tasks you wish were automated but aren't?"] },
     { section: "Strategic Alignment", questions: ["How do you see AI fitting into your department's operations?", "What would a successful AI implementation look like from your perspective?", "What concerns, if any, do you have about introducing AI tools?", "How would you measure the ROI of any new system or process?"] },
   ];
 
+  useEffect(() => {
+    setLoading(true);
+    api.audit.interviews.list().then(data => {
+      const interviews = Array.isArray(data) ? data : [];
+      setInterviewees(interviews.map(i => {
+        const q = i.questions || i.questions_json || DEFAULT_QUESTIONS;
+        const qCount = Array.isArray(q) ? q.reduce((s, sec) => s + (sec.questions?.length || 0), 0) : 0;
+        return {
+          id: i.id,
+          name: i.interviewee_name || "",
+          role: i.interviewee_role || "",
+          type: i.interviewee_type || "Stakeholder",
+          department: i.department || "",
+          status: i.status || "generated",
+          questionCount: qCount,
+          questions: q,
+        };
+      }));
+    }).catch(() => setInterviewees([])).finally(() => setLoading(false));
+  }, []);
+
   const handleGenerate = async () => {
     if (!formData.name.trim() || !formData.role.trim()) return;
     setGenerating(true);
-    await new Promise(r => setTimeout(r, 1500));
-    const newEntry = { id: Date.now(), name: formData.name, role: formData.role, type: formData.type, department: formData.department, status: "generated", questionCount: MOCK_QUESTIONS.reduce((s, sec) => s + sec.questions.length, 0) };
-    setInterviewees(prev => [...prev, newEntry]);
-    setSelectedInterview(newEntry);
-    setShowForm(false);
-    setFormData({ name: "", role: "", type: "Stakeholder", department: "", context: "" });
-    setGenerating(false);
+    try {
+      const saved = await api.audit.interviews.create({
+        interviewee_name: formData.name,
+        interviewee_role: formData.role,
+        interviewee_type: formData.type,
+        department: formData.department,
+        questions_json: DEFAULT_QUESTIONS,
+        status: "generated",
+        notes: formData.context || null,
+      });
+      const q = saved.questions || saved.questions_json || DEFAULT_QUESTIONS;
+      const qCount = Array.isArray(q) ? q.reduce((s, sec) => s + (sec.questions?.length || 0), 0) : 0;
+      const newEntry = {
+        id: saved.id,
+        name: saved.interviewee_name || formData.name,
+        role: saved.interviewee_role || formData.role,
+        type: saved.interviewee_type || formData.type,
+        department: saved.department || formData.department,
+        status: "generated",
+        questionCount: qCount,
+        questions: q,
+      };
+      setInterviewees(prev => [newEntry, ...prev]);
+      setSelectedInterview(newEntry);
+      setShowForm(false);
+      setFormData({ name: "", role: "", type: "Stakeholder", department: "", context: "" });
+    } catch (err) {
+      console.error("Create interview error:", err);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const deleteInterview = async (id) => {
+    try {
+      await api.audit.interviews.delete(id);
+      setInterviewees(prev => prev.filter(i => i.id !== id));
+    } catch (err) {
+      console.error("Delete interview error:", err);
+    }
+  };
+
+  const getDisplayQuestions = (interview) => {
+    const q = interview?.questions || DEFAULT_QUESTIONS;
+    return Array.isArray(q) ? q : DEFAULT_QUESTIONS;
+  };
+
+  const copyAllQuestions = (interview) => {
+    const sections = getDisplayQuestions(interview);
+    const text = sections.map(s => `## ${s.section}\n${s.questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`).join("\n\n");
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    });
   };
 
   if (selectedInterview) {
+    const sections = getDisplayQuestions(selectedInterview);
     return (
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
@@ -5114,12 +5239,12 @@ function AuditInterviewsTab() {
             <div style={{ fontWeight: 600, fontSize: 16 }}>{selectedInterview.name}</div>
             <div style={{ fontSize: 11, color: COLORS.textDim }}>{selectedInterview.role} · {selectedInterview.department} · {selectedInterview.type}</div>
           </div>
-          <button onClick={() => { const all = MOCK_QUESTIONS.map(s => `## ${s.section}\n${s.questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`).join("\n\n"); navigator.clipboard?.writeText(all); }} style={{ padding: "8px 16px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Copy All</button>
+          <button onClick={() => copyAllQuestions(selectedInterview)} style={{ padding: "8px 16px", background: copySuccess ? COLORS.accentBg : "transparent", border: `1px solid ${copySuccess ? COLORS.accent + "33" : COLORS.border}`, borderRadius: 6, color: copySuccess ? COLORS.accent : COLORS.textMuted, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.2s" }}>{copySuccess ? "Copied!" : "Copy All"}</button>
         </div>
-        {MOCK_QUESTIONS.map((section, si) => (
+        {sections.map((section, si) => (
           <div key={si} style={{ marginBottom: 16, padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
-            <div style={{ fontFamily: FONT, fontSize: 11, color: COLORS.accent, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 10 }}>{section.section.toUpperCase()}</div>
-            {section.questions.map((q, qi) => (
+            <div style={{ fontFamily: FONT, fontSize: 11, color: COLORS.accent, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 10 }}>{(section.section || "").toUpperCase()}</div>
+            {(section.questions || []).map((q, qi) => (
               <div key={qi} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 0", borderBottom: qi < section.questions.length - 1 ? `1px solid ${COLORS.border}` : "none" }}>
                 <span style={{ fontFamily: FONT, fontSize: 11, color: COLORS.textDim, fontWeight: 600, minWidth: 20 }}>{qi + 1}.</span>
                 <span style={{ fontSize: 13, color: COLORS.text, lineHeight: 1.5 }}>{q}</span>
@@ -5157,15 +5282,17 @@ function AuditInterviewsTab() {
             <div><label style={labelStyle}>DEPARTMENT</label><input value={formData.department} onChange={e => setFormData({ ...formData, department: e.target.value })} placeholder="e.g. Finance, Operations" style={inputStyle} /></div>
           </div>
           <div style={{ marginBottom: 14 }}><label style={labelStyle}>FOCUS AREAS / CONTEXT (OPTIONAL)</label><textarea value={formData.context} onChange={e => setFormData({ ...formData, context: e.target.value })} placeholder="Any specific areas to focus on, known pain points, or context about this person's role..." rows={3} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }} /></div>
-          <button onClick={handleGenerate} disabled={generating || !formData.name.trim() || !formData.role.trim()} style={{ padding: "10px 24px", background: formData.name.trim() && formData.role.trim() ? COLORS.accent : COLORS.border, color: formData.name.trim() && formData.role.trim() ? COLORS.bg : COLORS.textDim, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: formData.name.trim() && formData.role.trim() && !generating ? "pointer" : "default" }}>{generating ? "Generating Questions..." : "🎤 Generate Interview Questions"}</button>
+          <button onClick={handleGenerate} disabled={generating || !formData.name.trim() || !formData.role.trim()} style={{ padding: "10px 24px", background: formData.name.trim() && formData.role.trim() ? COLORS.accent : COLORS.border, color: formData.name.trim() && formData.role.trim() ? COLORS.bg : COLORS.textDim, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: formData.name.trim() && formData.role.trim() && !generating ? "pointer" : "default" }}>{generating ? "Saving..." : "🎤 Generate Interview Questions"}</button>
         </div>
       )}
 
+      {loading && <div style={{ textAlign: "center", padding: 40, color: COLORS.textDim, fontSize: 13 }}>Loading interviews...</div>}
+      {!loading && interviewees.length === 0 && !showForm && <div style={{ textAlign: "center", padding: 40, color: COLORS.textDim, fontSize: 13 }}>No interviews yet. Click "+ New Interview" to get started.</div>}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {interviewees.map(person => (
-          <div key={person.id} onClick={() => setSelectedInterview(person)} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
+          <div key={person.id} style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
             onMouseEnter={e => e.currentTarget.style.borderColor = COLORS.accent + "44"} onMouseLeave={e => e.currentTarget.style.borderColor = COLORS.border}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div onClick={() => setSelectedInterview(person)} style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
               <div style={{ width: 36, height: 36, borderRadius: 8, background: COLORS.accent + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>🎤</div>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{person.name}</div>
@@ -5174,7 +5301,9 @@ function AuditInterviewsTab() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 9, fontFamily: FONT, fontWeight: 500, background: person.type === "Stakeholder" ? COLORS.accent + "10" : COLORS.blue + "10", color: person.type === "Stakeholder" ? COLORS.accent : COLORS.blue, border: `1px solid ${person.type === "Stakeholder" ? COLORS.accent : COLORS.blue}22` }}>{person.type}</span>
-              <span style={{ fontSize: 10, color: COLORS.textDim }}>→</span>
+              <button onClick={(e) => { e.stopPropagation(); deleteInterview(person.id); }} style={{ background: "transparent", border: "none", color: COLORS.textDim, fontSize: 14, cursor: "pointer", padding: "2px 4px" }}
+                onMouseEnter={e => e.currentTarget.style.color = COLORS.danger} onMouseLeave={e => e.currentTarget.style.color = COLORS.textDim}>×</button>
+              <span onClick={() => setSelectedInterview(person)} style={{ fontSize: 10, color: COLORS.textDim, cursor: "pointer" }}>→</span>
             </div>
           </div>
         ))}
