@@ -398,7 +398,7 @@ export default function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [auditProjects, setAuditProjects] = useState([]);
   const [selectedAuditProject, setSelectedAuditProject] = useState(null);
-  const [promptText, setPromptText] = useState(DEFAULT_PROMPT);
+  const [promptText, setPromptText] = useState(FALLBACK_DEFAULT_PROMPT);
   const [selectedPromptKey, setSelectedPromptKey] = useState("default");
   const [previewEmails, setPreviewEmails] = useState(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
