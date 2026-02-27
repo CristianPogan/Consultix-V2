@@ -4659,6 +4659,7 @@ function AuditSurveysTab() {
   const [distEmails, setDistEmails] = useState("");
   const [distMessage, setDistMessage] = useState("");
   const [distLink, setDistLink] = useState("");
+  const [saveError, setSaveError] = useState(null);
 
   const TEMPLATES = [
     { id: "blank", name: "Blank Survey", desc: "Start from scratch", questions: [] },
@@ -4705,6 +4706,7 @@ function AuditSurveysTab() {
 
   const saveSurvey = async (andDistribute) => {
     setSaving(true);
+    setSaveError(null);
     try {
       const payload = {
         title: builderTitle || "Untitled Survey",
@@ -4731,6 +4733,7 @@ function AuditSurveysTab() {
       }
     } catch (err) {
       console.error("Save survey error:", err);
+      setSaveError(err.message || "Failed to save survey. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -5092,6 +5095,9 @@ function AuditSurveysTab() {
               </div>
             </div>
 
+            {saveError && (
+              <div style={{ padding: "10px 14px", background: COLORS.danger + "15", border: `1px solid ${COLORS.danger}33`, borderRadius: 8, marginBottom: 10, fontSize: 12, color: COLORS.danger }}>{saveError}</div>
+            )}
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => saveSurvey(false)} disabled={saving} style={{ padding: "12px 24px", background: saving ? COLORS.border : COLORS.accent, color: saving ? COLORS.textDim : COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: saving ? "default" : "pointer" }}>{saving ? "Saving..." : "Save Survey"}</button>
               <button onClick={() => saveSurvey(true)} disabled={saving} style={{ padding: "12px 24px", background: saving ? COLORS.border : COLORS.blue, color: saving ? COLORS.textDim : "#fff", border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: saving ? "default" : "pointer" }}>Save & Distribute →</button>

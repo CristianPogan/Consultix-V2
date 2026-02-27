@@ -21,6 +21,7 @@ async function ensureSurveyTables() {
     )
   `);
   await query('CREATE INDEX IF NOT EXISTS idx_audit_surveys_org ON audit_surveys(org_id)').catch(() => {});
+  await query(`ALTER TABLE audit_surveys ALTER COLUMN project_id DROP NOT NULL`).catch(() => {});
   const surCols = [
     { name: 'target_respondents', type: 'INT DEFAULT 0' },
   ];
@@ -326,6 +327,7 @@ async function ensureInterviewsTable() {
     )
   `);
   await query('CREATE INDEX IF NOT EXISTS idx_audit_interviews_org ON audit_interview_questions(org_id)').catch(() => {});
+  await query(`ALTER TABLE audit_interview_questions ALTER COLUMN project_id DROP NOT NULL`).catch(() => {});
   const cols = [
     { name: 'interviewee_type', type: "TEXT DEFAULT 'Stakeholder'" },
   ];
