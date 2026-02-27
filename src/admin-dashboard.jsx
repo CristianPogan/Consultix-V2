@@ -80,6 +80,19 @@ const TICKETS = [
   { id: "T-1020", org: "SynthWave Partners", subject: "AI Council giving outdated recommendations", status: "Resolved", priority: "Low", created: "2 days ago" },
 ];
 
+const USERS = [
+  { name: "Andrew Dunn", email: "andrew@dunnco.co.uk", org: "Dunn Consulting", role: "Owner", lastActive: "2 hrs ago", created: "2025-10-12", logins: 342 },
+  { name: "Sarah Mitchell", email: "sarah@apexadvisory.io", org: "Apex Advisory", role: "Owner", lastActive: "4 hrs ago", created: "2025-11-03", logins: 218 },
+  { name: "Perry Salvagne", email: "perry@hodgeins.co.uk", org: "Perry Salvagne Consulting", role: "Owner", lastActive: "1 day ago", created: "2025-12-01", logins: 156 },
+  { name: "Marcus Webb", email: "marcus@datapulse.com", org: "DataPulse Advisory", role: "Owner", lastActive: "1 hr ago", created: "2025-09-20", logins: 410 },
+  { name: "Emily Rodriguez", email: "emily@nexgenai.co", org: "NexGen Consulting", role: "Owner", lastActive: "6 hrs ago", created: "2025-11-15", logins: 198 },
+  { name: "James Chen", email: "james@datapulse.com", org: "DataPulse Advisory", role: "Admin", lastActive: "3 hrs ago", created: "2025-10-15", logins: 267 },
+  { name: "Rachel Green", email: "rachel@dunnco.co.uk", org: "Dunn Consulting", role: "Admin", lastActive: "5 hrs ago", created: "2025-11-20", logins: 145 },
+  { name: "Mike Thompson", email: "mike@dunnco.co.uk", org: "Dunn Consulting", role: "Member", lastActive: "1 day ago", created: "2026-01-05", logins: 67 },
+  { name: "James Patel", email: "james@insuretechpro.com", org: "InsureTech Partners", role: "Owner", lastActive: "3 hrs ago", created: "2026-02-08", logins: 12 },
+  { name: "Tom Bradley", email: "tom@autopilotai.com", org: "AutoPilot Advisory", role: "Owner", lastActive: "5 hrs ago", created: "2026-02-10", logins: 8 },
+];
+
 const CREDIT_COSTS = [
   { action: "Lead Discovery", credits: 1, unit: "per lead", cost: "$0.012", margin: "88%" },
   { action: "Email Verification", credits: 1, unit: "per lead", cost: "$0.008", margin: "92%" },
@@ -1090,18 +1103,6 @@ export default function AdminDashboard() {
 
   // ---- USERS ----
   const renderUsers = () => {
-    const USERS = [
-      { name: "Andrew Dunn", email: "andrew@dunnco.co.uk", org: "Dunn Consulting", role: "Owner", lastActive: "2 hrs ago", created: "2025-10-12", logins: 342 },
-      { name: "Sarah Mitchell", email: "sarah@apexadvisory.io", org: "Apex Advisory", role: "Owner", lastActive: "4 hrs ago", created: "2025-11-03", logins: 218 },
-      { name: "Perry Salvagne", email: "perry@hodgeins.co.uk", org: "Perry Salvagne Consulting", role: "Owner", lastActive: "1 day ago", created: "2025-12-01", logins: 156 },
-      { name: "Marcus Webb", email: "marcus@datapulse.com", org: "DataPulse Advisory", role: "Owner", lastActive: "1 hr ago", created: "2025-09-20", logins: 410 },
-      { name: "Emily Rodriguez", email: "emily@nexgenai.co", org: "NexGen Consulting", role: "Owner", lastActive: "6 hrs ago", created: "2025-11-15", logins: 198 },
-      { name: "James Chen", email: "james@datapulse.com", org: "DataPulse Advisory", role: "Admin", lastActive: "3 hrs ago", created: "2025-10-15", logins: 267 },
-      { name: "Rachel Green", email: "rachel@dunnco.co.uk", org: "Dunn Consulting", role: "Admin", lastActive: "5 hrs ago", created: "2025-11-20", logins: 145 },
-      { name: "Mike Thompson", email: "mike@dunnco.co.uk", org: "Dunn Consulting", role: "Member", lastActive: "1 day ago", created: "2026-01-05", logins: 67 },
-      { name: "James Patel", email: "james@insuretechpro.com", org: "InsureTech Partners", role: "Owner", lastActive: "3 hrs ago", created: "2026-02-08", logins: 12 },
-      { name: "Tom Bradley", email: "tom@autopilotai.com", org: "AutoPilot Advisory", role: "Owner", lastActive: "5 hrs ago", created: "2026-02-10", logins: 8 },
-    ];
     return (
       <div>
         <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
