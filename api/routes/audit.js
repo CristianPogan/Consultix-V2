@@ -1,7 +1,64 @@
 import { Router } from 'express';
-import { query, ensureOrgExists } from '../db.js';
+import { query, ensureOrgExists, getIntegrationCredentials } from '../db.js';
 
 const router = Router();
+
+async function getOpenRouterKey(orgId) {
+  const row = await getIntegrationCredentials(orgId, 'openrouter');
+  return row?.credentials_json?.api_key || process.env.OPENROUTER_API_KEY;
+}
+
+async function callPerplexitySonar(apiKey, systemPrompt, userPrompt) {
+  const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'perplexity/sonar-pro',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      max_tokens: 4096,
+      temperature: 0.3,
+    }),
+  });
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => '');
+    throw new Error(`OpenRouter API error ${resp.status}: ${errBody}`);
+  }
+  const data = await resp.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+const RESEARCH_SYSTEM_PROMPT = `You are a company research analyst. Given a company website URL, provide comprehensive, factual research about the company using the latest available information from the web.
+
+Return your findings as a JSON object with this exact structure:
+{
+  "overview": "A 2-4 sentence summary of the company — what they do, their market position, founding year, headquarters, and notable facts.",
+  "metrics": [
+    { "key": "founded", "label": "Founded", "value": "YYYY" },
+    { "key": "employees", "label": "Employees", "value": "count or range" },
+    { "key": "revenue", "label": "Revenue", "value": "amount or range" },
+    { "key": "industry", "label": "Industry", "value": "sector name" }
+  ],
+  "sections": [
+    { "title": "Products & Services", "content": "Description of their main offerings..." },
+    { "title": "Target Market", "content": "Who they serve, their ICP..." },
+    { "title": "Technology Stack", "content": "Known technologies, platforms they use or build on..." },
+    { "title": "Recent News", "content": "Notable recent developments, funding, partnerships..." },
+    { "title": "Competitive Landscape", "content": "Key competitors and differentiation..." }
+  ]
+}
+
+IMPORTANT:
+- Use real, up-to-date data from the web. Do NOT fabricate information.
+- If a data point is unavailable, use "N/A" for that value.
+- For metrics, only include ones you have real data for. Remove any metric where the value would be "N/A".
+- Keep sections concise but informative.
+- Return ONLY the JSON object, no markdown fences, no explanation text.`;
 
 // --- Company Research ---
 router.post('/research', async (req, res) => {
@@ -11,11 +68,32 @@ router.post('/research', async (req, res) => {
     const { project_id, company_url } = req.body || {};
     if (!project_id) return res.status(400).json({ error: 'project_id required' });
     if (!company_url) return res.status(400).json({ error: 'company_url required' });
-    const result = await query(
-      `UPDATE organisations SET updated_at = now() WHERE id = $1 RETURNING id`,
-      [project_id]
+
+    const apiKey = await getOpenRouterKey(orgId);
+    if (!apiKey) {
+      return res.status(503).json({ error: 'OpenRouter API key not configured. Add it in Settings → Integrations → OpenRouter.' });
+    }
+
+    const rawContent = await callPerplexitySonar(
+      apiKey,
+      RESEARCH_SYSTEM_PROMPT,
+      `Research this company thoroughly: ${company_url}`
     );
-    res.json({ project_id, company_url, status: 'completed', research_data: {} });
+
+    let research;
+    try {
+      const cleaned = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      research = JSON.parse(cleaned);
+    } catch {
+      research = { overview: rawContent, metrics: [], sections: [] };
+    }
+
+    res.json({
+      project_id,
+      company_url,
+      status: 'completed',
+      research_data: research,
+    });
   } catch (err) {
     console.error('audit/research POST', err);
     res.status(500).json({ error: err.message });

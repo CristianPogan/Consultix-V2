@@ -259,14 +259,19 @@ describe('API GAP: audit/research', () => {
     assert.strictEqual(res.status, 401);
   });
 
-  it('2. POST /api/audit/research with project_id and URL triggers research', async function () {
+  it('2. POST /api/audit/research with project_id and URL triggers Perplexity research', async function () {
+    this.timeout(30000);
     if (!hasAuth || !hasDb) this.skip();
     const res = await api.post('/api/audit/research').set(auth()).send({
       project_id: NIL_UUID,
       company_url: 'https://example.com',
     });
     if (skip(this, res)) return;
-    assert.ok([200, 202].includes(res.status));
+    assert.ok([200, 202, 503].includes(res.status), `Expected 200/202/503 got ${res.status}`);
+    if (res.status === 200) {
+      assert.ok(res.body.research_data, 'Expected research_data in response');
+      assert.ok(typeof res.body.research_data.overview === 'string', 'Expected overview string');
+    }
   });
 
   it('3. POST /api/audit/research without URL returns 400', async function () {

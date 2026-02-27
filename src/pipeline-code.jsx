@@ -4500,7 +4500,8 @@ function AuditCompanyTab({ transcripts }) {
   const [companyUrl, setCompanyUrl] = useState("");
   const [isResearching, setIsResearching] = useState(false);
   const [researchDone, setResearchDone] = useState(false);
-  const [overview, setOverview] = useState("Hastingwood Securities is a private equity-backed property management firm managing 150 high-value commercial and residential properties across London. Founded in 2015, the company has grown from 5 properties to 150 through strategic acquisitions.");
+  const [researchError, setResearchError] = useState("");
+  const [overview, setOverview] = useState("");
   const [metrics, setMetrics] = useState([]);
   const [customSections, setCustomSections] = useState([]);
   const [transcriptInsights, setTranscriptInsights] = useState([]);
@@ -4508,18 +4509,38 @@ function AuditCompanyTab({ transcripts }) {
   useEffect(() => {
     api.settings.get('audit_company').then(data => {
       const s = data?.settings || data || {};
+      if (s.overview) setOverview(s.overview);
       if (s.metrics?.length) setMetrics(s.metrics);
+      if (s.sections?.length) setCustomSections(s.sections);
       if (s.insights?.length) setTranscriptInsights(s.insights);
+      if (s.overview || s.metrics?.length) setResearchDone(true);
     }).catch(() => {});
   }, []);
 
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
 
   const doResearch = async () => {
+    if (!companyUrl.trim()) return;
     setIsResearching(true);
-    await new Promise(r => setTimeout(r, 2500));
-    setIsResearching(false);
-    setResearchDone(true);
+    setResearchError("");
+    try {
+      const result = await api.audit.research({ project_id: "default", company_url: companyUrl.trim() });
+      const rd = result.research_data || {};
+      if (rd.overview) setOverview(rd.overview);
+      if (rd.metrics?.length) setMetrics(rd.metrics);
+      if (rd.sections?.length) setCustomSections(rd.sections.map(s => ({ title: s.title || "", content: s.content || "" })));
+      setResearchDone(true);
+      api.settings.save('audit_company', {
+        overview: rd.overview || "",
+        metrics: rd.metrics || [],
+        sections: rd.sections || [],
+        company_url: companyUrl.trim(),
+      }).catch(() => {});
+    } catch (err) {
+      setResearchError(err.message || "Research failed");
+    } finally {
+      setIsResearching(false);
+    }
   };
 
   return (
@@ -4532,17 +4553,24 @@ function AuditCompanyTab({ transcripts }) {
       {/* URL Input */}
       <div style={{ padding: "16px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}>
         <span style={{ fontSize: 14 }}>🔗</span>
-        <input value={companyUrl} onChange={e => setCompanyUrl(e.target.value)} placeholder="Paste company website URL to auto-research..." style={{ ...inputStyle, flex: 1, background: COLORS.bg }} />
-        <button onClick={doResearch} disabled={isResearching} style={{
-          padding: "10px 20px", background: isResearching ? COLORS.border : COLORS.accent, color: isResearching ? COLORS.textDim : COLORS.bg,
-          border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: isResearching ? "default" : "pointer", whiteSpace: "nowrap",
+        <input value={companyUrl} onChange={e => setCompanyUrl(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && companyUrl.trim() && !isResearching) doResearch(); }} placeholder="Paste company website URL to auto-research..." style={{ ...inputStyle, flex: 1, background: COLORS.bg }} />
+        <button onClick={doResearch} disabled={isResearching || !companyUrl.trim()} style={{
+          padding: "10px 20px", background: (isResearching || !companyUrl.trim()) ? COLORS.border : COLORS.accent, color: (isResearching || !companyUrl.trim()) ? COLORS.textDim : COLORS.bg,
+          border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: (isResearching || !companyUrl.trim()) ? "default" : "pointer", whiteSpace: "nowrap",
         }}>{isResearching ? "Researching..." : "🔍 Research"}</button>
       </div>
 
       {isResearching && (
         <div style={{ padding: "40px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, textAlign: "center", marginBottom: 16 }}>
           <ProgressDots active={true} />
-          <div style={{ fontSize: 13, color: COLORS.accent, marginTop: 8 }}>Researching company...</div>
+          <div style={{ fontSize: 13, color: COLORS.accent, marginTop: 8 }}>Researching company via Perplexity Sonar Pro...</div>
+          <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4 }}>Searching the web for live company data</div>
+        </div>
+      )}
+
+      {researchError && (
+        <div style={{ padding: "12px 16px", background: "#ff4d4f12", border: "1px solid #ff4d4f33", borderRadius: 8, marginBottom: 16, fontSize: 13, color: "#ff4d4f" }}>
+          {researchError}
         </div>
       )}
 
