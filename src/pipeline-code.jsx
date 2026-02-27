@@ -8780,12 +8780,19 @@ function LinkedInContentView() {
     { id: "i5", title: "3 AI tools most people don't know exist (but should)", source: "engagement", tag: "High engagement topic", tagColor: COLORS.accent },
   ];
 
-  const CALL_IDEAS = [
-    { id: "c1", title: "\"We're spending £500/month on Apollo and getting nothing\"", quote: "Prospect admitted they've been paying for lead gen tools for 6 months with zero ROI. They didn't even know you could waterfall email verification.", source: "Call with Lisa Park — Feb 8", callDate: "Feb 8" },
-    { id: "c2", title: "\"Our reps spend 3 hours a day just researching leads\"", quote: "Head of Sales said their team manually researches every prospect. They had no idea AI could automate the entire discovery-to-personalisation flow.", source: "Call with Marcus Johnson — Feb 5", callDate: "Feb 5" },
-    { id: "c3", title: "\"We tried AI but the emails all sounded like robots\"", quote: "VP of Growth said they tested AI email tools but the lack of personalisation killed their reply rates. They were using template-based systems with zero context.", source: "Call with Sarah Chen — Feb 3", callDate: "Feb 3" },
-    { id: "c4", title: "\"I didn't know you could do all this with a one-person team\"", quote: "Founder was shocked when they saw the full automation stack in action. They assumed you needed a team of 5+ to run outbound at scale.", source: "Call with Jake Morrison — Jan 30", callDate: "Jan 30" },
-  ];
+  const [callInsights, setCallInsights] = useState([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState(null);
+
+  useEffect(() => {
+    setInsightsLoading(true);
+    api.contentPosts.extractInsights().then(data => {
+      const ins = Array.isArray(data?.insights) ? data.insights : [];
+      setCallInsights(ins.map((item, i) => ({ id: `ci_${i}`, title: item.title || '', quote: item.quote || '', source: item.source || '', callDate: item.callDate || '' })));
+    }).catch(err => {
+      setInsightsError(err?.message || 'Could not extract insights');
+    }).finally(() => setInsightsLoading(false));
+  }, []);
 
   const [MOCK_COMPETITORS, setCompetitors] = useState([]);
 
@@ -8810,25 +8817,7 @@ function LinkedInContentView() {
     }).catch(() => {});
   }, []);
 
-  const MOCK_GENERATED = [
-    {
-      id: "g1", format: "text",
-      content: "Most people think AI automation is about replacing humans.\n\nThey're wrong.\n\nThe best companies I work with use AI to handle the repetitive work — data entry, lead research, email personalisation — so their team can focus on what actually drives revenue:\n\n→ Building relationships\n→ Creative problem solving\n→ Strategic decisions\n\nOne client freed up 15 hours per week per person. They didn't fire anyone. They redeployed that time into closing bigger deals.\n\nResult? 40% revenue increase in 6 months.\n\nAI doesn't replace your team. It multiplies them.\n\nWhat's one task you wish you could automate today?",
-    },
-    {
-      id: "g2", format: "text",
-      content: "Hot take: You don't need a bigger team.\n\nYou need better systems.\n\nI run a consulting business with zero employees that regularly outperforms agencies with 15+ people. Here's the reality:\n\n• AI handles my lead research\n• AI personalises every email\n• AI drafts my proposals\n• AI writes first drafts of reports\n\nI handle strategy, relationships, and final quality.\n\nThe future isn't about headcount. It's about leverage.\n\nAgree or disagree?",
-    },
-  ];
-
-  const MOCK_CAROUSEL = [
-    { slide: 1, text: "5 AI Tools That\nChanged My Business", bg: COLORS.accent },
-    { slide: 2, text: "1. AI Ark\nSmart company discovery\nthat actually works", bg: COLORS.blue },
-    { slide: 3, text: "2. BetterContact\n95%+ email verification\nusing waterfall method", bg: "#7B61FF" },
-    { slide: 4, text: "3. Claude\nPersonalisation that\ndoesn't sound like AI", bg: COLORS.warn },
-    { slide: 5, text: "4. Instantly\nCold email at scale\nwithout hitting spam", bg: "#E1306C" },
-    { slide: 6, text: "Follow for more\nAI automation tips\n→ Link in bio", bg: COLORS.accent },
-  ];
+  const [generateError, setGenerateError] = useState(null);
 
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
   const labelStyle = { display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 6 };
@@ -8836,12 +8825,15 @@ function LinkedInContentView() {
   const selectIdea = (title) => { setTopic(title); };
 
   const generate = async () => {
-    setIsGenerating(true);
-    await new Promise(r => setTimeout(r, 2000));
-    if (format === "carousel") {
-      setGeneratedPosts([{ id: "gc1", format: "carousel", slides: MOCK_CAROUSEL }]);
-    } else {
-      setGeneratedPosts(MOCK_GENERATED.map(p => ({ ...p, format })));
+    if (!topic.trim() || isGenerating) return;
+    setIsGenerating(true); setGenerateError(null); setGeneratedPosts([]);
+    try {
+      const res = await api.contentPosts.generate({ topic: topic.trim(), format });
+      const posts = Array.isArray(res?.posts) ? res.posts : [];
+      setGeneratedPosts(posts);
+      if (posts.length === 0) setGenerateError('No content was generated. Try a different topic.');
+    } catch (err) {
+      setGenerateError(err?.message || 'Failed to generate content. Check your Anthropic API key.');
     }
     setIsGenerating(false);
   };
@@ -8908,8 +8900,18 @@ function LinkedInContentView() {
                 <span style={{ fontFamily: FONT, fontSize: 11, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600 }}>FROM YOUR CALLS</span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {CALL_IDEAS.map(idea => (
-                  <div key={idea.id} onClick={() => selectIdea(idea.title.replace(/"/g, ""))} style={{
+                {insightsLoading ? (
+                  <div style={{ padding: "30px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, textAlign: "center" }}>
+                    <ProgressDots active={true} />
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 8 }}>Extracting insights from your calls...</div>
+                  </div>
+                ) : callInsights.length === 0 ? (
+                  <div style={{ padding: "30px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, textAlign: "center" }}>
+                    <div style={{ fontSize: 24, marginBottom: 6, opacity: 0.2 }}>🎙️</div>
+                    <div style={{ fontSize: 11, color: COLORS.textDim }}>{insightsError || 'No call transcripts yet. Add transcripts in Strategy → Transcripts to see insights here.'}</div>
+                  </div>
+                ) : callInsights.map(idea => (
+                  <div key={idea.id} onClick={() => selectIdea(idea.title.replace(/[""]/g, ""))} style={{
                     padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`,
                     borderRadius: 10, cursor: "pointer", transition: "all 0.15s",
                   }}
@@ -8961,6 +8963,11 @@ function LinkedInContentView() {
           </div>
 
           {/* Generated Results */}
+          {generateError && !isGenerating && (
+            <div style={{ padding: "16px 20px", background: COLORS.danger + "10", border: `1px solid ${COLORS.danger}33`, borderRadius: 10, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: COLORS.danger }}>{generateError}</div>
+            </div>
+          )}
           {isGenerating && (
             <div style={{ padding: "50px 40px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, textAlign: "center" }}>
               <div style={{ fontSize: 36, marginBottom: 10 }}>✍️</div>

@@ -401,6 +401,8 @@ export const api = {
     create: (data) => req('POST', '/content-posts', data),
     update: (id, data) => req('PUT', `/content-posts/${id}`, data),
     delete: (id) => req('DELETE', `/content-posts/${id}`),
+    extractInsights: () => req('POST', '/content-posts/extract-insights', {}),
+    generate: (data) => req('POST', '/content-posts/generate', data),
   },
   trackedCompetitors: {
     list: () => req('GET', '/tracked-competitors'),

@@ -983,6 +983,36 @@ describe('API GAP: content-posts', () => {
     if (skip(this, res)) return;
     assert.strictEqual(res.status, 200);
   });
+
+  it('8. POST /api/content-posts/extract-insights returns insights or empty', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/content-posts/extract-insights').set(auth()).send({});
+    if (skip(this, res)) return;
+    assert.ok([200, 503].includes(res.status));
+    if (res.status === 200) {
+      assert.ok(Array.isArray(res.body.insights));
+    }
+  });
+
+  it('9. POST /api/content-posts/generate without topic returns 400', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/content-posts/generate').set(auth()).send({});
+    if (skip(this, res)) return;
+    assert.ok([400, 503].includes(res.status));
+  });
+
+  it('10. POST /api/content-posts/generate with topic returns posts', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/content-posts/generate').set(auth()).send({
+      topic: 'Why AI is the future of B2B sales',
+      format: 'text',
+    });
+    if (skip(this, res)) return;
+    assert.ok([200, 503].includes(res.status));
+    if (res.status === 200) {
+      assert.ok(Array.isArray(res.body.posts));
+    }
+  });
 });
 
 // =============================================================================
