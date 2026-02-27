@@ -5320,7 +5320,56 @@ function AuditInterviewsTab() {
 
 function AuditTranscriptsTab({ transcripts, setTranscripts }) {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [addContent, setAddContent] = useState("");
+  const [addName, setAddName] = useState("");
+  const [addSpeaker, setAddSpeaker] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
+
+  const handleAddTranscript = async () => {
+    const content = addContent.trim();
+    if (!content) {
+      setSaveError("Please paste transcript content.");
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const name = addName.trim() || "Transcript " + new Date().toLocaleDateString();
+      const saved = await api.audit.transcripts.create({
+        name,
+        content_text: content,
+        speaker_name: addSpeaker.trim() || null,
+        source: "manual",
+      });
+      const newEntry = {
+        ...saved,
+        tags: saved.tags || [],
+        speaker: saved.speaker_name || "",
+        role: saved.speaker_role || "",
+        duration: saved.duration_minutes ?? null,
+      };
+      setTranscripts(prev => [newEntry, ...prev]);
+      setShowAddModal(false);
+      setAddContent("");
+      setAddName("");
+      setAddSpeaker("");
+    } catch (err) {
+      console.error("Add transcript error:", err);
+      setSaveError(err?.message || "Failed to save transcript");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const closeModal = () => {
+    setShowAddModal(false);
+    setAddContent("");
+    setAddName("");
+    setAddSpeaker("");
+    setSaveError(null);
+  };
 
   return (
     <div>
@@ -5336,14 +5385,14 @@ function AuditTranscriptsTab({ transcripts, setTranscripts }) {
           <div key={t.id} style={{ padding: "14px 20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{t.name}</div>
-              <div style={{ fontSize: 11, color: COLORS.textDim }}>{t.speaker} · {t.role} · {t.duration} min</div>
+              <div style={{ fontSize: 11, color: COLORS.textDim }}>{t.speaker} · {t.role} · {t.duration ?? "—"} min</div>
               <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                {t.tags.map(tag => (
+                {(t.tags || []).map(tag => (
                   <span key={tag} style={{ padding: "2px 8px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 4, fontSize: 10, color: COLORS.textDim, fontFamily: FONT }}>{tag}</span>
                 ))}
               </div>
             </div>
-            <button onClick={() => setTranscripts(prev => prev.filter(tr => tr.id !== t.id))} style={{ padding: "4px 8px", background: "transparent", border: "none", color: COLORS.textDim, fontSize: 14, cursor: "pointer" }}
+            <button onClick={() => api.audit.transcripts.delete(t.id).then(() => setTranscripts(prev => prev.filter(tr => tr.id !== t.id))).catch(e => console.error("Delete transcript error:", e))} style={{ padding: "4px 8px", background: "transparent", border: "none", color: COLORS.textDim, fontSize: 14, cursor: "pointer" }}
               onMouseEnter={e => e.currentTarget.style.color = COLORS.danger}
               onMouseLeave={e => e.currentTarget.style.color = COLORS.textDim}
             >🗑</button>
@@ -5351,18 +5400,30 @@ function AuditTranscriptsTab({ transcripts, setTranscripts }) {
         ))}
       </div>
       {showAddModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowAddModal(false)}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={closeModal}>
           <div onClick={e => e.stopPropagation()} style={{ width: 560, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>Add Transcript</div>
-              <button onClick={() => setShowAddModal(false)} style={{ background: "transparent", border: "none", color: COLORS.textDim, fontSize: 18, cursor: "pointer" }}>×</button>
+              <button onClick={closeModal} style={{ background: "transparent", border: "none", color: COLORS.textDim, fontSize: 18, cursor: "pointer" }}>×</button>
             </div>
             <div style={{ padding: "20px 24px" }}>
-              <textarea placeholder="Paste transcript content here..." rows={10} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} />
+              {saveError && <div style={{ marginBottom: 12, padding: 10, background: "rgba(255,80,80,0.1)", border: `1px solid ${COLORS.danger}44`, borderRadius: 8, color: COLORS.danger, fontSize: 12 }}>{saveError}</div>}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 6 }}>NAME (OPTIONAL)</label>
+                <input value={addName} onChange={e => setAddName(e.target.value)} placeholder="e.g. CTO Interview" style={inputStyle} />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 6 }}>SPEAKER (OPTIONAL)</label>
+                <input value={addSpeaker} onChange={e => setAddSpeaker(e.target.value)} placeholder="e.g. John Smith, CEO" style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 6 }}>TRANSCRIPT CONTENT</label>
+                <textarea value={addContent} onChange={e => setAddContent(e.target.value)} placeholder="Paste transcript content here..." rows={10} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} />
+              </div>
             </div>
             <div style={{ padding: "14px 24px", borderTop: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button onClick={() => setShowAddModal(false)} style={{ padding: "10px 20px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
-              <button onClick={() => setShowAddModal(false)} style={{ padding: "10px 24px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Add Transcript</button>
+              <button onClick={closeModal} disabled={saving} style={{ padding: "10px 20px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: saving ? "default" : "pointer" }}>Cancel</button>
+              <button onClick={handleAddTranscript} disabled={saving || !addContent.trim()} style={{ padding: "10px 24px", background: (addContent.trim() && !saving) ? COLORS.accent : COLORS.border, color: (addContent.trim() && !saving) ? COLORS.bg : COLORS.textDim, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: (addContent.trim() && !saving) ? "pointer" : "default" }}>{saving ? "Saving..." : "Add Transcript"}</button>
             </div>
           </div>
         </div>
@@ -6438,6 +6499,7 @@ function MessagingWorkshopView() {
   const [workshopStep, setWorkshopStep] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
   const [messagingSuite, setMessagingSuite] = useState(null);
+  const [revisingItem, setRevisingItem] = useState(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [playbookName, setPlaybookName] = useState("");
   const [saveSelections, setSaveSelections] = useState({});
@@ -6514,6 +6576,7 @@ function MessagingWorkshopView() {
     setChatMessages([{ role: "agent", text: AGENT_QUESTIONS[0].message }]);
     setWorkshopStep(0);
     setMessagingSuite(null);
+    setRevisingItem(null);
     setPlaybookName("");
     setSaveSelections({});
   };
@@ -6555,6 +6618,7 @@ function MessagingWorkshopView() {
   };
 
   const requestRevise = (item) => {
+    setRevisingItem(item);
     setChatMessages(prev => [
       ...prev,
       { role: "user", text: `I'd like to revise: ${item.label}` },
@@ -6568,23 +6632,27 @@ function MessagingWorkshopView() {
     setChatMessages(newMessages);
     setUserInput("");
     setIsTyping(true);
-    await new Promise(r => setTimeout(r, 1200));
-    if (!messagingSuite) {
-      const nextStep = workshopStep + 1;
-      if (nextStep < AGENT_QUESTIONS.length) {
-        setChatMessages([...newMessages, { role: "agent", text: AGENT_QUESTIONS[nextStep].message }]);
-        setWorkshopStep(nextStep);
-      } else {
-        setChatMessages([...newMessages, { role: "agent", text: "Perfect — I've got everything I need. Generating your complete messaging suite now..." }]);
-        setWorkshopStep(nextStep);
-        await new Promise(r => setTimeout(r, 2500));
-        setMessagingSuite(MOCK_SUITE);
-        setChatMessages(prev => [...prev, { role: "agent", text: "Your messaging suite is ready! I've created 2 email variants with follow-ups, 3 LinkedIn messages, and 20 subject lines to A/B test.\n\nClick ✏️ Revise on any piece to refine it. When you're happy, hit Save Playbook — you can select exactly which pieces to include." }]);
+    try {
+      const payload = { messages: newMessages };
+      if (messagingSuite && revisingItem) {
+        payload.reviseRequest = { itemLabel: revisingItem.label, userFeedback: userInput.trim() };
+        payload.currentSuite = messagingSuite;
       }
-    } else {
-      setChatMessages([...newMessages, { role: "agent", text: "Got it — I've updated that piece. Take a look at the revised version on the right. Want to adjust anything else?" }]);
+      const { agentText, suite: newSuite } = await api.messagingCopies.copywriterChat(payload);
+      setChatMessages(prev => [...prev, { role: "agent", text: agentText || "Done." }]);
+      if (newSuite) {
+        setMessagingSuite(newSuite);
+        setRevisingItem(null);
+        if (!messagingSuite) setWorkshopStep(AGENT_QUESTIONS.length);
+      } else if (!messagingSuite) {
+        setWorkshopStep(prev => Math.min(prev + 1, AGENT_QUESTIONS.length));
+      }
+    } catch (err) {
+      console.error("Copywriter chat error:", err);
+      setChatMessages(prev => [...prev, { role: "agent", text: "Sorry, I couldn't process that. " + (err?.message || "Please try again.") }]);
+    } finally {
+      setIsTyping(false);
     }
-    setIsTyping(false);
   };
 
   const CheckBox = ({ checked, onChange, accentColor }) => (

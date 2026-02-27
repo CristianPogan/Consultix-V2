@@ -367,6 +367,7 @@ export const api = {
     update: (id, data) => req('PUT', `/messaging-copies/${id}`, data),
     delete: (id) => req('DELETE', `/messaging-copies/${id}`),
     generate: (data) => req('POST', '/messaging-copies/generate', data),
+    copywriterChat: (data) => req('POST', '/messaging-copies/copywriter-chat', data),
   },
   campaigns: {
     list: () => req('GET', '/campaigns'),
