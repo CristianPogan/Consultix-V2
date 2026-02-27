@@ -39,6 +39,7 @@ import notificationsRouter from './api/routes/notifications.js';
 import adminRouter from './api/routes/admin.js';
 import heyreachRouter from './api/routes/heyreach.js';
 import instantlyRouter from './api/routes/instantly.js';
+import publicSurveyRouter from './api/routes/public-survey.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,8 +49,17 @@ const PORT = process.env.PORT || 5001;
 
 app.use(express.json());
 
-// Auth route (public) — POST /api/auth/token exchanges apiKey for JWT
+// Public routes (no auth required)
 app.use('/api/auth', authRouter);
+app.use('/api/public/surveys', publicSurveyRouter);
+
+// Serve public survey page
+app.get('/survey/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'survey.html'));
+});
+app.get('/survey/:id/:token', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'survey.html'));
+});
 
 // Protected API routes — require Authorization: Bearer <token>
 app.use('/api/icp-profiles', authMiddleware, icpProfilesRouter);

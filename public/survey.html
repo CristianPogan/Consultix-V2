@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Survey</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans','Segoe UI',system-ui,sans-serif;background:#0a0a0f;color:#e2e2e8;min-height:100vh;display:flex;justify-content:center;padding:40px 16px}
+  .container{max-width:640px;width:100%}
+  .mono{font-family:'JetBrains Mono','Fira Code','SF Mono',monospace}
+  .header{text-align:center;margin-bottom:32px}
+  .header h1{font-size:24px;font-weight:600;margin-bottom:6px}
+  .header p{font-size:13px;color:#7a7a8e;line-height:1.6}
+  .card{padding:20px 24px;background:#12121a;border:1px solid #1e1e2e;border-radius:12px;margin-bottom:16px}
+  .q-label{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .q-num{font-size:10px;color:#c4f04d;font-weight:600}
+  .q-type{font-size:9px;padding:2px 8px;border-radius:10px;background:#0a0a0f;color:#4a4a5e;border:1px solid #1e1e2e}
+  .q-required{color:#f04d4d;margin-left:4px;font-size:13px}
+  .q-text{font-size:14px;font-weight:600;margin-bottom:14px;line-height:1.5}
+  input[type="text"],textarea{width:100%;padding:10px 14px;background:#0a0a0f;border:1px solid #1e1e2e;border-radius:8px;color:#e2e2e8;font-family:inherit;font-size:13px;outline:none;resize:vertical;transition:border-color .15s}
+  input[type="text"]:focus,textarea:focus{border-color:#c4f04d44}
+  .radio-group,.checkbox-group{display:flex;flex-direction:column;gap:8px}
+  .radio-option,.checkbox-option{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#0a0a0f;border:1px solid #1e1e2e;border-radius:8px;cursor:pointer;transition:border-color .15s,background .15s}
+  .radio-option:hover,.checkbox-option:hover{border-color:#1e1e2e;background:#12121a}
+  .radio-option.selected,.checkbox-option.selected{border-color:#c4f04d44;background:#c4f04d08}
+  .radio-option input,.checkbox-option input{accent-color:#c4f04d;cursor:pointer}
+  .radio-option label,.checkbox-option label{cursor:pointer;font-size:13px;flex:1}
+  .rating-group{display:flex;gap:6px}
+  .rating-btn{width:44px;height:44px;border-radius:8px;background:#0a0a0f;border:1px solid #1e1e2e;color:#7a7a8e;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center}
+  .rating-btn:hover{border-color:#c4f04d66;color:#c4f04d}
+  .rating-btn.selected{background:#c4f04d20;border-color:#c4f04d;color:#c4f04d}
+  select{width:100%;padding:10px 14px;background:#0a0a0f;border:1px solid #1e1e2e;border-radius:8px;color:#e2e2e8;font-family:inherit;font-size:13px;outline:none;appearance:none;cursor:pointer}
+  .respondent-card{padding:20px 24px;background:#12121a;border:1px solid #1e1e2e;border-radius:12px;margin-bottom:24px}
+  .respondent-card h3{font-size:12px;color:#4a4a5e;letter-spacing:.08em;font-weight:600;margin-bottom:12px}
+  .respondent-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .respondent-grid .full{grid-column:1/-1}
+  .field-label{display:block;font-size:10px;color:#4a4a5e;letter-spacing:.06em;font-weight:600;margin-bottom:6px}
+  .submit-btn{display:block;width:100%;padding:14px;background:#c4f04d;color:#0a0a0f;border:none;border-radius:10px;font-family:'JetBrains Mono','Fira Code','SF Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;margin-top:8px}
+  .submit-btn:hover{opacity:.9}
+  .submit-btn:disabled{background:#1e1e2e;color:#4a4a5e;cursor:default}
+  .error-msg{padding:12px 16px;background:#f04d4d15;border:1px solid #f04d4d33;border-radius:8px;color:#f04d4d;font-size:12px;margin-bottom:16px;text-align:center}
+  .success-page{text-align:center;padding:60px 20px}
+  .success-page .icon{font-size:64px;margin-bottom:20px}
+  .success-page h2{font-size:22px;font-weight:600;margin-bottom:8px}
+  .success-page p{font-size:14px;color:#7a7a8e;line-height:1.6}
+  .loading{text-align:center;padding:80px 20px;color:#7a7a8e;font-size:14px}
+  .not-found{text-align:center;padding:80px 20px}
+  .not-found .icon{font-size:48px;margin-bottom:16px;opacity:.3}
+  .not-found h2{font-size:18px;margin-bottom:8px}
+  .not-found p{color:#7a7a8e;font-size:13px}
+  .powered{text-align:center;margin-top:32px;font-size:10px;color:#4a4a5e;letter-spacing:.04em}
+</style>
+</head>
+<body>
+<div class="container" id="app">
+  <div class="loading" id="loading">Loading survey...</div>
+</div>
+<script>
+(function(){
+  const app = document.getElementById('app');
+  const surveyId = window.location.pathname.split('/survey/')[1]?.split('/')[0];
+  if (!surveyId) { showNotFound(); return; }
+
+  let survey = null;
+  let answers = {};
+  let submitting = false;
+
+  fetch('/api/public/surveys/' + surveyId)
+    .then(r => { if (!r.ok) throw r; return r.json(); })
+    .then(data => { survey = data; render(); })
+    .catch(err => {
+      err.json?.().then?.(d => showNotFound(d.error)).catch(() => showNotFound());
+      if (!err.json) showNotFound();
+    });
+
+  function showNotFound(msg) {
+    app.innerHTML = '<div class="not-found"><div class="icon">📋</div><h2>Survey Not Available</h2><p>' + (msg || 'This survey could not be found or is no longer accepting responses.') + '</p></div><div class="powered">Powered by Consultix</div>';
+  }
+
+  function typeLabel(t) {
+    const m = { rating:'Rating', multiple_choice:'Multiple Choice', checkboxes:'Checkboxes', text:'Short Text', long_text:'Long Text', dropdown:'Dropdown' };
+    return m[t] || t;
+  }
+
+  function render() {
+    let html = '<div class="header"><h1 class="mono">' + esc(survey.title) + '</h1>';
+    if (survey.description) html += '<p>' + esc(survey.description) + '</p>';
+    html += '</div>';
+
+    html += '<div class="respondent-card"><h3 class="mono">YOUR DETAILS (OPTIONAL)</h3><div class="respondent-grid">';
+    html += '<div><label class="field-label mono">NAME</label><input type="text" id="resp_name" placeholder="Your name"></div>';
+    html += '<div><label class="field-label mono">ROLE</label><input type="text" id="resp_role" placeholder="Your role / title"></div>';
+    html += '<div class="full"><label class="field-label mono">EMAIL</label><input type="text" id="resp_email" placeholder="your@email.com"></div>';
+    html += '</div></div>';
+
+    html += '<div id="error-box" style="display:none" class="error-msg"></div>';
+
+    survey.questions.forEach(function(q, i) {
+      html += '<div class="card"><div class="q-label"><span class="q-num mono">Q' + (i+1) + '</span><span class="q-type mono">' + typeLabel(q.type) + '</span></div>';
+      html += '<div class="q-text">' + esc(q.question) + (q.required ? '<span class="q-required">*</span>' : '') + '</div>';
+
+      if (q.type === 'rating') {
+        html += '<div class="rating-group">';
+        for (var n=1; n<=5; n++) html += '<button type="button" class="rating-btn" data-qid="'+q.id+'" data-val="'+n+'" onclick="selectRating(this)">'+n+'</button>';
+        html += '</div>';
+      } else if (q.type === 'multiple_choice') {
+        html += '<div class="radio-group">';
+        (q.options||[]).forEach(function(opt){
+          html += '<div class="radio-option" onclick="selectRadio(this)"><input type="radio" name="q_'+q.id+'" value="'+esc(opt)+'" onchange="setAnswer(\''+q.id+'\',this.value)"><label>'+esc(opt)+'</label></div>';
+        });
+        html += '</div>';
+      } else if (q.type === 'checkboxes') {
+        html += '<div class="checkbox-group">';
+        (q.options||[]).forEach(function(opt, oi){
+          html += '<div class="checkbox-option" onclick="toggleCheckbox(this,\''+q.id+'\')"><input type="checkbox" data-qid="'+q.id+'" value="'+esc(opt)+'" onchange="updateCheckboxes(\''+q.id+'\')"><label>'+esc(opt)+'</label></div>';
+        });
+        html += '</div>';
+      } else if (q.type === 'dropdown') {
+        html += '<select onchange="setAnswer(\''+q.id+'\',this.value)"><option value="">Select...</option>';
+        (q.options||[]).forEach(function(opt){ html += '<option value="'+esc(opt)+'">'+esc(opt)+'</option>'; });
+        html += '</select>';
+      } else if (q.type === 'long_text') {
+        html += '<textarea rows="4" placeholder="Type your answer..." oninput="setAnswer(\''+q.id+'\',this.value)"></textarea>';
+      } else {
+        html += '<input type="text" placeholder="Type your answer..." oninput="setAnswer(\''+q.id+'\',this.value)">';
+      }
+      html += '</div>';
+    });
+
+    html += '<button class="submit-btn mono" id="submitBtn" onclick="submitSurvey()">Submit Response</button>';
+    html += '<div class="powered mono">Powered by Consultix</div>';
+    app.innerHTML = html;
+  }
+
+  window.setAnswer = function(qid, val) { answers[qid] = val; };
+
+  window.selectRating = function(btn) {
+    var qid = btn.dataset.qid, val = btn.dataset.val;
+    answers[qid] = val + '/5';
+    btn.parentElement.querySelectorAll('.rating-btn').forEach(function(b){ b.classList.remove('selected'); });
+    btn.classList.add('selected');
+  };
+
+  window.selectRadio = function(div) {
+    var radio = div.querySelector('input[type=radio]');
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change'));
+    div.parentElement.querySelectorAll('.radio-option').forEach(function(d){ d.classList.remove('selected'); });
+    div.classList.add('selected');
+  };
+
+  window.toggleCheckbox = function(div, qid) {
+    var cb = div.querySelector('input[type=checkbox]');
+    if (event.target !== cb) cb.checked = !cb.checked;
+    div.classList.toggle('selected', cb.checked);
+    updateCheckboxes(qid);
+  };
+
+  window.updateCheckboxes = function(qid) {
+    var checked = [];
+    document.querySelectorAll('input[type=checkbox][data-qid="'+qid+'"]').forEach(function(cb){
+      if (cb.checked) checked.push(cb.value);
+    });
+    answers[qid] = checked.join(', ');
+  };
+
+  window.submitSurvey = function() {
+    if (submitting) return;
+    var errBox = document.getElementById('error-box');
+    errBox.style.display = 'none';
+
+    var missing = [];
+    survey.questions.forEach(function(q, i) {
+      if (q.required && (!answers[q.id] || answers[q.id].toString().trim() === '')) {
+        missing.push('Q' + (i+1));
+      }
+    });
+    if (missing.length > 0) {
+      errBox.textContent = 'Please answer required questions: ' + missing.join(', ');
+      errBox.style.display = 'block';
+      errBox.scrollIntoView({ behavior:'smooth', block:'center' });
+      return;
+    }
+
+    submitting = true;
+    var btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    var body = {
+      respondent_name: document.getElementById('resp_name')?.value || '',
+      respondent_email: document.getElementById('resp_email')?.value || '',
+      respondent_role: document.getElementById('resp_role')?.value || '',
+      answers: answers
+    };
+
+    fetch('/api/public/surveys/' + surveyId + '/respond', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+    .then(function(r) { if (!r.ok) throw r; return r.json(); })
+    .then(function() {
+      app.innerHTML = '<div class="success-page"><div class="icon">✅</div><h2 class="mono">Thank You!</h2><p>Your response has been recorded successfully.<br>You can close this page now.</p></div><div class="powered mono">Powered by Consultix</div>';
+    })
+    .catch(function() {
+      submitting = false;
+      btn.disabled = false;
+      btn.textContent = 'Submit Response';
+      errBox.textContent = 'Failed to submit. Please try again.';
+      errBox.style.display = 'block';
+    });
+  };
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+})();
+</script>
+</body>
+</html>

@@ -4724,7 +4724,7 @@ function AuditSurveysTab() {
       if (andDistribute && saved) {
         const s = { ...saved, questions: saved.questions || saved.questions_json || builderQuestions, responseData: [] };
         setSelectedSurvey(s);
-        setDistLink(`${window.location.origin}/survey/${saved.id}/${Math.random().toString(36).substring(7)}`);
+        setDistLink(`${window.location.origin}/survey/${saved.id}`);
         setDistEmails("");
         setDistMessage(`Hi,\n\nYou've been invited to complete the "${s.title}" survey as part of our AI audit. It should take about 5 minutes.\n\nPlease complete it at your earliest convenience.\n\nThank you`);
         setView("distribute");
@@ -4794,7 +4794,7 @@ function AuditSurveysTab() {
 
   const openDistribute = (survey) => {
     setSelectedSurvey(survey);
-    setDistLink(`${window.location.origin}/survey/${survey.id}/${Math.random().toString(36).substring(7)}`);
+    setDistLink(`${window.location.origin}/survey/${survey.id}`);
     setDistEmails("");
     setDistMessage(`Hi,\n\nYou've been invited to complete the "${survey.title}" survey as part of our AI audit. It should take about 5 minutes.\n\nPlease complete it at your earliest convenience.\n\nThank you`);
     setView("distribute");
