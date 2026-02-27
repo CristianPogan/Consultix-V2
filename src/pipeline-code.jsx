@@ -1301,7 +1301,7 @@ export default function App() {
         {activePage === "content_linkedin" && <LinkedInContentView />}
         {activePage === "content_community" && <CommunityView />}
         {activePage === "content_video" && <VideoScriptView />}
-        {activePage === "niche_researcher" && <NicheResearcherView />}
+        {activePage === "niche_researcher" && <NicheResearcherView setActivePage={setActivePage} setIcpForm={setIcpForm} />}
         {activePage === "sales_scripts" && <SalesScriptGeneratorView />}
         {activePage === "sales_analyser" && <SalesCallAnalyserView />}
         {activePage === "sol_assistant" && <SolutionAIAssistantView />}
@@ -7690,7 +7690,7 @@ function SettingsView() {
 
 
 
-function NicheResearcherView() {
+function NicheResearcherView({ setActivePage, setIcpForm }) {
   const [view, setView] = useState("library"); // library, chat, detail
   const [selectedNiche, setSelectedNiche] = useState(null);
   const [savedNiches, setSavedNiches] = useState([]);
@@ -7701,6 +7701,87 @@ function NicheResearcherView() {
       setSavedNiches(niches.map(n => ({ ...n, avgDeal: n.avg_deal || n.avgDeal || '', savedDate: n.created_at ? new Date(n.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '' })));
     }).catch(() => {});
   }, []);
+  const parseNicheToIcpForm = (niche) => {
+    const text = `${niche.name || ''} ${niche.audience || ''} ${niche.positioning || ''} ${niche.advantage || ''}`.toLowerCase();
+
+    const INDUSTRY_PATTERNS = [
+      { pattern: /\bb2b\s*saas\b/i, value: "B2B SaaS" },
+      { pattern: /\bsaas\b/i, value: "SaaS" },
+      { pattern: /\bfintech\b/i, value: "FinTech" },
+      { pattern: /\binsurance\b/i, value: "Insurance" },
+      { pattern: /\bproperty\s*management\b/i, value: "Property Management" },
+      { pattern: /\breal\s*estate\b/i, value: "Real Estate" },
+      { pattern: /\bhealthcare\b/i, value: "Healthcare" },
+      { pattern: /\be-?commerce\b/i, value: "E-Commerce" },
+      { pattern: /\bagenc(?:y|ies)\b/i, value: "Agencies" },
+      { pattern: /\bconsultan(?:t|ts|cy|cies)\b/i, value: "Consulting" },
+      { pattern: /\bmanufacturing\b/i, value: "Manufacturing" },
+      { pattern: /\blogistics\b/i, value: "Logistics" },
+      { pattern: /\beducation\b/i, value: "Education" },
+      { pattern: /\blegal\b/i, value: "Legal" },
+    ];
+    let industry = "";
+    for (const { pattern, value } of INDUSTRY_PATTERNS) {
+      if (pattern.test(niche.name || '') || pattern.test(niche.audience || '')) { industry = value; break; }
+    }
+
+    const roles = [];
+    const aud = niche.audience || '';
+    const ROLE_PATTERNS = [
+      /\bVPs?\s+of\s+(\w[\w\s&]*)/gi,
+      /\bCROs?\b/gi, /\bCEOs?\b/gi, /\bCTOs?\b/gi, /\bCOOs?\b/gi, /\bCFOs?\b/gi, /\bCMOs?\b/gi,
+      /\bManaging\s+Directors?\b/gi, /\bDirectors?\s+of\s+(\w[\w\s&]*)/gi,
+      /\bHead\s+of\s+(\w[\w\s&]*)/gi,
+      /\bAgency\s+(?:founders?|principals?|owners?)\b/gi,
+      /\bFounders?\b/gi, /\bOwners?\b/gi,
+    ];
+    for (const rx of ROLE_PATTERNS) {
+      const m = aud.matchAll(rx);
+      for (const match of m) {
+        let role = match[0].replace(/\s+/g, ' ').trim();
+        if (role.length > 30) role = role.slice(0, 30).trim();
+        if (!roles.some(r => r.toLowerCase() === role.toLowerCase())) roles.push(role);
+      }
+    }
+    if (roles.length === 0) roles.push("CEO", "CTO", "VP Sales");
+
+    const SIZE_BUCKETS = [
+      { min: 1, max: 10, label: "1-10" },
+      { min: 11, max: 50, label: "11-50" },
+      { min: 51, max: 200, label: "51-200" },
+      { min: 201, max: 500, label: "201-500" },
+      { min: 501, max: 1000, label: "501-1,000" },
+      { min: 1001, max: 5000, label: "1,001-5,000" },
+      { min: 5001, max: Infinity, label: "5,000+" },
+    ];
+    const employeeSizes = [];
+    const sizeMatch = aud.match(/(\d[\d,]*)\s*[-–to]+\s*(\d[\d,]*)\s*(?:employees?|staff|people)/i);
+    if (sizeMatch) {
+      const lo = parseInt(sizeMatch[1].replace(/,/g, ''), 10);
+      const hi = parseInt(sizeMatch[2].replace(/,/g, ''), 10);
+      for (const b of SIZE_BUCKETS) {
+        if (b.max >= lo && b.min <= hi) employeeSizes.push(b.label);
+      }
+    }
+    if (employeeSizes.length === 0) employeeSizes.push("51-200");
+
+    const STOP = new Set(["the", "for", "and", "a", "an", "of", "in", "at", "to", "is", "by", "on", "or", "with", "your", "that", "this", "from"]);
+    const keywords = (niche.name || '').split(/[\s,—–-]+/)
+      .map(w => w.replace(/[^a-zA-Z0-9]/g, '').trim())
+      .filter(w => w.length > 2 && !STOP.has(w.toLowerCase()))
+      .slice(0, 6)
+      .join(', ');
+
+    return {
+      listName: niche.name || '',
+      industry,
+      keywords,
+      employeeSizes,
+      roles,
+      maxLeads: '',
+    };
+  };
+
   const [chatMessages, setChatMessages] = useState([{ role: "agent", text: "Hey! I'm your Niche Research assistant. I'll help you find the ideal niche. What are your core skills and areas of expertise?" }]);
   const [userInput, setUserInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -7767,7 +7848,11 @@ function NicheResearcherView() {
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
           {!isSaved && <button onClick={() => saveNiche(selectedNiche)} style={{ padding: "12px 24px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>💾 Save Niche</button>}
           {isSaved && <span style={{ padding: "12px 24px", background: COLORS.accentBg, color: COLORS.accent, borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, border: `1px solid ${COLORS.accent}22` }}>✓ Saved</span>}
-          <button style={{ padding: "12px 24px", background: COLORS.blue, color: "#fff", border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>⚡ Generate Lead List →</button>
+          <button onClick={() => {
+            const parsed = parseNicheToIcpForm(selectedNiche);
+            setIcpForm(prev => ({ ...prev, ...parsed }));
+            setActivePage("leads");
+          }} style={{ padding: "12px 24px", background: COLORS.blue, color: "#fff", border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>⚡ Generate Lead List →</button>
         </div>
       </div>
     );
