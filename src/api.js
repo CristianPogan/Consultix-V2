@@ -350,6 +350,7 @@ export const api = {
       return req('GET', '/implementation/phases' + (q ? `?${q}` : ''));
     },
     create: (data) => req('POST', '/implementation/phases', data),
+    bulkCreate: (data) => req('POST', '/implementation/phases/bulk', data),
     update: (id, data) => req('PUT', `/implementation/phases/${id}`, data),
     delete: (id) => req('DELETE', `/implementation/phases/${id}`),
   },

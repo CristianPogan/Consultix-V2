@@ -590,6 +590,28 @@ describe('API GAP: implementation/phases', () => {
     if (skip(this, res)) return;
     assert.strictEqual(res.status, 200);
   });
+
+  it('7. POST /api/implementation/phases/bulk creates multiple phases', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/implementation/phases/bulk').set(auth()).send({
+      project_id: NIL_UUID,
+      phases: [
+        { title: 'Bulk Phase A', sort_order: 0, tasks: [{ id: 'bt1', name: 'Task A1', status: 'not_started' }] },
+        { title: 'Bulk Phase B', sort_order: 1, tasks: [] },
+      ],
+    });
+    if (skip(this, res)) return;
+    assert.ok([200, 201].includes(res.status));
+    assert.ok(Array.isArray(res.body));
+    assert.ok(res.body.length >= 2);
+  });
+
+  it('8. POST /api/implementation/phases/bulk without project_id returns 400', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/implementation/phases/bulk').set(auth()).send({ phases: [] });
+    if (skip(this, res)) return;
+    assert.strictEqual(res.status, 400);
+  });
 });
 
 // =============================================================================

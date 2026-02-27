@@ -4054,23 +4054,24 @@ function UniboxView({ projectId }) {
 
 function ImplementationView({ project }) {
   const [expandedPhase, setExpandedPhase] = useState(0);
+  const [phases, setPhases] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  if (!project) return <div style={{ padding: 28, color: COLORS.textDim, fontFamily: FONT_BODY }}>Select a project from the sidebar.</div>;
-
-  const phases = [
+  const DEFAULT_PHASES = [
     {
-      name: "Phase 1: Foundation", timeline: "Month 1-2", status: "in_progress", progress: 35, color: "#eab308", cost: "£35-45K",
+      title: "Phase 1: Foundation", timeline: "Month 1-2", status: "not_started", color: "#eab308", cost: "£35-45K", sort_order: 0,
       tasks: [
-        { id: "t1", name: "Lease tracking system — vendor selection", status: "complete", assignee: "Andrew", dueDate: "Feb 14", priority: "high" },
-        { id: "t2", name: "Lease tracking system — implementation", status: "in_progress", assignee: "Andrew", dueDate: "Feb 28", priority: "high" },
-        { id: "t3", name: "Data consolidation — map existing sources", status: "in_progress", assignee: "Sarah Mitchell", dueDate: "Feb 21", priority: "high" },
+        { id: "t1", name: "Lease tracking system — vendor selection", status: "not_started", assignee: "Andrew", dueDate: "Feb 14", priority: "high" },
+        { id: "t2", name: "Lease tracking system — implementation", status: "not_started", assignee: "Andrew", dueDate: "Feb 28", priority: "high" },
+        { id: "t3", name: "Data consolidation — map existing sources", status: "not_started", assignee: "Sarah Mitchell", dueDate: "Feb 21", priority: "high" },
         { id: "t4", name: "Data consolidation — migration plan", status: "not_started", assignee: "Andrew", dueDate: "Mar 7", priority: "medium" },
         { id: "t5", name: "Core integrations — CRM + accounting sync", status: "not_started", assignee: "TBD", dueDate: "Mar 14", priority: "medium" },
         { id: "t6", name: "Staff training — lease tracking module", status: "not_started", assignee: "Mike Thompson", dueDate: "Mar 21", priority: "low" },
       ],
     },
     {
-      name: "Phase 2: Unlock", timeline: "Month 3-4", status: "not_started", progress: 0, color: "#3b82f6", cost: "£40-55K",
+      title: "Phase 2: Unlock", timeline: "Month 3-4", status: "not_started", color: "#3b82f6", cost: "£40-55K", sort_order: 1,
       tasks: [
         { id: "t7", name: "Director dashboard — requirements gathering", status: "not_started", assignee: "James Richardson", dueDate: "Apr 1", priority: "high" },
         { id: "t8", name: "Director dashboard — build & deploy", status: "not_started", assignee: "Andrew", dueDate: "Apr 21", priority: "high" },
@@ -4080,7 +4081,7 @@ function ImplementationView({ project }) {
       ],
     },
     {
-      name: "Phase 3: Scale", timeline: "Month 5-6", status: "not_started", progress: 0, color: "#8b5cf6", cost: "£50-70K",
+      title: "Phase 3: Scale", timeline: "Month 5-6", status: "not_started", color: "#8b5cf6", cost: "£50-70K", sort_order: 2,
       tasks: [
         { id: "t12", name: "AI contract analysis — model training", status: "not_started", assignee: "Andrew", dueDate: "May 15", priority: "high" },
         { id: "t13", name: "AI contract analysis — integration with lease system", status: "not_started", assignee: "Andrew", dueDate: "Jun 1", priority: "high" },
@@ -4090,7 +4091,75 @@ function ImplementationView({ project }) {
     },
   ];
 
-  const getStatusBadge = (status) => {
+  const projectId = project ? String(project.id) : null;
+
+  useEffect(() => {
+    if (!projectId) { setLoading(false); return; }
+    setLoading(true);
+    api.implementation.list({ project_id: projectId }).then(async (data) => {
+      const rows = Array.isArray(data) ? data : [];
+      if (rows.length > 0) {
+        setPhases(rows.map(r => ({
+          ...r,
+          tasks: Array.isArray(r.tasks) ? r.tasks : (typeof r.tasks === 'string' ? JSON.parse(r.tasks) : []),
+        })));
+      } else {
+        try {
+          const created = await api.implementation.bulkCreate({ project_id: projectId, phases: DEFAULT_PHASES });
+          const arr = Array.isArray(created) ? created : [];
+          setPhases(arr.map(r => ({
+            ...r,
+            tasks: Array.isArray(r.tasks) ? r.tasks : (typeof r.tasks === 'string' ? JSON.parse(r.tasks) : []),
+          })));
+        } catch (seedErr) {
+          console.error('Failed to seed default phases:', seedErr);
+          setPhases(DEFAULT_PHASES.map((p, i) => ({ ...p, id: `local_${i}`, name: p.title })));
+        }
+      }
+    }).catch(() => {
+      setPhases(DEFAULT_PHASES.map((p, i) => ({ ...p, id: `local_${i}`, name: p.title })));
+    }).finally(() => setLoading(false));
+  }, [projectId]);
+
+  const STATUS_CYCLE = ["not_started", "in_progress", "complete"];
+
+  const cycleTaskStatus = async (phaseIndex, taskIndex) => {
+    const phase = phases[phaseIndex];
+    if (!phase) return;
+    const tasks = [...phase.tasks];
+    const current = tasks[taskIndex].status;
+    const nextIdx = (STATUS_CYCLE.indexOf(current) + 1) % STATUS_CYCLE.length;
+    tasks[taskIndex] = { ...tasks[taskIndex], status: STATUS_CYCLE[nextIdx] };
+
+    const completedCount = tasks.filter(t => t.status === "complete").length;
+    const inProgressCount = tasks.filter(t => t.status === "in_progress").length;
+    let phaseStatus = "not_started";
+    if (completedCount === tasks.length) phaseStatus = "complete";
+    else if (completedCount > 0 || inProgressCount > 0) phaseStatus = "in_progress";
+
+    const updated = phases.map((p, i) => i === phaseIndex ? { ...p, tasks, status: phaseStatus } : p);
+    setPhases(updated);
+
+    if (phase.id && !String(phase.id).startsWith('local_')) {
+      setSaving(true);
+      try {
+        await api.implementation.update(phase.id, { tasks, status: phaseStatus });
+      } catch (err) {
+        console.error('Failed to save task status:', err);
+      }
+      setSaving(false);
+    }
+  };
+
+  const getProgress = (phase) => {
+    const tasks = phase.tasks || [];
+    if (tasks.length === 0) return 0;
+    return Math.round((tasks.filter(t => t.status === "complete").length / tasks.length) * 100);
+  };
+
+  if (!project) return <div style={{ padding: 28, color: COLORS.textDim, fontFamily: FONT_BODY }}>Select a project from the sidebar.</div>;
+
+  const getStatusBadge = (status, onClick) => {
     const styles = {
       complete: { bg: COLORS.accent + "15", color: COLORS.accent, label: "Complete" },
       in_progress: { bg: COLORS.blue + "15", color: COLORS.blue, label: "In Progress" },
@@ -4098,7 +4167,7 @@ function ImplementationView({ project }) {
     };
     const s = styles[status] || styles.not_started;
     return (
-      <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, fontFamily: FONT, fontWeight: 600, background: s.bg, color: s.color, border: `1px solid ${s.color}22` }}>{s.label}</span>
+      <span onClick={onClick} style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, fontFamily: FONT, fontWeight: 600, background: s.bg, color: s.color, border: `1px solid ${s.color}22`, cursor: onClick ? "pointer" : "default", userSelect: "none" }}>{s.label}</span>
     );
   };
 
@@ -4107,9 +4176,10 @@ function ImplementationView({ project }) {
     return <div style={{ width: 6, height: 6, borderRadius: "50%", background: colors[priority] || COLORS.textDim, flexShrink: 0 }} />;
   };
 
-  const totalTasks = phases.reduce((s, p) => s + p.tasks.length, 0);
-  const completeTasks = phases.reduce((s, p) => s + p.tasks.filter(t => t.status === "complete").length, 0);
-  const inProgressTasks = phases.reduce((s, p) => s + p.tasks.filter(t => t.status === "in_progress").length, 0);
+  const totalTasks = phases.reduce((s, p) => s + (p.tasks || []).length, 0);
+  const completeTasks = phases.reduce((s, p) => s + (p.tasks || []).filter(t => t.status === "complete").length, 0);
+  const inProgressTasks = phases.reduce((s, p) => s + (p.tasks || []).filter(t => t.status === "in_progress").length, 0);
+  const totalBudget = phases.map(p => p.cost || '').filter(Boolean).join(' + ') || '—';
 
   return (
     <div style={{ flex: 1, overflow: "auto", padding: 32 }}>
@@ -4120,65 +4190,75 @@ function ImplementationView({ project }) {
           </h2>
           <p style={{ color: COLORS.textMuted, margin: "6px 0 0", fontSize: 13 }}>{project.client} — Generated from AI analysis</p>
         </div>
-        <span style={{ padding: "4px 10px", background: COLORS.accentBg, color: COLORS.accent, fontSize: 11, borderRadius: 6, fontFamily: FONT, fontWeight: 500, border: `1px solid ${COLORS.accent}22` }}>Auto-generated</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {saving && <span style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT }}>Saving...</span>}
+          <span style={{ padding: "4px 10px", background: COLORS.accentBg, color: COLORS.accent, fontSize: 11, borderRadius: 6, fontFamily: FONT, fontWeight: 500, border: `1px solid ${COLORS.accent}22` }}>Auto-generated</span>
+        </div>
       </div>
 
-      {/* Summary Stats */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
-        <StatCard label="Total Tasks" value={totalTasks} accent={COLORS.accent} />
-        <StatCard label="Complete" value={completeTasks} accent={COLORS.accent} />
-        <StatCard label="In Progress" value={inProgressTasks} accent={COLORS.blue} />
-        <StatCard label="Total Budget" value="£125-170K" accent={COLORS.warn} />
-      </div>
-
-      {/* Timeline bar */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
-        {phases.map((p, i) => (
-          <div key={i} style={{ flex: 1 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ fontSize: 10, color: p.color, fontFamily: FONT, fontWeight: 600 }}>{p.name}</span>
-              <span style={{ fontSize: 10, color: COLORS.textDim }}>{p.timeline}</span>
-            </div>
-            <div style={{ height: 6, borderRadius: 3, background: COLORS.surface }}>
-              <div style={{ width: `${p.progress}%`, height: "100%", borderRadius: 3, background: p.color, transition: "width 0.3s" }} />
-            </div>
+      {loading ? (
+        <div style={{ padding: 60, textAlign: "center" }}><ProgressDots active={true} /><div style={{ marginTop: 12, fontSize: 12, color: COLORS.textDim }}>Loading roadmap...</div></div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
+            <StatCard label="Total Tasks" value={totalTasks} accent={COLORS.accent} />
+            <StatCard label="Complete" value={completeTasks} accent={COLORS.accent} />
+            <StatCard label="In Progress" value={inProgressTasks} accent={COLORS.blue} />
+            <StatCard label="Total Budget" value={totalBudget} accent={COLORS.warn} />
           </div>
-        ))}
-      </div>
 
-      {/* Phase cards */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {phases.map((phase, pi) => (
-          <div key={pi} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", borderLeft: `4px solid ${phase.color}` }}>
-            <div onClick={() => setExpandedPhase(expandedPhase === pi ? -1 : pi)} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{phase.name}</div>
-                <span style={{ fontSize: 10, color: COLORS.textDim }}>{phase.timeline} · {phase.cost}</span>
-                {getStatusBadge(phase.status)}
+          <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
+            {phases.map((p, i) => (
+              <div key={p.id || i} style={{ flex: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, color: p.color || COLORS.textDim, fontFamily: FONT, fontWeight: 600 }}>{p.title || p.name}</span>
+                  <span style={{ fontSize: 10, color: COLORS.textDim }}>{p.timeline}</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: COLORS.surface }}>
+                  <div style={{ width: `${getProgress(p)}%`, height: "100%", borderRadius: 3, background: p.color || COLORS.accent, transition: "width 0.3s" }} />
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 11, color: COLORS.textDim }}>{phase.tasks.filter(t => t.status === "complete").length}/{phase.tasks.length} tasks</span>
-                <span style={{ color: COLORS.textDim, fontSize: 12, transform: expandedPhase === pi ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▶</span>
-              </div>
-            </div>
-            {expandedPhase === pi && (
-              <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "8px 12px" }}>
-                {phase.tasks.map(task => (
-                  <div key={task.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderBottom: `1px solid ${COLORS.border}` }}>
-                    {getPriorityDot(task.priority)}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, color: task.status === "complete" ? COLORS.textDim : COLORS.text, textDecoration: task.status === "complete" ? "line-through" : "none" }}>{task.name}</div>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {phases.map((phase, pi) => {
+              const tasks = phase.tasks || [];
+              const phaseColor = phase.color || COLORS.textDim;
+              return (
+                <div key={phase.id || pi} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", borderLeft: `4px solid ${phaseColor}` }}>
+                  <div onClick={() => setExpandedPhase(expandedPhase === pi ? -1 : pi)} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{phase.title || phase.name}</div>
+                      <span style={{ fontSize: 10, color: COLORS.textDim }}>{phase.timeline} · {phase.cost}</span>
+                      {getStatusBadge(phase.status)}
                     </div>
-                    <span style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, minWidth: 70 }}>{task.assignee}</span>
-                    <span style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, minWidth: 50 }}>{task.dueDate}</span>
-                    {getStatusBadge(task.status)}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 11, color: COLORS.textDim }}>{tasks.filter(t => t.status === "complete").length}/{tasks.length} tasks</span>
+                      <span style={{ color: COLORS.textDim, fontSize: 12, transform: expandedPhase === pi ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▶</span>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
+                  {expandedPhase === pi && (
+                    <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "8px 12px" }}>
+                      {tasks.map((task, ti) => (
+                        <div key={task.id || ti} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderBottom: `1px solid ${COLORS.border}` }}>
+                          {getPriorityDot(task.priority)}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, color: task.status === "complete" ? COLORS.textDim : COLORS.text, textDecoration: task.status === "complete" ? "line-through" : "none" }}>{task.name}</div>
+                          </div>
+                          <span style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, minWidth: 70 }}>{task.assignee}</span>
+                          <span style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, minWidth: 50 }}>{task.dueDate}</span>
+                          {getStatusBadge(task.status, (e) => { e.stopPropagation(); cycleTaskStatus(pi, ti); })}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        </>
+      )}
     </div>
   );
 }
