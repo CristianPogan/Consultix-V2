@@ -45,6 +45,7 @@ async function ensureSurveyTables() {
   const resCols = [
     { name: 'respondent_role', type: 'TEXT' },
     { name: 'completed_at', type: 'TIMESTAMPTZ DEFAULT now()' },
+    { name: 'created_at', type: 'TIMESTAMPTZ DEFAULT now()' },
   ];
   for (const c of resCols) {
     await query(`ALTER TABLE audit_responses ADD COLUMN IF NOT EXISTS ${c.name} ${c.type}`).catch(() => {});
@@ -270,7 +271,7 @@ router.get('/surveys/:id/responses', async (req, res) => {
     await ensureSurveyTables();
     const survey = await query('SELECT id FROM audit_surveys WHERE id = $1 AND org_id = $2', [req.params.id, orgId]);
     if (!survey.rows.length) return res.status(404).json({ error: 'Survey not found' });
-    const result = await query('SELECT * FROM audit_responses WHERE survey_id = $1 ORDER BY completed_at DESC, created_at DESC', [req.params.id]);
+    const result = await query('SELECT * FROM audit_responses WHERE survey_id = $1 ORDER BY completed_at DESC NULLS LAST', [req.params.id]);
     res.json(result.rows.map(r => ({
       ...r,
       answers: r.answers_json || {},
@@ -328,6 +329,8 @@ async function ensureInterviewsTable() {
   `);
   await query('CREATE INDEX IF NOT EXISTS idx_audit_interviews_org ON audit_interview_questions(org_id)').catch(() => {});
   await query(`ALTER TABLE audit_interview_questions ALTER COLUMN project_id DROP NOT NULL`).catch(() => {});
+  await query(`ALTER TABLE audit_interview_questions ALTER COLUMN interviewee_type TYPE TEXT`).catch(() => {});
+  await query(`ALTER TABLE audit_interview_questions ALTER COLUMN interviewee_type SET DEFAULT 'Stakeholder'`).catch(() => {});
   const cols = [
     { name: 'interviewee_type', type: "TEXT DEFAULT 'Stakeholder'" },
   ];
