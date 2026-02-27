@@ -228,20 +228,23 @@ export default function AdminDashboard() {
 
       {/* Revenue Chart Placeholder */}
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginBottom: 20 }}>
-        <div style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+        <div style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
           <div style={{ fontSize: 10, fontFamily: F, fontWeight: 600, color: C.textDim, letterSpacing: "0.06em", marginBottom: 16 }}>MRR GROWTH — LAST 12 MONTHS</div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 140 }}>
-            {[420, 580, 740, 920, 1100, 1540, 1980, 2380, 2720, 3190, 3650, totalMrr].map((v, i) => (
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 150 }}>
+            {[1200, 1450, 1700, 1950, 2200, 2500, 2800, 3100, 3400, 3650, 3900, totalMrr || 4200].map((v, i, arr) => {
+              const max = Math.max(...arr);
+              return (
               <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                 <span style={{ fontSize: 8, color: C.textDim, fontFamily: F }}>{i === 11 ? `$${v.toLocaleString()}` : ""}</span>
-                <div style={{ width: "100%", height: `${(v / totalMrr) * 120}px`, background: i === 11 ? C.accent : C.accent + "33", borderRadius: 3 }} />
+                <div style={{ width: "100%", height: `${(v / max) * 110}px`, background: i === 11 ? C.accent : C.accent + "33", borderRadius: 3 }} />
                 <span style={{ fontSize: 7, color: C.textDim, fontFamily: F }}>{["M", "A", "M", "J", "J", "A", "S", "O", "N", "D", "J", "F"][i]}</span>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
-        <div style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+        <div style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
           <div style={{ fontSize: 10, fontFamily: F, fontWeight: 600, color: C.textDim, letterSpacing: "0.06em", marginBottom: 16 }}>REVENUE STREAMS</div>
           <div style={{ fontSize: 9, fontFamily: F, color: C.textDim, marginBottom: 8 }}>DIRECT CLIENTS</div>
           {[
@@ -258,7 +261,7 @@ export default function AdminDashboard() {
                 <span style={{ fontSize: 11, fontFamily: F, fontWeight: 600, color: C.text }}>${p.mrr}/mo</span>
               </div>
               <div style={{ height: 4, borderRadius: 2, background: C.bg }}>
-                <div style={{ width: `${(p.mrr / Math.max(totalMrr, 1)) * 100}%`, height: "100%", borderRadius: 2, background: p.color }} />
+                <div style={{ width: `${Math.min((p.mrr / Math.max(totalMrr, 1)) * 100, 100)}%`, height: "100%", borderRadius: 2, background: p.color }} />
               </div>
             </div>
           ))}
@@ -270,7 +273,7 @@ export default function AdminDashboard() {
                 <span style={{ fontSize: 11, fontFamily: F, fontWeight: 600 }}>${(a.platformFee + a.workspaceFees).toLocaleString()}/mo</span>
               </div>
               <div style={{ height: 4, borderRadius: 2, background: C.bg }}>
-                <div style={{ width: `${((a.platformFee + a.workspaceFees) / Math.max(totalMrr, 1)) * 100}%`, height: "100%", borderRadius: 2, background: "#2dd4a8" }} />
+                <div style={{ width: `${Math.min(((a.platformFee + a.workspaceFees) / Math.max(totalMrr, 1)) * 100, 100)}%`, height: "100%", borderRadius: 2, background: "#2dd4a8" }} />
               </div>
             </div>
           ))}
