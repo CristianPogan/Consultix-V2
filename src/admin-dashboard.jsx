@@ -29,9 +29,14 @@ function StatCard({ label, value, sub, icon, color, trend }) {
   );
 }
 
+const ROLE_TO_LABEL = { org_owner: "Owner", org_admin: "Admin", org_member: "Member", platform_admin: "Platform Admin" };
+function roleLabel(role) {
+  return ROLE_TO_LABEL[role] || (role ? String(role).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "—");
+}
+
 function Badge({ text, color }) {
-  const cols = { active: C.green, trialling: C.accent, churned: C.danger, suspended: C.warn, starter: "#888", growth: C.accent, scale: C.purple, agency_pro: "#2dd4a8", "pro (agency)": "#2dd4a8", "standard (agency)": C.accent, open: C.warn, resolved: C.green, healthy: C.green, degraded: C.warn, down: C.danger, owner: C.accent, admin: C.purple, member: C.textMuted };
-  const c = cols[text.toLowerCase()] || C.accent;
+  const cols = { active: C.green, trialling: C.accent, churned: C.danger, suspended: C.warn, starter: "#888", growth: C.accent, scale: C.purple, agency_pro: "#2dd4a8", "pro (agency)": "#2dd4a8", "standard (agency)": C.accent, open: C.warn, resolved: C.green, healthy: C.green, degraded: C.warn, down: C.danger, owner: C.accent, admin: C.purple, member: C.textMuted, "platform admin": C.purple };
+  const c = cols[text?.toLowerCase()] || C.accent;
   return <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, fontFamily: F, fontWeight: 600, background: c + "15", color: c, border: `1px solid ${c}22`, textTransform: "capitalize" }}>{text}</span>;
 }
 
@@ -190,6 +195,9 @@ export default function AdminDashboard() {
   const [liveUsers, setLiveUsers] = useState(null);
   const [liveErrors, setLiveErrors] = useState(null);
   const [liveFlags, setLiveFlags] = useState(null);
+  const [livePlans, setLivePlans] = useState(null);
+  const [liveInvoices, setLiveInvoices] = useState(null);
+  const [liveDiscountCodes, setLiveDiscountCodes] = useState(null);
 
   useEffect(() => {
     api.admin.agencies.list().then(d => setLiveAgencies(Array.isArray(d) ? d : d.agencies || null)).catch(() => {});
@@ -200,8 +208,19 @@ export default function AdminDashboard() {
     api.admin.featureFlags.list().then(d => setLiveFlags(Array.isArray(d) ? d : d.feature_flags || null)).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (page === "billing") {
+      api.admin.billing.plans.list().then(d => setLivePlans(Array.isArray(d) ? d : d.plans || null)).catch(() => {});
+      api.admin.billing.invoices.list().then(d => setLiveInvoices(Array.isArray(d) ? d : d.invoices || null)).catch(() => {});
+      api.admin.discountCodes.list().then(d => setLiveDiscountCodes(Array.isArray(d) ? d : d.discount_codes || null)).catch(() => {});
+    }
+  }, [page]);
+
   const _AGENCIES = liveAgencies || AGENCIES;
   const _ORGS = liveOrgs || ORGS;
+  const _PLANS = livePlans || PLATFORM_PLANS;
+  const _INVOICES = liveInvoices || [];
+  const _DISCOUNT_CODES = liveDiscountCodes || [];
   const _TICKETS = liveTickets || TICKETS;
   const _USERS = liveUsers || USERS;
 
@@ -1106,13 +1125,21 @@ export default function AdminDashboard() {
 
   // ---- USERS ----
   const renderUsers = () => {
+    const users = _USERS;
+    const ownerCount = users.filter(u => u.role === "Owner" || u.role === "org_owner").length;
+    const totalLogins = users.reduce((s, u) => s + (u.logins ?? 0), 0);
+    const avgLogins = users.length ? Math.round(totalLogins / users.length) : 0;
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const active7d = users.some(u => u.last_login_at)
+      ? users.filter(u => u.last_login_at && (Date.now() - new Date(u.last_login_at).getTime()) < sevenDaysMs).length
+      : "—";
     return (
       <div>
         <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
-          <StatCard label="Total Users" value={USERS.length} icon="👤" />
-          <StatCard label="Active (7d)" value="8" icon="✅" color={C.green} />
-          <StatCard label="Owners" value={USERS.filter(u => u.role === "Owner").length} icon="👑" />
-          <StatCard label="Avg Logins/User" value={Math.round(USERS.reduce((s, u) => s + u.logins, 0) / USERS.length)} icon="📊" />
+          <StatCard label="Total Users" value={users.length} icon="👤" />
+          <StatCard label="Active (7d)" value={active7d} icon="✅" color={C.green} />
+          <StatCard label="Owners" value={ownerCount} icon="👑" />
+          <StatCard label="Avg Logins/User" value={avgLogins} icon="📊" />
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
           <button style={{ padding: "7px 16px", background: C.accent, color: C.bg, border: "none", borderRadius: 6, fontFamily: F, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>+ Create User Account</button>
@@ -1123,16 +1150,16 @@ export default function AdminDashboard() {
               <span key={h} style={{ fontSize: 9, fontFamily: F, fontWeight: 600, color: C.textDim, letterSpacing: "0.06em" }}>{h.toUpperCase()}</span>
             ))}
           </div>
-          {USERS.map((u, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1.5fr 1fr 1fr 1fr", padding: "11px 18px", borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
+          {users.map((u, i) => (
+            <div key={u.id || i} style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1.5fr 1fr 1fr 1fr", padding: "11px 18px", borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div>
                 <div style={{ fontSize: 10, color: C.textDim }}>{u.email}</div>
               </div>
-              <span style={{ fontSize: 12, color: C.textMuted }}>{u.org}</span>
-              <Badge text={u.role} />
-              <span style={{ fontSize: 12, fontFamily: F, color: C.textMuted }}>{u.logins}</span>
-              <span style={{ fontSize: 10, color: C.textDim }}>{u.lastActive}</span>
+              <span style={{ fontSize: 12, color: C.textMuted }}>{u.org_name ?? u.org ?? "—"}</span>
+              <Badge text={roleLabel(u.role)} />
+              <span style={{ fontSize: 12, fontFamily: F, color: C.textMuted }}>{u.logins ?? "—"}</span>
+              <span style={{ fontSize: 10, color: C.textDim }}>{u.lastActive ?? (u.last_login_at ? new Date(u.last_login_at).toLocaleString() : "—")}</span>
               <div style={{ display: "flex", gap: 4 }}>
                 <button style={{ padding: "4px 8px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 4, color: C.textMuted, fontFamily: F, fontSize: 8, cursor: "pointer" }}>Reset PW</button>
                 <button style={{ padding: "4px 8px", background: "transparent", border: `1px solid ${C.danger}33`, borderRadius: 4, color: C.danger, fontFamily: F, fontSize: 8, cursor: "pointer" }}>Disable</button>
@@ -1145,17 +1172,21 @@ export default function AdminDashboard() {
   };
 
   // ---- BILLING ----
+  const normOrg = (o) => ({ ...o, plan: o.plan_tier || o.plan, creditsTotal: o.credits_total ?? o.creditsTotal, creditsUsed: o.credits_used ?? o.creditsUsed });
+  const normAgency = (a) => ({ ...a, platformFee: a.platformFee ?? a.platform_fee ?? 497, workspaceFees: a.workspaceFees ?? (a.clients || 0) * (a.perWorkspaceFee ?? a.per_workspace_fee ?? 97), clients: a.clients ?? 0 });
   const renderBilling = () => {
-    const directOrgMrr = ORGS.filter(o => !o.agency_id && o.mrr > 0).reduce((s, o) => s + o.mrr, 0);
-    const agencyFees = AGENCIES.reduce((s, a) => s + a.platformFee + a.workspaceFees, 0);
+    const orgs = _ORGS.map(normOrg);
+    const agencies = _AGENCIES.map(normAgency);
+    const directOrgMrr = orgs.filter(o => !o.agency_id && (o.mrr || 0) > 0).reduce((s, o) => s + (o.mrr || 0), 0);
+    const agencyFees = agencies.reduce((s, a) => s + (a.platformFee || 0) + (a.workspaceFees || 0), 0);
     const billingTotal = directOrgMrr + agencyFees;
-    const payingOrgs = ORGS.filter(o => o.mrr > 0).length;
+    const payingOrgs = orgs.filter(o => (o.mrr || 0) > 0).length;
     return (
     <div>
       <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
         <StatCard label="Total MRR" value={`$${billingTotal.toLocaleString()}`} icon="💵" color={C.green} sub={`$${directOrgMrr.toLocaleString()} direct + $${agencyFees.toLocaleString()} agency`} trend="up" />
         <StatCard label="ARR" value={`$${(billingTotal * 12).toLocaleString()}`} icon="📈" color={C.green} />
-        <StatCard label="Avg Revenue / Org" value={`$${Math.round(directOrgMrr / Math.max(ORGS.filter(o => !o.agency_id && o.mrr > 0).length, 1))}`} icon="🏢" sub="Direct clients only" />
+        <StatCard label="Avg Revenue / Org" value={`$${Math.round(directOrgMrr / Math.max(orgs.filter(o => !o.agency_id && (o.mrr || 0) > 0).length, 1))}`} icon="🏢" sub="Direct clients only" />
         <StatCard label="LTV (estimated)" value={`$${(Math.round(billingTotal / Math.max(payingOrgs, 1)) * 12).toLocaleString()}`} icon="💰" sub="12 month avg retention" />
       </div>
       {/* Agency Revenue Breakdown */}
@@ -1163,19 +1194,19 @@ export default function AdminDashboard() {
         <span style={{ fontSize: 12 }}>🏛️</span>
         <div style={{ flex: 1 }}>
           <span style={{ fontSize: 11, color: "#2dd4a8", fontWeight: 600 }}>Agency Revenue: ${agencyFees.toLocaleString()}/mo</span>
-          <span style={{ fontSize: 10, color: C.textDim, marginLeft: 12 }}>{AGENCIES.length} agencies × ($497 platform + $97/workspace)</span>
+          <span style={{ fontSize: 10, color: C.textDim, marginLeft: 12 }}>{agencies.length} agencies × ($497 platform + $97/workspace)</span>
         </div>
-        {AGENCIES.map(a => (
+        {agencies.map(a => (
           <div key={a.id} style={{ padding: "4px 10px", background: C.bg, borderRadius: 6, border: `1px solid ${C.border}` }}>
             <span style={{ fontSize: 10, fontWeight: 600, color: "#2dd4a8" }}>{a.name}</span>
-            <span style={{ fontSize: 9, color: C.textDim, marginLeft: 6 }}>${(a.platformFee + a.workspaceFees).toLocaleString()}/mo</span>
+            <span style={{ fontSize: 9, color: C.textDim, marginLeft: 6 }}>${((a.platformFee || 0) + (a.workspaceFees || 0)).toLocaleString()}/mo</span>
           </div>
         ))}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
         <div style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10 }}>
           <div style={{ fontSize: 10, fontFamily: F, fontWeight: 600, color: C.textDim, letterSpacing: "0.06em", marginBottom: 12 }}>DIRECT CLIENT SUBSCRIPTIONS</div>
-          {ORGS.filter(o => !o.agency_id && o.mrr > 0).map(o => (
+          {orgs.filter(o => !o.agency_id && (o.mrr || 0) > 0).map(o => (
             <div key={o.id} style={{ display: "flex", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}`, gap: 10 }}>
               <span style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>{o.name}</span>
               <Badge text={o.plan} />
@@ -1185,31 +1216,26 @@ export default function AdminDashboard() {
         </div>
         <div style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10 }}>
           <div style={{ fontSize: 10, fontFamily: F, fontWeight: 600, color: C.textDim, letterSpacing: "0.06em", marginBottom: 12 }}>FAILED PAYMENTS</div>
-          {[
-            { org: "FinLeap Consulting", amount: "$247", attempts: 3, lastAttempt: "Feb 10", status: "Failed" },
-          ].map((fp, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.border}`, gap: 10 }}>
+          {(_INVOICES.filter(i => ["failed", "past_due"].includes((i.status || "").toLowerCase()))).map((fp, i) => (
+            <div key={fp.id || i} style={{ display: "flex", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.border}`, gap: 10 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 600 }}>{fp.org}</div>
-                <div style={{ fontSize: 10, color: C.textDim }}>{fp.attempts} attempts · Last: {fp.lastAttempt}</div>
+                <div style={{ fontSize: 12, fontWeight: 600 }}>{fp.org_name || fp.org}</div>
+                <div style={{ fontSize: 10, color: C.textDim }}>{fp.attempts || 0} attempts · Last: {fp.updated_at ? new Date(fp.updated_at).toLocaleDateString() : fp.lastAttempt || "—"}</div>
               </div>
-              <span style={{ fontSize: 12, fontFamily: F, fontWeight: 600, color: C.danger }}>{fp.amount}</span>
-              <button style={{ padding: "5px 10px", background: C.dangerBg, border: `1px solid ${C.danger}22`, borderRadius: 6, color: C.danger, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>Retry</button>
+              <span style={{ fontSize: 12, fontFamily: F, fontWeight: 600, color: C.danger }}>${fp.amount_due ?? fp.amount ?? 0}</span>
+              <button onClick={() => fp.id && api.admin.billing.invoiceRetry(fp.id).then(() => { api.admin.billing.invoices.list().then(d => setLiveInvoices(Array.isArray(d) ? d : d.invoices || null)); })} style={{ padding: "5px 10px", background: C.dangerBg, border: `1px solid ${C.danger}22`, borderRadius: 6, color: C.danger, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>Retry</button>
             </div>
           ))}
           <div style={{ marginTop: 12, padding: "10px 14px", background: C.bg, borderRadius: 6, border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 10, fontFamily: F, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>DISCOUNT CODES</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {[
-                { code: "BETA50", discount: "50% off 3 months", used: 4 },
-                { code: "LAUNCH20", discount: "20% off first year", used: 12 },
-              ].map(d => (
-                <div key={d.code} style={{ padding: "6px 10px", background: C.surface, borderRadius: 6, border: `1px solid ${C.border}` }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {_DISCOUNT_CODES.map(d => (
+                <div key={d.id || d.code} style={{ padding: "6px 10px", background: C.surface, borderRadius: 6, border: `1px solid ${C.border}` }}>
                   <span style={{ fontSize: 11, fontFamily: F, fontWeight: 600, color: C.accent }}>{d.code}</span>
-                  <div style={{ fontSize: 9, color: C.textDim }}>{d.discount} · Used {d.used}x</div>
+                  <div style={{ fontSize: 9, color: C.textDim }}>{(d.discount_text || d.discount) || "—"} · Used {(d.used_count ?? d.used ?? 0)}x{d.max_uses ? ` / ${d.max_uses}` : ""}</div>
                 </div>
               ))}
-              <button style={{ padding: "6px 12px", background: "transparent", border: `1px dashed ${C.border}`, borderRadius: 6, color: C.textDim, fontFamily: F, fontSize: 9, cursor: "pointer" }}>+ Add Code</button>
+              <button onClick={() => { const c = prompt("Code:"); const t = prompt("Discount text (e.g. 50% off 3 months):"); if (c) api.admin.discountCodes.create({ code: c, discount_text: t }).then(() => api.admin.discountCodes.list().then(d => setLiveDiscountCodes(Array.isArray(d) ? d : d.discount_codes || null))); }} style={{ padding: "6px 12px", background: "transparent", border: `1px dashed ${C.border}`, borderRadius: 6, color: C.textDim, fontFamily: F, fontSize: 9, cursor: "pointer" }}>+ Add Code</button>
             </div>
           </div>
         </div>
@@ -1226,11 +1252,19 @@ export default function AdminDashboard() {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-          {[
-            { name: "Starter", price: 97, annual: 970, credits: 500, seats: 1, projects: 2, features: ["Lead Discovery", "CRM Pipeline", "Email Campaigns", "Basic AI Assistant", "3 Survey Templates"], color: C.textMuted, subs: 1 },
-            { name: "Growth", price: 247, annual: 2470, credits: 2000, seats: 3, projects: 5, features: ["Everything in Starter", "AI Council", "LinkedIn Campaigns", "Strategy (Audits)", "Call Analyser", "Solutions Marketplace", "Public API Access", "Implementation Board", "10 Survey Templates"], color: C.accent, subs: 4, popular: true },
-            { name: "Scale", price: 497, annual: 4970, credits: 5000, seats: 10, projects: "Unlimited", features: ["Everything in Growth", "Custom Skills", "White-Label Reports", "Priority Support", "Dedicated Onboarding", "Custom Integrations", "Unlimited Survey Templates", "Team Collaboration", "Advanced Analytics"], color: C.purple, subs: 2 },
-          ].map(plan => (
+          {(_PLANS.slice(0, 6).map(p => ({
+            id: p.id,
+            name: p.name || p.tier_key,
+            price: p.price_monthly ?? p.price ?? 0,
+            annual: (p.price_monthly ?? p.price ?? 0) * 10,
+            credits: p.credits_monthly ?? p.credits ?? 0,
+            seats: p.max_users ?? p.seats ?? 1,
+            projects: p.features_json?.max_projects ?? 2,
+            features: (() => { try { const f = typeof p.features_json === "string" ? JSON.parse(p.features_json) : p.features_json; return Array.isArray(f) ? f : (f?.features || []) || ["—"]; } catch { return ["—"]; } })(),
+            color: { starter: C.textMuted, growth: C.accent, scale: C.purple }[String(p.tier_key || p.name).toLowerCase()] || C.accent,
+            subs: orgs.filter(o => (o.plan_tier || o.plan || "").toLowerCase() === String(p.tier_key || p.name).toLowerCase()).length,
+            popular: String(p.tier_key || p.name).toLowerCase() === "growth",
+          }))).map(plan => (
             <div key={plan.name} style={{ padding: "18px 18px", background: C.bg, border: `1px solid ${plan.popular ? plan.color + "44" : C.border}`, borderRadius: 10, position: "relative" }}>
               {plan.popular && <div style={{ position: "absolute", top: -8, left: "50%", transform: "translateX(-50%)", padding: "2px 10px", background: plan.color, color: C.bg, fontSize: 8, fontFamily: F, fontWeight: 700, borderRadius: 4, letterSpacing: "0.05em" }}>MOST POPULAR</div>}
               
@@ -1295,11 +1329,11 @@ export default function AdminDashboard() {
       <div style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 16 }}>
         <div style={{ fontSize: 10, fontFamily: F, fontWeight: 600, color: C.textDim, letterSpacing: "0.06em", marginBottom: 12 }}>CREDIT ECONOMICS — REVENUE PER CREDIT</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-          {[
-            { plan: "Starter", price: 97, credits: 500, perCredit: "$0.194", color: C.textMuted },
-            { plan: "Growth", price: 247, credits: 2000, perCredit: "$0.124", color: C.accent },
-            { plan: "Scale", price: 497, credits: 5000, perCredit: "$0.099", color: C.purple },
-          ].map(p => (
+          {_PLANS.slice(0, 3).map(p => {
+            const price = p.price_monthly ?? p.price ?? 0;
+            const credits = p.credits_monthly ?? p.credits ?? 1;
+            return { plan: p.name || p.tier_key, price, credits, perCredit: credits ? `$${(price / credits).toFixed(3)}` : "$0", color: { starter: C.textMuted, growth: C.accent, scale: C.purple }[String(p.tier_key || p.name).toLowerCase()] || C.accent };
+          }).map(p => (
             <div key={p.plan} style={{ padding: "12px 14px", background: C.bg, borderRadius: 8, border: `1px solid ${C.border}`, textAlign: "center" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: p.color, marginBottom: 4 }}>{p.plan}</div>
               <div style={{ fontSize: 18, fontFamily: F, fontWeight: 700 }}>{p.perCredit}</div>
@@ -1318,34 +1352,25 @@ export default function AdminDashboard() {
       <div style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div style={{ fontSize: 10, fontFamily: F, fontWeight: 600, color: C.textDim, letterSpacing: "0.06em" }}>INVOICE HISTORY</div>
-          <button style={{ padding: "5px 12px", background: C.accent, color: C.bg, border: "none", borderRadius: 6, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>+ Manual Invoice</button>
+          <button onClick={() => { const orgId = prompt("Org ID:"); const amt = prompt("Amount due:"); if (orgId) api.admin.billing.invoices.create({ org_id: orgId, amount_due: parseFloat(amt) || 0 }).then(() => api.admin.billing.invoices.list().then(d => setLiveInvoices(Array.isArray(d) ? d : d.invoices || null))); }} style={{ padding: "5px 12px", background: C.accent, color: C.bg, border: "none", borderRadius: 6, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>+ Manual Invoice</button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "0.8fr 2fr 1fr 1fr 1fr 0.8fr 0.8fr", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
           {["Invoice #", "Organisation", "Plan", "Amount", "Date", "Status", ""].map(h => (
             <span key={h} style={{ fontSize: 9, fontFamily: F, fontWeight: 600, color: C.textDim }}>{h.toUpperCase()}</span>
           ))}
         </div>
-        {[
-          { num: "INV-0047", org: "DataPulse Advisory", plan: "Scale", amount: "$497.00", date: "Feb 1, 2026", status: "Paid" },
-          { num: "INV-0046", org: "Dunn Consulting", plan: "Scale", amount: "$497.00", date: "Feb 1, 2026", status: "Paid" },
-          { num: "INV-0045", org: "NexGen Consulting", plan: "Growth", amount: "$247.00", date: "Feb 1, 2026", status: "Paid" },
-          { num: "INV-0044", org: "Apex Advisory", plan: "Growth", amount: "$247.00", date: "Feb 1, 2026", status: "Paid" },
-          { num: "INV-0043", org: "Perry Salvagne Consulting", plan: "Growth", amount: "$247.00", date: "Feb 1, 2026", status: "Paid" },
-          { num: "INV-0042", org: "SynthWave Partners", plan: "Growth", amount: "$247.00", date: "Feb 1, 2026", status: "Paid" },
-          { num: "INV-0041", org: "FinLeap Consulting", plan: "Growth", amount: "$247.00", date: "Feb 1, 2026", status: "Failed" },
-          { num: "INV-0040", org: "DataPulse Advisory", plan: "Scale", amount: "$497.00", date: "Jan 1, 2026", status: "Paid" },
-          { num: "INV-0039", org: "Dunn Consulting", plan: "Scale", amount: "$497.00", date: "Jan 1, 2026", status: "Paid" },
-        ].map((inv, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "0.8fr 2fr 1fr 1fr 1fr 0.8fr 0.8fr", padding: "8px 0", borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
-            <span style={{ fontSize: 10, fontFamily: F, color: C.accent }}>{inv.num}</span>
-            <span style={{ fontSize: 12, fontWeight: 500 }}>{inv.org}</span>
-            <Badge text={inv.plan} />
-            <span style={{ fontSize: 12, fontFamily: F, fontWeight: 600 }}>{inv.amount}</span>
-            <span style={{ fontSize: 10, color: C.textDim }}>{inv.date}</span>
-            <Badge text={inv.status === "Failed" ? "open" : "resolved"} />
+        {_INVOICES.map((inv, i) => (
+          <div key={inv.id || i} style={{ display: "grid", gridTemplateColumns: "0.8fr 2fr 1fr 1fr 1fr 0.8fr 0.8fr", padding: "8px 0", borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
+            <span style={{ fontSize: 10, fontFamily: F, color: C.accent }}>{inv.stripe_invoice_id || String(inv.id).slice(0, 8)}</span>
+            <span style={{ fontSize: 12, fontWeight: 500 }}>{inv.org_name || "—"}</span>
+            <Badge text={inv.plan_tier || "—"} />
+            <span style={{ fontSize: 12, fontFamily: F, fontWeight: 600 }}>${(inv.amount_due ?? inv.amount_paid ?? 0).toFixed(2)}</span>
+            <span style={{ fontSize: 10, color: C.textDim }}>{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : "—"}</span>
+            <Badge text={(inv.status || "draft").toLowerCase()} />
             <div style={{ display: "flex", gap: 4 }}>
-              <button style={{ padding: "3px 6px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 4, color: C.textMuted, fontFamily: F, fontSize: 8, cursor: "pointer" }}>PDF</button>
-              {inv.status === "Failed" && <button style={{ padding: "3px 6px", background: "transparent", border: `1px solid ${C.danger}33`, borderRadius: 4, color: C.danger, fontFamily: F, fontSize: 8, cursor: "pointer" }}>Refund</button>}
+              {inv.invoice_pdf_url && <a href={inv.invoice_pdf_url} target="_blank" rel="noreferrer" style={{ padding: "3px 6px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 4, color: C.textMuted, fontFamily: F, fontSize: 8, cursor: "pointer", textDecoration: "none" }}>PDF</a>}
+              {["failed", "past_due"].includes((inv.status || "").toLowerCase()) && <button onClick={() => api.admin.billing.invoiceRetry(inv.id).then(() => api.admin.billing.invoices.list().then(d => setLiveInvoices(Array.isArray(d) ? d : d.invoices || null)))} style={{ padding: "3px 6px", background: "transparent", border: `1px solid ${C.warn}33`, borderRadius: 4, color: C.warn, fontFamily: F, fontSize: 8, cursor: "pointer" }}>Retry</button>}
+              <button onClick={() => api.admin.billing.invoiceRefund(inv.id).then(() => api.admin.billing.invoices.list().then(d => setLiveInvoices(Array.isArray(d) ? d : d.invoices || null)))} style={{ padding: "3px 6px", background: "transparent", border: `1px solid ${C.danger}33`, borderRadius: 4, color: C.danger, fontFamily: F, fontSize: 8, cursor: "pointer" }}>Refund</button>
             </div>
           </div>
         ))}
@@ -1413,7 +1438,7 @@ export default function AdminDashboard() {
         <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>Push a bespoke or private solution to a specific client account. They'll see it in their Solutions sidebar.</div>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 14 }}>
           <div style={{ flex: 1 }}><div style={{ fontSize: 9, fontFamily: F, color: C.textDim, marginBottom: 3 }}>SOLUTION</div><select style={{ ...inputStyle, padding: "8px 8px" }}><option>Select solution...</option><option>AI Assistant</option><option>Proposal Builder</option><option>ROI Tracker</option><option>Contract Analyser</option><option>[Create New Bespoke]</option></select></div>
-          <div style={{ flex: 1 }}><div style={{ fontSize: 9, fontFamily: F, color: C.textDim, marginBottom: 3 }}>ORGANISATION</div><select style={{ ...inputStyle, padding: "8px 8px" }}><option>Select org...</option>{ORGS.map(o => <option key={o.id}>{o.name}</option>)}</select></div>
+          <div style={{ flex: 1 }}><div style={{ fontSize: 9, fontFamily: F, color: C.textDim, marginBottom: 3 }}>ORGANISATION</div><select style={{ ...inputStyle, padding: "8px 8px" }}><option>Select org...</option>{_ORGS.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div>
           <div style={{ width: 120 }}><div style={{ fontSize: 9, fontFamily: F, color: C.textDim, marginBottom: 3 }}>VISIBILITY</div><select style={{ ...inputStyle, padding: "8px 8px" }}><option>Private</option><option>Public</option><option>Hidden</option></select></div>
           <button style={{ padding: "8px 16px", background: C.accent, color: C.bg, border: "none", borderRadius: 6, fontFamily: F, fontSize: 10, fontWeight: 600, cursor: "pointer", height: 34, whiteSpace: "nowrap" }}>Assign</button>
         </div>

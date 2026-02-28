@@ -1257,11 +1257,14 @@ export async function updateUserProfile(userId, updates) {
   return res.rows[0] || null;
 }
 
-export async function createUser(email, passwordHash, name, orgId) {
+/** @param {string} [role] - org_member (default), org_owner, org_admin, or platform_admin */
+export async function createUser(email, passwordHash, name, orgId, role = 'org_member') {
   await ensureUsersTableReady();
+  const validRoles = ['org_member', 'org_owner', 'org_admin', 'platform_admin'];
+  const r = validRoles.includes(role) ? role : 'org_member';
   const res = await query(
-    'INSERT INTO app_users (email, password_hash, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id, email, name, org_id',
-    [email.toLowerCase().trim(), passwordHash, name.trim(), orgId]
+    'INSERT INTO app_users (email, password_hash, name, org_id, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, org_id, role',
+    [email.toLowerCase().trim(), passwordHash, name.trim(), orgId, r]
   );
   return res.rows[0];
 }
@@ -1406,6 +1409,36 @@ export async function validateSignupToken(accessToken) {
     if (err.code === '42P01') return null;
     throw err;
   }
+}
+
+// --- Discount codes & admin billing ---
+async function ensureDiscountCodesTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS discount_codes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      code TEXT UNIQUE NOT NULL,
+      discount_text TEXT,
+      used_count INT DEFAULT 0,
+      max_uses INT,
+      status TEXT DEFAULT 'active',
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    )
+  `);
+  await query('CREATE INDEX IF NOT EXISTS idx_discount_codes_code ON discount_codes(code)').catch(() => {});
+}
+
+async function ensureAgencyFeeColumns() {
+  await query('ALTER TABLE agencies ADD COLUMN IF NOT EXISTS platform_fee NUMERIC DEFAULT 497').catch(() => {});
+  await query('ALTER TABLE agencies ADD COLUMN IF NOT EXISTS per_workspace_fee NUMERIC DEFAULT 97').catch(() => {});
+}
+
+let _discountCodesReady = false;
+export async function ensureDiscountCodesReady() {
+  if (_discountCodesReady) return;
+  await ensureDiscountCodesTable();
+  await ensureAgencyFeeColumns();
+  _discountCodesReady = true;
 }
 
 export default pool;

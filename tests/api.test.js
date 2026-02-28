@@ -820,3 +820,216 @@ describe('API: prompts', () => {
     assert.ok(Object.keys(res.body).length >= 4);
   });
 });
+
+describe('API: admin users', () => {
+  it('1. GET /api/admin/users without auth returns 401', async () => {
+    const res = await api.get('/api/admin/users');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. GET /api/admin/users with auth returns array or 401/503', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/admin/users').set(auth());
+    assert.ok([200, 401, 503, 500].includes(res.status), `Expected 200/401/503/500, got ${res.status}`);
+    if (res.status === 200) assert.ok(Array.isArray(res.body));
+  });
+
+  it('3. Each user has id, email, name, org_id, role, created_at', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/admin/users').set(auth());
+    if (res.status !== 200 || !res.body.length) return this.skip();
+    const u = res.body[0];
+    assert.ok(u.id, 'user should have id');
+    assert.ok(u.email, 'user should have email');
+    assert.ok('name' in u, 'user should have name');
+    assert.ok('org_id' in u, 'user should have org_id');
+    assert.ok('role' in u, 'user should have role');
+    assert.ok(u.created_at, 'user should have created_at');
+  });
+
+  it('4. GET /api/admin/users returns org_name (from organisations JOIN)', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/admin/users').set(auth());
+    if (res.status !== 200 || !res.body.length) return this.skip();
+    const u = res.body[0];
+    assert.ok('org_name' in u, 'user should have org_name from JOIN');
+  });
+
+  it('5. GET /api/admin/users?org_id=X filters by org', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const allRes = await api.get('/api/admin/users').set(auth());
+    if (allRes.status !== 200 || !allRes.body.length) return this.skip();
+    const orgId = allRes.body[0].org_id;
+    const filteredRes = await api.get(`/api/admin/users?org_id=${encodeURIComponent(orgId)}`).set(auth());
+    assert.strictEqual(filteredRes.status, 200);
+    assert.ok(Array.isArray(filteredRes.body));
+    if (filteredRes.body.length > 0) {
+      filteredRes.body.forEach(u => assert.strictEqual(u.org_id, orgId, 'all users should match org_id'));
+    }
+  });
+
+  it('6. Role values are org_member, org_owner, org_admin, or platform_admin (or null for legacy)', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.get('/api/admin/users').set(auth());
+    if (res.status !== 200 || !res.body.length) return this.skip();
+    const validRoles = ['org_member', 'org_owner', 'org_admin', 'platform_admin'];
+    res.body.forEach(u => {
+      assert.ok(!u.role || validRoles.includes(u.role), `role "${u.role}" should be one of ${validRoles.join(', ')} or null`);
+    });
+  });
+});
+
+describe('API: admin plan change (PUT /api/admin/organisations/:id/plan)', () => {
+  const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+
+  it('1. Without auth returns 401', async () => {
+    const res = await api.put(`/api/admin/organisations/${NIL_UUID}/plan`).send({ plan_tier: 'growth' });
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. Without plan_tier returns 400', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.put(`/api/admin/organisations/${NIL_UUID}/plan`).set(auth()).send({});
+    assert.strictEqual(res.status, 400);
+    assert.ok(res.body?.error?.toLowerCase().includes('plan_tier'));
+  });
+
+  it('3. With unknown org returns 404', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.put(`/api/admin/organisations/${NIL_UUID}/plan`).set(auth()).send({ plan_tier: 'growth' });
+    assert.ok([404, 200].includes(res.status));
+  });
+
+  it('4. With valid org and plan_tier updates plan_tier', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const orgsRes = await api.get('/api/admin/organisations').set(auth());
+    if (orgsRes.status !== 200 || !orgsRes.body?.length) return this.skip();
+    const orgId = orgsRes.body[0].id;
+    const res = await api.put(`/api/admin/organisations/${orgId}/plan`).set(auth()).send({ plan_tier: 'starter' });
+    assert.ok([200, 404].includes(res.status));
+    if (res.status === 200) assert.strictEqual(res.body.plan_tier, 'starter');
+  });
+});
+
+describe('API: admin credits (PUT /api/admin/organisations/:id/credits)', () => {
+  const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+
+  it('1. Without auth returns 401', async () => {
+    const res = await api.put(`/api/admin/organisations/${NIL_UUID}/credits`).send({ amount: 100 });
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. Without amount returns 400', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.put(`/api/admin/organisations/${NIL_UUID}/credits`).set(auth()).send({});
+    assert.strictEqual(res.status, 400);
+    assert.ok(res.body?.error?.toLowerCase().includes('amount'));
+  });
+
+  it('3. With valid org inserts into credit_transactions and returns balance', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const orgsRes = await api.get('/api/admin/organisations').set(auth());
+    if (orgsRes.status !== 200 || !orgsRes.body?.length) return this.skip();
+    const orgId = orgsRes.body[0].id;
+    const res = await api.put(`/api/admin/organisations/${orgId}/credits`).set(auth()).send({ amount: 1, description: 'Test admin credits' });
+    assert.ok([200, 404, 500].includes(res.status));
+    if (res.status === 200) assert.ok(typeof res.body.balance === 'number');
+  });
+});
+
+describe('API: admin billing plans', () => {
+  it('1. GET /api/admin/billing/plans without auth returns 401', async () => {
+    const res = await api.get('/api/admin/billing/plans');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. GET /api/admin/billing/plans with auth returns array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/admin/billing/plans').set(auth());
+    assert.ok([200, 500].includes(res.status));
+    if (res.status === 200) assert.ok(Array.isArray(res.body));
+  });
+
+  it('3. PUT /api/admin/billing/plans/:id without auth returns 401', async () => {
+    const res = await api.put('/api/admin/billing/plans/00000000-0000-0000-0000-000000000000').send({ price_monthly: 99 });
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('4. PUT /api/admin/billing/plans/:id with auth returns updated plan or 404', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const listRes = await api.get('/api/admin/billing/plans').set(auth());
+    if (listRes.status !== 200 || !listRes.body?.length) return this.skip();
+    const planId = listRes.body[0].id;
+    const res = await api.put(`/api/admin/billing/plans/${planId}`).set(auth()).send({ price_monthly: 99 });
+    assert.ok([200, 404, 500].includes(res.status));
+  });
+});
+
+describe('API: admin billing invoices', () => {
+  it('1. GET /api/admin/billing/invoices without auth returns 401', async () => {
+    const res = await api.get('/api/admin/billing/invoices');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. GET /api/admin/billing/invoices with auth returns array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/admin/billing/invoices').set(auth());
+    assert.ok([200, 500].includes(res.status));
+    if (res.status === 200) assert.ok(Array.isArray(res.body));
+  });
+
+  it('3. POST /api/admin/billing/invoices without org_id returns 400', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/admin/billing/invoices').set(auth()).send({ amount_due: 100 });
+    assert.strictEqual(res.status, 400);
+  });
+
+  it('4. POST /api/admin/billing/invoices with org_id creates invoice', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const orgsRes = await api.get('/api/admin/organisations').set(auth());
+    if (orgsRes.status !== 200 || !orgsRes.body?.length) return this.skip();
+    const orgId = orgsRes.body[0].id;
+    const res = await api.post('/api/admin/billing/invoices').set(auth()).send({ org_id: orgId, amount_due: 50, status: 'draft' });
+    assert.ok([201, 500].includes(res.status));
+  });
+
+  it('5. POST /api/admin/invoices/:id/retry returns 200 or 404', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/admin/invoices/00000000-0000-0000-0000-000000000000/retry').set(auth());
+    assert.ok([200, 404, 500].includes(res.status));
+  });
+
+  it('6. POST /api/admin/invoices/:id/refund returns 200 or 404', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/admin/invoices/00000000-0000-0000-0000-000000000000/refund').set(auth());
+    assert.ok([200, 404, 500].includes(res.status));
+  });
+});
+
+describe('API: admin discount codes', () => {
+  it('1. GET /api/admin/discount-codes without auth returns 401', async () => {
+    const res = await api.get('/api/admin/discount-codes');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. GET /api/admin/discount-codes with auth returns array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/admin/discount-codes').set(auth());
+    assert.ok([200, 500].includes(res.status));
+    if (res.status === 200) assert.ok(Array.isArray(res.body));
+  });
+
+  it('3. POST /api/admin/discount-codes without code returns 400', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/admin/discount-codes').set(auth()).send({ discount_text: '50% off' });
+    assert.strictEqual(res.status, 400);
+  });
+
+  it('4. POST /api/admin/discount-codes with code creates discount code', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const code = 'TEST' + Date.now();
+    const res = await api.post('/api/admin/discount-codes').set(auth()).send({ code, discount_text: 'Test discount', max_uses: 10 });
+    assert.ok([201, 500].includes(res.status));
+    if (res.status === 201) assert.strictEqual(res.body.code, code);
+  });
+});

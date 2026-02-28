@@ -500,5 +500,21 @@ export const api = {
       list: () => req('GET', '/admin/errors'),
       resolve: (id, data) => req('PUT', `/admin/errors/${id}/resolve`, data),
     },
+    billing: {
+      plans: {
+        list: () => req('GET', '/admin/billing/plans'),
+        update: (id, data) => req('PUT', `/admin/billing/plans/${id}`, data),
+      },
+      invoices: {
+        list: () => req('GET', '/admin/billing/invoices'),
+        create: (data) => req('POST', '/admin/billing/invoices', data),
+      },
+      invoiceRetry: (id) => req('POST', `/admin/invoices/${id}/retry`),
+      invoiceRefund: (id) => req('POST', `/admin/invoices/${id}/refund`),
+    },
+    discountCodes: {
+      list: () => req('GET', '/admin/discount-codes'),
+      create: (data) => req('POST', '/admin/discount-codes', data),
+    },
   },
 };
