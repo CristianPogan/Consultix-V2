@@ -1413,16 +1413,19 @@ export async function validateSignupToken(accessToken) {
 
 // --- Credit System: credit_action_costs, platform_api_costs, credit_transactions columns, organisations.credits_allocated ---
 const CREDIT_ACTION_COSTS_SEED = [
-  { action_key: 'lead_discovery', action_label: 'Lead Discovery', credits: 1, unit: 'per lead', cost_cents: 1.2, margin_pct: 88, sort_order: 1 },
-  { action_key: 'email_verification', action_label: 'Email Verification', credits: 1, unit: 'per lead', cost_cents: 0.8, margin_pct: 92, sort_order: 2 },
-  { action_key: 'ai_personalisation', action_label: 'AI Personalisation', credits: 2, unit: 'per lead', cost_cents: 3.5, margin_pct: 82, sort_order: 3 },
-  { action_key: 'ai_audit_analysis', action_label: 'AI Audit Analysis', credits: 25, unit: 'per analysis', cost_cents: 42, margin_pct: 83, sort_order: 4 },
-  { action_key: 'deck_generation', action_label: 'Deck Generation', credits: 15, unit: 'per deck', cost_cents: 28, margin_pct: 81, sort_order: 5 },
-  { action_key: 'niche_research', action_label: 'Niche Research', credits: 10, unit: 'per report', cost_cents: 18, margin_pct: 82, sort_order: 6 },
-  { action_key: 'script_generation', action_label: 'Script Generation', credits: 5, unit: 'per script', cost_cents: 9, margin_pct: 82, sort_order: 7 },
-  { action_key: 'process_map', action_label: 'Process Map', credits: 10, unit: 'per map', cost_cents: 15, margin_pct: 85, sort_order: 8 },
-  { action_key: 'ai_assistant_query', action_label: 'AI Assistant Query', credits: 1, unit: 'per turn', cost_cents: 1.4, margin_pct: 86, sort_order: 9 },
-  { action_key: 'ai_council_query', action_label: 'AI Council Query', credits: 2, unit: 'per turn', cost_cents: 3.2, margin_pct: 84, sort_order: 10 },
+  { action_key: 'lead_discovery', action_label: 'Lead discovery', credits: 1, unit: 'per lead', cost_cents: 1.2, margin_pct: 88, sort_order: 1 },
+  { action_key: 'email_verification', action_label: 'Email verification', credits: 1, unit: 'per lead', cost_cents: 0.8, margin_pct: 92, sort_order: 2 },
+  { action_key: 'phone_lookup', action_label: 'Phone lookup', credits: 2, unit: 'per lead', cost_cents: 2.5, margin_pct: 90, sort_order: 3 },
+  { action_key: 'company_enrichment', action_label: 'Company enrichment', credits: 2, unit: 'per lead', cost_cents: 2.2, margin_pct: 89, sort_order: 4 },
+  { action_key: 'icp_scoring', action_label: 'ICP scoring', credits: 1, unit: 'per lead', cost_cents: 1.0, margin_pct: 91, sort_order: 5 },
+  { action_key: 'ai_personalisation', action_label: 'AI personalisation', credits: 2, unit: 'per lead', cost_cents: 3.5, margin_pct: 82, sort_order: 6 },
+  { action_key: 'ai_audit_analysis', action_label: 'AI audit analysis', credits: 25, unit: 'per analysis', cost_cents: 42, margin_pct: 83, sort_order: 7 },
+  { action_key: 'deck_generation', action_label: 'Deck generation', credits: 15, unit: 'per deck', cost_cents: 28, margin_pct: 81, sort_order: 8 },
+  { action_key: 'script_generation', action_label: 'Script generation', credits: 5, unit: 'per script', cost_cents: 9, margin_pct: 82, sort_order: 9 },
+  { action_key: 'niche_research', action_label: 'Niche research', credits: 10, unit: 'per report', cost_cents: 18, margin_pct: 82, sort_order: 10 },
+  { action_key: 'process_map', action_label: 'Process Map', credits: 10, unit: 'per map', cost_cents: 15, margin_pct: 85, sort_order: 11 },
+  { action_key: 'ai_assistant_query', action_label: 'AI Assistant Query', credits: 1, unit: 'per turn', cost_cents: 1.4, margin_pct: 86, sort_order: 12 },
+  { action_key: 'ai_council_query', action_label: 'AI Council Query', credits: 2, unit: 'per turn', cost_cents: 3.2, margin_pct: 84, sort_order: 13 },
 ];
 
 async function ensureCreditActionCostsTable() {
@@ -1471,10 +1474,32 @@ async function ensurePlatformApiCostsTable() {
 }
 
 
+async function ensureCreditTransactionsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS credit_transactions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id UUID,
+      amount INT,
+      credits_amount INT,
+      description TEXT,
+      action TEXT,
+      transaction_type TEXT,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      created_by UUID
+    )
+  `).catch(() => {});
+  await query('ALTER TABLE credit_transactions ADD COLUMN IF NOT EXISTS credits_amount INT').catch(() => {});
+  await query('CREATE INDEX IF NOT EXISTS idx_credit_transactions_org_id ON credit_transactions(org_id)').catch(() => {});
+}
+
 async function ensureCreditTransactionsColumns() {
+  await ensureCreditTransactionsTable();
   await query('ALTER TABLE credit_transactions ADD COLUMN IF NOT EXISTS action TEXT').catch(() => {});
   await query('ALTER TABLE credit_transactions ADD COLUMN IF NOT EXISTS transaction_type TEXT').catch(() => {});
   await query('ALTER TABLE credit_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()').catch(() => {});
+  await query('ALTER TABLE credit_transactions ADD COLUMN IF NOT EXISTS amount INT').catch(() => {});
+  // Backfill: if legacy credits_amount exists, copy to amount for rows where amount is NULL
+  await query(`UPDATE credit_transactions SET amount = credits_amount WHERE amount IS NULL AND credits_amount IS NOT NULL`).catch(() => {});
 }
 
 async function ensureOrganisationCreditsAllocated() {

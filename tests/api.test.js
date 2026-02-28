@@ -937,6 +937,101 @@ describe('API: admin credits (PUT /api/admin/organisations/:id/credits)', () => 
   });
 });
 
+describe('API: user billing (Account Billing tab)', () => {
+  it('1. GET /api/billing/plan without auth returns 401', async () => {
+    const res = await api.get('/api/billing/plan');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. GET /api/billing/plan with auth returns plan object', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/billing/plan').set(auth());
+    assert.ok([200, 503].includes(res.status));
+    if (res.status === 200) {
+      assert.ok(res.body.name || res.body.plan);
+      assert.ok(typeof (res.body.credits ?? res.body.credits_monthly) === 'number' || res.body.credits != null);
+    }
+  });
+
+  it('3. GET /api/billing/plans without auth returns 401', async () => {
+    const res = await api.get('/api/billing/plans');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('4. GET /api/billing/plans with auth returns plans array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/billing/plans').set(auth());
+    assert.ok([200, 503].includes(res.status));
+    if (res.status === 200) {
+      assert.ok(Array.isArray(res.body));
+      if (res.body.length) {
+        const p = res.body[0];
+        assert.ok(p.key || p.name);
+        assert.ok(typeof (p.price ?? 0) === 'number');
+      }
+    }
+  });
+
+  it('5. GET /api/billing/credits without auth returns 401', async () => {
+    const res = await api.get('/api/billing/credits');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('6. GET /api/billing/credits with auth returns balance and allocated', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/billing/credits').set(auth());
+    assert.ok([200, 503].includes(res.status));
+    if (res.status === 200) {
+      assert.ok(typeof res.body.balance === 'number');
+      assert.ok(typeof res.body.credits_allocated === 'number');
+      assert.ok(typeof res.body.credits_used_this_month === 'number');
+    }
+  });
+
+  it('7. GET /api/billing/credits/usage-by-action with auth returns byAction and byCategory', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/billing/credits/usage-by-action').set(auth());
+    assert.ok([200, 503].includes(res.status));
+    if (res.status === 200) {
+      assert.ok(typeof res.body.byAction === 'object');
+      assert.ok(typeof res.body.byCategory === 'object');
+    }
+  });
+
+  it('8. GET /api/billing/credits/costs with auth returns action costs array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/billing/credits/costs').set(auth());
+    assert.strictEqual(res.status, 200);
+    assert.ok(Array.isArray(res.body));
+    if (res.body.length) {
+      const c = res.body[0];
+      assert.ok(c.action_key || c.action_label);
+      assert.ok(typeof c.credits === 'number');
+    }
+  });
+
+  it('9. GET /api/billing/credits/history with auth returns transactions array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/billing/credits/history').set(auth());
+    assert.ok([200, 503].includes(res.status));
+    if (res.status === 200) {
+      assert.ok(Array.isArray(res.body));
+      if (res.body.length) {
+        const t = res.body[0];
+        assert.ok(typeof t.amount === 'number');
+        assert.ok('balance_after' in t);
+      }
+    }
+  });
+
+  it('10. GET /api/billing/invoices with auth returns invoices array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/billing/invoices').set(auth());
+    assert.ok([200, 503].includes(res.status));
+    if (res.status === 200) assert.ok(Array.isArray(res.body));
+  });
+});
+
 describe('API: admin billing plans', () => {
   it('1. GET /api/admin/billing/plans without auth returns 401', async () => {
     const res = await api.get('/api/admin/billing/plans');
