@@ -352,16 +352,16 @@ function expandRegionsForIcyPeas(regions) {
   const out = [];
   for (const r of regions) {
     const s = String(r || '').trim().toLowerCase();
-    if (s.includes('north america') || s === 'na') out.push('US', 'CA', 'MX', 'United States', 'Canada');
-    else if (s === 'dach' || s.includes('dach')) out.push('DE', 'AT', 'CH', 'Germany', 'Austria', 'Switzerland');
-    else if (s === 'nordics' || s === 'nordic' || s.includes('nordic')) out.push('SE', 'NO', 'DK', 'FI', 'IS', 'Sweden', 'Norway', 'Denmark', 'Finland');
-    else if (s.includes('australia') && s.includes('nz')) out.push('AU', 'NZ', 'Australia', 'New Zealand');
-    else if (s.includes('latin america') || s === 'latam') out.push('BR', 'MX', 'AR', 'CO', 'CL', 'PE', 'Brazil', 'Mexico', 'Argentina', 'Colombia');
-    else if (s === 'africa' || s.includes('africa')) out.push('ZA', 'NG', 'KE', 'EG', 'GH', 'South Africa', 'Nigeria', 'Kenya', 'Egypt');
-    else if (s.includes('europe') || s === 'eu') out.push('GB', 'DE', 'FR', 'NL', 'ES', 'IT', 'SE', 'CH', 'BE', 'IE', 'PL', 'United Kingdom', 'Germany', 'France');
-    else if ((s.includes('asia') && s.includes('pacific')) || s === 'apac') out.push('JP', 'AU', 'SG', 'IN', 'KR', 'HK', 'NZ', 'Japan', 'Australia');
-    else if (s.includes('mena')) out.push('AE', 'SA', 'IL', 'EG', 'United Arab Emirates');
-    else if (s.includes('uk') || s.includes('ireland')) out.push('GB', 'IE', 'United Kingdom', 'Ireland');
+    if (s.includes('north america') || s === 'na') out.push('US', 'CA', 'MX');
+    else if (s === 'dach' || s.includes('dach')) out.push('DE', 'AT', 'CH');
+    else if (s === 'nordics' || s === 'nordic' || s.includes('nordic')) out.push('SE', 'NO', 'DK', 'FI', 'IS');
+    else if (s.includes('australia') && s.includes('nz')) out.push('AU', 'NZ');
+    else if (s.includes('latin america') || s === 'latam') out.push('BR', 'MX', 'AR', 'CO', 'CL', 'PE');
+    else if (s === 'africa' || s.includes('africa')) out.push('ZA', 'NG', 'KE', 'EG', 'GH');
+    else if (s.includes('europe') || s === 'eu') out.push('GB', 'DE', 'FR', 'NL', 'ES', 'IT', 'SE', 'CH', 'BE', 'IE', 'PL');
+    else if ((s.includes('asia') && s.includes('pacific')) || s === 'apac') out.push('JP', 'AU', 'SG', 'IN', 'KR', 'HK', 'NZ');
+    else if (s.includes('mena')) out.push('AE', 'SA', 'IL', 'EG');
+    else if (s.includes('uk') || s.includes('ireland')) out.push('GB', 'IE');
     else if (s === 'global') out.push('US', 'CA', 'GB', 'DE', 'FR', 'AU', 'JP', 'IN', 'BR');
     else if (s.length === 2) out.push(s.toUpperCase());
     else out.push(r.trim());
@@ -508,9 +508,10 @@ router.post('/discover/icypeas', async (req, res) => {
 
 // Helpers for enrichment waterfall (uses lead_enrichment_order from Settings)
 const FIND_EMAIL_KEYS = ['findymail', 'icypeas', 'bettercontact', 'ai_ark'];
-const VERIFY_EMAIL_KEYS = ['findymail', 'neverbounce', 'bettercontact', 'zerobounce', 'cleanlist'];
+const VERIFY_EMAIL_KEYS = ['findymail', 'neverbounce', 'zerobounce', 'cleanlist'];
 
-async function findEmailWaterfall(orgId, { firstName, lastName, company, domain }) {
+async function findEmailWaterfall(orgId, { firstName, lastName, company, domain }, opts = {}) {
+  const usageTracker = opts.usageTracker || {};
   const orderRow = await getIntegrationServiceOrder(orgId);
   const order = orderRow?.lead_enrichment_order || ['findymail', 'icypeas', 'bettercontact', 'neverbounce'];
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
@@ -521,6 +522,9 @@ async function findEmailWaterfall(orgId, { firstName, lastName, company, domain 
     const creds = await getIntegrationCredentials(orgId, key);
     const apiKey = getApiKeyFromCredentials(creds);
     if (!apiKey) continue;
+
+    usageTracker.findEmail = usageTracker.findEmail || {};
+    usageTracker.findEmail[key] = (usageTracker.findEmail[key] || 0) + 1;
 
     try {
       if (key === 'findymail' && fullName && dom) {
@@ -541,7 +545,8 @@ async function findEmailWaterfall(orgId, { firstName, lastName, company, domain 
   throw new Error('No enrichment integration could find email');
 }
 
-async function verifyEmailWaterfall(orgId, email) {
+async function verifyEmailWaterfall(orgId, email, opts = {}) {
+  const usageTracker = opts.usageTracker || {};
   const orderRow = await getIntegrationServiceOrder(orgId);
   const order = orderRow?.lead_enrichment_order || ['findymail', 'neverbounce', 'bettercontact', 'zerobounce'];
   let lastErr = null;
@@ -551,6 +556,9 @@ async function verifyEmailWaterfall(orgId, email) {
     const creds = await getIntegrationCredentials(orgId, key);
     const apiKey = getApiKeyFromCredentials(creds);
     if (!apiKey) continue;
+
+    usageTracker.verifyEmail = usageTracker.verifyEmail || {};
+    usageTracker.verifyEmail[key] = (usageTracker.verifyEmail[key] || 0) + 1;
 
     try {
       if (key === 'findymail') {
@@ -593,11 +601,12 @@ async function runEnrichmentCascade(orgId, companies, opts = {}) {
     console.log(`[Cascade] ${msg}`);
   };
 
-  if (!companies?.length) return { contacts: [], listId: null, cascadeLog };
+  if (!companies?.length) return { contacts: [], listId: null, cascadeLog, usageTracker: {} };
 
   await ensureOrgExists(orgId);
   const listId = listName ? await createDiscoveryList(orgId, listName, { projectId }) : null;
   const allContacts = [];
+  const usageTracker = { findPeople: {}, findEmail: {}, verifyEmail: {} };
 
   const icypeasCreds = await getIntegrationCredentials(orgId, 'icypeas');
   const icypeasKey = getApiKeyFromCredentials(icypeasCreds);
@@ -643,7 +652,10 @@ async function runEnrichmentCascade(orgId, companies, opts = {}) {
         const result = await findPeopleIcyPeas(icypeasCriteria);
         people = result.leads || result.people?.leads || result.people || result.data || (Array.isArray(result) ? result : []);
         if (!Array.isArray(people)) people = [];
-        if (people.length > 0) log(`${companyName} — IcyPeas found ${people.length} people`, 'info');
+        if (people.length > 0) {
+          log(`${companyName} — IcyPeas found ${people.length} people`, 'info');
+          usageTracker.findPeople.icypeas = (usageTracker.findPeople.icypeas || 0) + 1;
+        }
       } catch (e) {
         log(`${companyName} — IcyPeas people search failed: ${e.message}`, 'warn');
       }
@@ -657,7 +669,10 @@ async function runEnrichmentCascade(orgId, companies, opts = {}) {
           count: maxPeoplePerCompany,
         });
         people = Array.isArray(result) ? result : (result?.employees || result?.contacts || []);
-        if (people.length > 0) log(`${companyName} — Findy found ${people.length} people`, 'info');
+        if (people.length > 0) {
+          log(`${companyName} — Findy found ${people.length} people`, 'info');
+          usageTracker.findPeople.findy = (usageTracker.findPeople.findy || 0) + 1;
+        }
       } catch (e) {
         log(`${companyName} — Findy people search failed: ${e.message}`, 'warn');
       }
@@ -683,7 +698,7 @@ async function runEnrichmentCascade(orgId, companies, opts = {}) {
             firstName, lastName,
             company: companyName,
             domain: dom,
-          });
+          }, { usageTracker });
           email = emailData?.email || null;
           if (email) log(`${fullName} — email found via ${emailData.source}`, 'info');
         } catch (_) {}
@@ -693,7 +708,7 @@ async function runEnrichmentCascade(orgId, companies, opts = {}) {
       let validationStatus = 'pending';
       if (email) {
         try {
-          const v = await verifyEmailWaterfall(orgId, email);
+          const v = await verifyEmailWaterfall(orgId, email, { usageTracker });
           bounceRisk = v.verified ? 'low' : 'high';
           validationStatus = v.verified ? 'valid' : 'invalid';
         } catch (_) {}
@@ -740,7 +755,7 @@ async function runEnrichmentCascade(orgId, companies, opts = {}) {
   }
 
   log(`Cascade done: ${allContacts.length} contacts from ${companies.length} companies`, allContacts.length > 0 ? 'success' : 'warn');
-  return { contacts: allContacts, listId, cascadeLog };
+  return { contacts: allContacts, listId, cascadeLog, usageTracker };
 }
 
 // POST /api/lead-generation/enrich/email
@@ -858,7 +873,7 @@ router.post('/enrich/bulk', async (req, res) => {
     if (fromCache > 0) log(`Loaded ${fromCache} contacts from cache (enriched < 30 days)`, 'info');
 
     // Run the enrichment cascade for companies that need fresh data
-    let cascade = { contacts: [], listId: null, cascadeLog: [] };
+    let cascade = { contacts: [], listId: null, cascadeLog: [], usageTracker: {} };
     if (toEnrich.length > 0) {
       log(`Running enrichment cascade for ${toEnrich.length} companies — roles: ${rolesList.join(', ')}`, 'info');
       cascade = await runEnrichmentCascade(orgId, toEnrich, {
@@ -895,7 +910,7 @@ router.post('/enrich/bulk', async (req, res) => {
       log('Tip: Ensure company names are real (e.g. "Acme Corp") not generic (e.g. "B2B SaaS"). Providers find people by company name.', 'info');
     }
 
-    res.json({ success: true, contacts: allContacts, listId: cascade.listId, enrichmentLog });
+    res.json({ success: true, contacts: allContacts, listId: cascade.listId, enrichmentLog, usageTracker: cascade.usageTracker });
   } catch (err) {
     log(`Bulk enrichment error: ${err.message}`, 'error');
     console.error('Bulk enrichment error:', err);

@@ -25,7 +25,8 @@
     "seed-signup-token": "node scripts/seed-signup-token.js",
     "seed-organisations": "node scripts/seed-organisations.js",
     "set-admin": "node scripts/set-admin-role.js",
-    "test:connect-accounts": "node --test tests/connect-accounts.test.js"
+    "test:connect-accounts": "node --test tests/connect-accounts.test.js",
+    "test:lead-pipeline": "node scripts/run-lead-pipeline-test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

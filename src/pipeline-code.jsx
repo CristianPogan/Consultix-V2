@@ -413,9 +413,11 @@ export default function App() {
   const [isApproved, setIsApproved] = useState(false);
   const [channelAssignments, setChannelAssignments] = useState({});
   const [emailPlatform, setEmailPlatform] = useState("instantly");
-  const [emailCampaign, setEmailCampaign] = useState("");
+  const [emailCampaign, setEmailCampaign] = useState("");       // display name
+  const [emailCampaignId, setEmailCampaignId] = useState("");   // UUID for API calls
   const [linkedinPlatform, setLinkedinPlatform] = useState("heyreach");
-  const [linkedinCampaign, setLinkedinCampaign] = useState("");
+  const [linkedinCampaign, setLinkedinCampaign] = useState("");       // display name
+  const [linkedinCampaignId, setLinkedinCampaignId] = useState("");   // numeric ID for API calls
   const [showEmailPreview, setShowEmailPreview] = useState(false);
   const [showAddProjectModal, setShowAddProjectModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -886,7 +888,7 @@ export default function App() {
           personalization: personalizedEmails[contact.id]?.body || '',
         }));
         
-        const result = await api.instantly.leads.bulk(leadsData);
+        const result = await api.instantly.leads.bulk(leadsData, emailCampaignId || undefined);
         
         const successful = (result.results || []).filter(r => r.success).length;
         addLog(`✓ ${successful}/${emailContacts.length} leads added to Instantly campaign`, "success");
@@ -928,7 +930,7 @@ export default function App() {
           position: contact.title,
         }));
         
-        await api.heyreach.campaigns.addLeadsDefault(leadsData);
+        await api.heyreach.campaigns.addLeadsDefault(leadsData, linkedinCampaignId || undefined);
         addLog(`✓ ${linkedinContacts.length} leads added to HeyReach campaign`, "success");
         
         for (const contact of linkedinContacts) {
@@ -1229,8 +1231,10 @@ export default function App() {
                 channelAssignments={channelAssignments} setChannelAssignments={setChannelAssignments}
                 emailPlatform={emailPlatform} setEmailPlatform={setEmailPlatform}
                 emailCampaign={emailCampaign} setEmailCampaign={setEmailCampaign}
+                setEmailCampaignId={setEmailCampaignId}
                 linkedinPlatform={linkedinPlatform} setLinkedinPlatform={setLinkedinPlatform}
                 linkedinCampaign={linkedinCampaign} setLinkedinCampaign={setLinkedinCampaign}
+                setLinkedinCampaignId={setLinkedinCampaignId}
                 showEmailPreview={showEmailPreview} setShowEmailPreview={setShowEmailPreview}
                 onQueue={runQueueOutreach} isProcessing={isProcessing}
                 listName={icpForm.listName || "Untitled List"}
@@ -2126,13 +2130,14 @@ function Stat({ label, value }) {
   );
 }
 
-function CampaignSetupPanel({ contacts, emails, channelAssignments, setChannelAssignments, emailPlatform, setEmailPlatform, emailCampaign, setEmailCampaign, linkedinPlatform, setLinkedinPlatform, linkedinCampaign, setLinkedinCampaign, showEmailPreview, setShowEmailPreview, onQueue, isProcessing, listName }) {
+function CampaignSetupPanel({ contacts, emails, channelAssignments, setChannelAssignments, emailPlatform, setEmailPlatform, emailCampaign, setEmailCampaign, setEmailCampaignId, linkedinPlatform, setLinkedinPlatform, linkedinCampaign, setLinkedinCampaign, setLinkedinCampaignId, showEmailPreview, setShowEmailPreview, onQueue, isProcessing, listName }) {
   const [listOnly, setListOnly] = useState(false);
 
   const [instantlyCampaignList, setInstantlyCampaignList] = useState([]);
   useEffect(() => {
     api.instantly.campaigns.list().then(data => {
-      const items = Array.isArray(data) ? data : data.data || data.campaigns || [];
+      // Instantly v2 returns { items: [...], next_starting_after: "..." }
+      const items = Array.isArray(data) ? data : data.items || data.data || data.campaigns || [];
       setInstantlyCampaignList(items.map(c => ({ id: c.id, name: c.name || `Campaign ${c.id?.slice(0, 8)}` })));
     }).catch(() => {});
   }, []);
@@ -2283,11 +2288,29 @@ function CampaignSetupPanel({ contacts, emails, channelAssignments, setChannelAs
             </div>
             <div>
               <label style={labelStyle}>CAMPAIGN</label>
-              <select value={emailCampaign} onChange={e => setEmailCampaign(e.target.value)} style={selectStyle}>
+              <select
+                value={emailPlatform === 'instantly' ? (instantlyCampaignList.find(c => c.name === emailCampaign)?.id || '') : emailCampaign}
+                onChange={e => {
+                  if (emailPlatform === 'instantly') {
+                    const sel = instantlyCampaignList.find(c => c.id === e.target.value);
+                    setEmailCampaign(sel?.name || e.target.value);
+                    if (setEmailCampaignId) setEmailCampaignId(e.target.value);
+                  } else {
+                    setEmailCampaign(e.target.value);
+                    if (setEmailCampaignId) setEmailCampaignId('');
+                  }
+                }}
+                style={selectStyle}
+              >
                 <option value="" style={{ background: COLORS.surface, color: COLORS.textDim }}>Select campaign...</option>
-                {(EMAIL_CAMPAIGNS[emailPlatform] || []).map(c => (
-                  <option key={c} value={c} style={{ background: COLORS.surface, color: COLORS.text }}>{c}</option>
-                ))}
+                {emailPlatform === 'instantly' && instantlyCampaignList.length > 0
+                  ? instantlyCampaignList.map(c => (
+                      <option key={c.id} value={c.id} style={{ background: COLORS.surface, color: COLORS.text }}>{c.name}</option>
+                    ))
+                  : (EMAIL_CAMPAIGNS[emailPlatform] || []).map(c => (
+                      <option key={c} value={c} style={{ background: COLORS.surface, color: COLORS.text }}>{c}</option>
+                    ))
+                }
               </select>
             </div>
           </div>
@@ -2325,11 +2348,25 @@ function CampaignSetupPanel({ contacts, emails, channelAssignments, setChannelAs
             </div>
             <div>
               <label style={labelStyle}>CAMPAIGN</label>
-              <select value={linkedinCampaign} onChange={e => setLinkedinCampaign(e.target.value)} style={selectStyle}>
+              <select
+                value={linkedinPlatform === 'heyreach' ? (heyreachCampaignList.find(c => c.name === linkedinCampaign)?.id || '') : linkedinCampaign}
+                onChange={e => {
+                  if (linkedinPlatform === 'heyreach') {
+                    const sel = heyreachCampaignList.find(c => String(c.id) === e.target.value);
+                    setLinkedinCampaign(sel?.name || e.target.value);
+                    if (setLinkedinCampaignId) setLinkedinCampaignId(e.target.value);
+                  } else {
+                    setLinkedinCampaign(e.target.value);
+                    if (setLinkedinCampaignId) setLinkedinCampaignId('');
+                  }
+                }}
+                style={selectStyle}
+              >
                 <option value="" style={{ background: COLORS.surface, color: COLORS.textDim }}>Select campaign...</option>
-                {(LINKEDIN_CAMPAIGNS[linkedinPlatform] || []).map(c => (
-                  <option key={c} value={c} style={{ background: COLORS.surface, color: COLORS.text }}>{c}</option>
-                ))}
+                {linkedinPlatform === 'heyreach' && heyreachCampaignList.length > 0
+                  ? heyreachCampaignList.map(c => <option key={c.id} value={String(c.id)} style={{ background: COLORS.surface, color: COLORS.text }}>{c.name}</option>)
+                  : (LINKEDIN_CAMPAIGNS[linkedinPlatform] || []).map(c => <option key={c} value={c} style={{ background: COLORS.surface, color: COLORS.text }}>{c}</option>)
+                }
               </select>
             </div>
           </div>
@@ -7350,7 +7387,8 @@ function ColdEmailCampaignsView({ setActivePage }) {
   useEffect(() => {
     const STATUS_MAP = { 0: 'draft', 1: 'active', 2: 'paused', 3: 'completed' };
     api.instantly.campaigns.list().then(data => {
-      const items = Array.isArray(data) ? data : data.data || data.campaigns || [];
+      // Instantly v2 returns { items: [...], next_starting_after: "..." }
+      const items = Array.isArray(data) ? data : data.items || data.data || data.campaigns || [];
       const campIds = items.map(c => c.id).filter(Boolean);
       setEmailCampaigns(items.map(c => ({
         id: c.id,
@@ -7362,7 +7400,9 @@ function ColdEmailCampaignsView({ setActivePage }) {
         startDate: c.campaign_schedule?.start_date || '',
       })));
       if (campIds.length) {
-        api.instantly.analytics({ id: campIds[0] }).then(analytics => {
+        // Fetch analytics for all campaigns (pass ids array for multiple, id for single)
+        const analyticsParam = campIds.length === 1 ? { id: campIds[0] } : { ids: campIds };
+        api.instantly.analytics(analyticsParam).then(analytics => {
           const arr = Array.isArray(analytics) ? analytics : [];
           setEmailCampaigns(prev => prev.map(camp => {
             const a = arr.find(x => x.campaign_id === camp.id);
@@ -7379,7 +7419,8 @@ function ColdEmailCampaignsView({ setActivePage }) {
     });
 
     api.instantly.accounts().then(data => {
-      const items = Array.isArray(data) ? data : data.data || data.accounts || [];
+      // Instantly v2 returns { items: [...] }
+      const items = Array.isArray(data) ? data : data.items || data.data || data.accounts || [];
       setSenderAccounts(items.map(a => ({ email: a.email, status: a.status === 1 || a.status === 'active' ? 'active' : 'inactive' })));
     }).catch(() => {});
   }, []);
@@ -7601,8 +7642,9 @@ function LinkedInCampaignsView({ setActivePage }) {
         id: c.id,
         name: c.name || c.campaignName || `Campaign ${c.id}`,
         status: (c.status || c.campaignStatus || '').toLowerCase() === 'active' ? 'active' : (c.status || 'paused').toLowerCase(),
-        leads: c.leadCount ?? c.leads ?? 0,
-        sent: c.sentCount ?? c.sent ?? 0,
+        // HeyReach API: progressStats has lead counts; connection-level stats only available via GetOverallStats (aggregate)
+        leads: c.progressStats?.totalUsers ?? c.leadCount ?? c.leads ?? 0,
+        sent: c.progressStats?.totalUsersFinished ?? c.sentCount ?? c.sent ?? 0,
         accepted: c.acceptedCount ?? c.accepted ?? 0,
         replied: c.repliedCount ?? c.replied ?? 0,
         platform: 'HeyReach',
@@ -7653,9 +7695,9 @@ function LinkedInCampaignsView({ setActivePage }) {
       </div>
       <div style={{ display: "flex", gap: 16, marginBottom: 28 }}>
         <StatCard label="Active Campaigns" value={MOCK_CAMPAIGNS.filter(c => c.status === "active").length} accent={COLORS.blue} />
-        <StatCard label="Total Sent" value={MOCK_CAMPAIGNS.reduce((s, c) => s + c.sent, 0)} accent={COLORS.blue} />
-        <StatCard label="Acceptance Rate" value={`${Math.round(MOCK_CAMPAIGNS.reduce((s,c)=>s+c.accepted,0)/Math.max(MOCK_CAMPAIGNS.reduce((s,c)=>s+c.sent,0),1)*100)}%`} accent={COLORS.accent} />
-        <StatCard label="Reply Rate" value={`${Math.round(MOCK_CAMPAIGNS.reduce((s,c)=>s+c.replied,0)/Math.max(MOCK_CAMPAIGNS.reduce((s,c)=>s+c.sent,0),1)*100)}%`} accent={COLORS.warn} />
+        <StatCard label="Connections Sent" value={heyreachStats?.overallStats?.connectionsSent ?? MOCK_CAMPAIGNS.reduce((s, c) => s + c.sent, 0)} accent={COLORS.blue} />
+        <StatCard label="Acceptance Rate" value={`${Math.round((heyreachStats?.overallStats?.connectionAcceptanceRate ?? (MOCK_CAMPAIGNS.reduce((s,c)=>s+c.accepted,0)/Math.max(MOCK_CAMPAIGNS.reduce((s,c)=>s+c.sent,0),1)*100)))}%`} accent={COLORS.accent} />
+        <StatCard label="Reply Rate" value={`${heyreachStats?.overallStats?.messageReplyRate ?? Math.round(MOCK_CAMPAIGNS.reduce((s,c)=>s+c.replied,0)/Math.max(MOCK_CAMPAIGNS.reduce((s,c)=>s+c.sent,0),1)*100)}%`} accent={COLORS.warn} />
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {MOCK_CAMPAIGNS.map(c => (

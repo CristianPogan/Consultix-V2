@@ -158,9 +158,304 @@ export async function findPeopleIcyPeas(criteria) {
   return data;
 }
 
+const ICYPEAS_BASE = 'https://app.icypeas.com/api';
+
+// Complete IcyPeas industry taxonomy — exact case-sensitive values required by the API.
+// Source: https://api-doc.icypeas.com/assets/files/industries-054af2e58c8a6e7bb3cbe357085f09c8.txt
+const ICYPEAS_INDUSTRIES = [
+  'Abrasives and Nonmetallic Minerals Manufacturing','Accessible Architecture and Design','Accessible Hardware Manufacturing',
+  'Accommodation and Food Services','Accounting','Administration of Justice','Administrative and Support Services',
+  'Advertising Services','Agricultural Chemical Manufacturing','Agriculture',
+  'Agriculture, Construction, Mining Machinery Manufacturing','Air, Water, and Waste Program Management',
+  'Airlines and Aviation','Alternative Dispute Resolution','Alternative Fuel Vehicle Manufacturing',
+  'Alternative Medicine','Ambulance Services','Amusement Parks and Arcades','Animal Feed Manufacturing',
+  'Animation','Animation and Post-production','Apparel & Fashion','Apparel Manufacturing',
+  'Appliances, Electrical, and Electronics Manufacturing','Architectural and Structural Metal Manufacturing',
+  'Architecture and Planning','Armed Forces','Artificial Rubber and Synthetic Fiber Manufacturing',
+  'Artists and Writers','Arts & Crafts','Audio and Video Equipment Manufacturing',
+  'Automation Machinery Manufacturing','Automotive','Aviation & Aerospace',
+  'Aviation and Aerospace Component Manufacturing','Baked Goods Manufacturing','Banking',
+  'Bars, Taverns, and Nightclubs','Bed-and-Breakfasts, Hostels, Homestays','Beverage Manufacturing',
+  'Biomass Electric Power Generation','Biotechnology','Biotechnology Research','Blockchain Services','Blogs',
+  'Boilers, Tanks, and Shipping Container Manufacturing','Book and Periodical Publishing','Book Publishing',
+  'Breweries','Broadcast Media Production and Distribution','Building Construction',
+  'Building Equipment Contractors','Building Finishing Contractors','Building Materials',
+  'Building Structure and Exterior Contractors','Business Consulting and Services','Business Content',
+  'Business Intelligence Platforms','Business Supplies & Equipment','Cable and Satellite Programming',
+  'Capital Markets','Caterers','Chemical Manufacturing','Chemical Raw Materials Manufacturing',
+  'Child Day Care Services','Chiropractors','Circuses and Magic Shows','Civic and Social Organizations',
+  'Civil Engineering','Claims Adjusting, Actuarial Services','Clay and Refractory Products Manufacturing',
+  'Climate Data and Analytics','Climate Technology Product Manufacturing','Coal Mining',
+  'Collection Agencies','Commercial and Industrial Equipment Rental',
+  'Commercial and Industrial Machinery Maintenance','Commercial and Service Industry Machinery Manufacturing',
+  'Commercial Real Estate','Communications Equipment Manufacturing',
+  'Community Development and Urban Planning','Community Services','Computer and Network Security',
+  'Computer Games','Computer Hardware','Computer Hardware Manufacturing','Computer Networking',
+  'Computer Networking Products','Computers and Electronics Manufacturing','Conservation Programs',
+  'Construction','Construction Hardware Manufacturing','Consumer Electronics','Consumer Goods',
+  'Consumer Goods Rental','Consumer Services','Correctional Institutions','Cosmetics',
+  'Cosmetology and Barber Schools','Courts of Law','Credit Intermediation',
+  'Cutlery and Handtool Manufacturing','Dairy','Dairy Product Manufacturing','Dance Companies',
+  'Data Infrastructure and Analytics','Data Security Software Products','Defense & Space',
+  'Defense and Space Manufacturing','Dentists','Design','Design Services',
+  'Desktop Computing Software Products','Digital Accessibility Services','Distilleries','E-learning',
+  'E-Learning Providers','Economic Programs','Education','Education Administration Programs',
+  'Education Management','Electric Lighting Equipment Manufacturing','Electric Power Generation',
+  'Electric Power Transmission, Control, and Distribution','Electrical Equipment Manufacturing',
+  'Electronic and Precision Equipment Maintenance','Embedded Software Products',
+  'Emergency and Relief Services','Engineering Services',
+  'Engines and Power Transmission Equipment Manufacturing','Entertainment','Entertainment Providers',
+  'Environmental Quality Programs','Environmental Services','Equipment Rental Services',
+  'Events Services','Executive Offices','Executive Search Services','Fabricated Metal Products',
+  'Facilities Services','Family Planning Centers','Farming','Farming, Ranching, Forestry',
+  'Fashion Accessories Manufacturing','Financial Services','Fine Art','Fine Arts Schools',
+  'Fire Protection','Fisheries','Flight Training','Food & Beverages',
+  'Food and Beverage Manufacturing','Food and Beverage Retail','Food and Beverage Services',
+  'Food Production','Footwear and Leather Goods Repair','Footwear Manufacturing',
+  'Forestry and Logging','Fossil Fuel Electric Power Generation','Freight and Package Transportation',
+  'Fruit and Vegetable Preserves Manufacturing','Fuel Cell Manufacturing','Fundraising',
+  'Funds and Trusts','Furniture','Furniture and Home Furnishings Manufacturing',
+  'Gambling Facilities and Casinos','Geothermal Electric Power Generation',
+  'Glass Product Manufacturing','Glass, Ceramics and Concrete Manufacturing',
+  'Golf Courses and Country Clubs','Government Administration','Government Relations',
+  'Government Relations Services','Graphic Design','Ground Passenger Transportation',
+  'Health and Human Services','Health, Wellness & Fitness','Higher Education',
+  'Highway, Street, and Bridge Construction','Historical Sites','Holding Companies',
+  'Home Health Care Services','Horticulture','Hospitality','Hospitals','Hospitals and Health Care',
+  'Hotels and Motels','Household and Institutional Furniture Manufacturing',
+  'Household Appliance Manufacturing','Household Services','Housing and Community Development',
+  'Housing Programs','Human Resources','Human Resources Services',
+  'HVAC and Refrigeration Equipment Manufacturing','Hydroelectric Power Generation','Import & Export',
+  'Individual and Family Services','Industrial Automation','Industrial Machinery Manufacturing',
+  'Industry Associations','Information Services','Information Technology & Services','Insurance',
+  'Insurance Agencies and Brokerages','Insurance and Employee Benefit Funds','Insurance Carriers',
+  'Interior Design','International Affairs','International Trade and Development',
+  'Internet Marketplace Platforms','Internet News','Internet Publishing',
+  'Interurban and Rural Bus Services','Investment Advice','Investment Banking',
+  'Investment Management','IT Services and IT Consulting','IT System Custom Software Development',
+  'IT System Data Services','IT System Design Services','IT System Installation and Disposal',
+  'IT System Operations and Maintenance','IT System Testing and Evaluation',
+  'IT System Training and Support','Janitorial Services','Landscaping Services','Language Schools',
+  'Laundry and Drycleaning Services','Law Enforcement','Law Practice',
+  'Leasing Non-residential Real Estate','Leasing Residential Real Estate',
+  'Leather Product Manufacturing','Legal Services','Legislative Offices','Leisure, Travel & Tourism',
+  'Libraries','Lime and Gypsum Products Manufacturing','Loan Brokers','Luxury Goods & Jewelry',
+  'Machinery Manufacturing','Magnetic and Optical Media Manufacturing','Manufacturing','Maritime',
+  'Maritime Transportation','Market Research','Marketing Services','Mattress and Blinds Manufacturing',
+  'Measuring and Control Instrument Manufacturing','Meat Products Manufacturing',
+  'Mechanical Or Industrial Engineering','Media and Telecommunications','Media Production',
+  'Medical and Diagnostic Laboratories','Medical Device','Medical Equipment Manufacturing',
+  'Medical Practices','Mental Health Care','Metal Ore Mining','Metal Treatments',
+  'Metal Valve, Ball, and Roller Manufacturing','Metalworking Machinery Manufacturing',
+  'Military and International Affairs','Mining','Mobile Computing Software Products',
+  'Mobile Food Services','Mobile Gaming Apps','Motor Vehicle Manufacturing',
+  'Motor Vehicle Parts Manufacturing','Movies and Sound Recording','Movies, Videos, and Sound',
+  'Museums','Museums, Historical Sites, and Zoos','Music','Musicians','Nanotechnology Research',
+  'Natural Gas Distribution','Natural Gas Extraction','Newspaper Publishing',
+  'Non-profit Organization Management','Non-profit Organizations','Nonmetallic Mineral Mining',
+  'Nonresidential Building Construction','Nuclear Electric Power Generation',
+  'Nursing Homes and Residential Care Facilities','Office Administration',
+  'Office Furniture and Fixtures Manufacturing','Oil and Coal Product Manufacturing','Oil and Gas',
+  'Oil Extraction','Oil, Gas, and Mining','Online and Mail Order Retail',
+  'Online Audio and Video Media','Online Media','Operations Consulting','Optometrists',
+  'Outpatient Care Centers','Outsourcing and Offshoring Consulting','Outsourcing/Offshoring',
+  'Packaging & Containers','Packaging and Containers Manufacturing',
+  'Paint, Coating, and Adhesive Manufacturing','Paper & Forest Products',
+  'Paper and Forest Product Manufacturing','Pension Funds','Performing Arts',
+  'Performing Arts and Spectator Sports','Periodical Publishing','Personal and Laundry Services',
+  'Personal Care Product Manufacturing','Personal Care Services','Pet Services',
+  'Pharmaceutical Manufacturing','Philanthropic Fundraising Services','Philanthropy','Photography',
+  'Physical, Occupational and Speech Therapists','Physicians','Pipeline Transportation',
+  'Plastics and Rubber Product Manufacturing','Plastics Manufacturing','Political Organizations',
+  'Postal Services','Primary and Secondary Education','Primary Metal Manufacturing',
+  'Printing Services','Professional Organizations','Professional Services',
+  'Professional Training and Coaching','Program Development','Public Assistance Programs',
+  'Public Health','Public Policy','Public Policy Offices',
+  'Public Relations and Communications Services','Public Safety','Racetracks',
+  'Radio and Television Broadcasting','Rail Transportation','Railroad Equipment Manufacturing',
+  'Ranching','Ranching and Fisheries','Real Estate','Real Estate Agents and Brokers',
+  'Real Estate and Equipment Rental Services','Recreational Facilities','Regenerative Design',
+  'Religious Institutions','Renewable Energy Equipment Manufacturing',
+  'Renewable Energy Power Generation','Renewable Energy Semiconductor Manufacturing',
+  'Renewables & Environment','Repair and Maintenance','Research','Research Services',
+  'Residential Building Construction','Restaurants','Retail','Retail Apparel and Fashion',
+  'Retail Appliances, Electrical, and Electronic Equipment','Retail Art Dealers',
+  'Retail Art Supplies','Retail Books and Printed News',
+  'Retail Building Materials and Garden Equipment','Retail Florists',
+  'Retail Furniture and Home Furnishings','Retail Gasoline','Retail Groceries',
+  'Retail Health and Personal Care Products','Retail Luxury Goods and Jewelry',
+  'Retail Motor Vehicles','Retail Musical Instruments','Retail Office Equipment',
+  'Retail Office Supplies and Gifts','Retail Pharmacies',
+  'Retail Recyclable Materials & Used Merchandise','Reupholstery and Furniture Repair',
+  'Robot Manufacturing','Robotics Engineering','Rubber Products Manufacturing',
+  'Satellite Telecommunications','Savings Institutions','School and Employee Bus Services',
+  'Seafood Product Manufacturing','Secretarial Schools','Securities and Commodity Exchanges',
+  'Security and Investigations','Security Guards and Patrol Services','Security Systems Services',
+  'Semiconductor Manufacturing','Semiconductors','Services for Renewable Energy',
+  'Services for the Elderly and Disabled','Sheet Music Publishing','Shipbuilding',
+  'Shuttles and Special Needs Transportation Services','Sightseeing Transportation',
+  'Skiing Facilities','Smart Meter Manufacturing','Soap and Cleaning Product Manufacturing',
+  'Social Networking Platforms','Software Development','Solar Electric Power Generation',
+  'Sound Recording','Space Research and Technology','Specialty Trade Contractors',
+  'Spectator Sports','Sporting Goods','Sporting Goods Manufacturing',
+  'Sports and Recreation Instruction','Sports Teams and Clubs',
+  'Spring and Wire Product Manufacturing','Staffing and Recruiting',
+  'Steam and Air-Conditioning Supply','Strategic Management Services','Subdivision of Land',
+  'Sugar and Confectionery Product Manufacturing','Surveying and Mapping Services',
+  'Taxi and Limousine Services','Technical and Vocational Training',
+  'Technology, Information and Internet','Technology, Information and Media','Telecommunications',
+  'Telecommunications Carriers','Telephone Call Centers','Temporary Help Services',
+  'Textile Manufacturing','Theater Companies','Think Tanks','Tobacco','Tobacco Manufacturing',
+  'Translation and Localization','Transportation Equipment Manufacturing',
+  'Transportation Programs','Transportation, Logistics, Supply Chain and Storage',
+  'Transportation/Trucking/Railroad','Travel Arrangements','Truck Transportation',
+  'Trusts and Estates','Turned Products and Fastener Manufacturing','Urban Transit Services',
+  'Utilities','Utilities Administration','Utility System Construction',
+  'Vehicle Repair and Maintenance','Venture Capital and Private Equity Principals','Veterinary',
+  'Veterinary Services','Vocational Rehabilitation Services','Warehousing',
+  'Warehousing and Storage','Waste Collection','Waste Treatment and Disposal',
+  'Water Supply and Irrigation Systems','Water, Waste, Steam, and Air Conditioning Services',
+  'Wellness and Fitness Services','Wholesale','Wholesale Alcoholic Beverages',
+  'Wholesale Apparel and Sewing Supplies','Wholesale Appliances, Electrical, and Electronics',
+  'Wholesale Building Materials','Wholesale Chemical and Allied Products',
+  'Wholesale Computer Equipment','Wholesale Drugs and Sundries','Wholesale Food and Beverage',
+  'Wholesale Footwear','Wholesale Furniture and Home Furnishings',
+  'Wholesale Hardware, Plumbing, Heating Equipment','Wholesale Import and Export',
+  'Wholesale Luxury Goods and Jewelry','Wholesale Machinery','Wholesale Metals and Minerals',
+  'Wholesale Motor Vehicles and Parts','Wholesale Paper Products',
+  'Wholesale Petroleum and Petroleum Products','Wholesale Photography Equipment and Supplies',
+  'Wholesale Raw Farm Products','Wholesale Recyclable Materials','Wind Electric Power Generation',
+  'Wine & Spirits','Wineries','Wireless Services','Women\'s Handbag Manufacturing',
+  'Wood Product Manufacturing','Writing and Editing','Zoos and Botanical Gardens',
+];
+
+// Lowercase → canonical map for automatic case-correction
+const _ICYPEAS_INDUSTRY_LOWER_MAP = new Map(ICYPEAS_INDUSTRIES.map(v => [v.toLowerCase(), v]));
+
+// Common informal / alternative names → canonical IcyPeas taxonomy value
+// null means "not a valid industry" — caller should omit the industry filter
+const ICYPEAS_INDUSTRY_ALIASES = {
+  'software': 'Software Development',
+  'saas': 'Software Development',
+  'b2b software': 'Software Development',
+  'tech': 'Technology, Information and Internet',
+  'technology': 'Technology, Information and Internet',
+  'it': 'IT Services and IT Consulting',
+  'information technology': 'IT Services and IT Consulting',
+  'fintech': 'Financial Services',
+  'financial technology': 'Financial Services',
+  'ai': 'Technology, Information and Internet',
+  'artificial intelligence': 'Technology, Information and Internet',
+  'machine learning': 'Technology, Information and Internet',
+  'cybersecurity': 'Computer and Network Security',
+  'cyber security': 'Computer and Network Security',
+  'cloud': 'IT Services and IT Consulting',
+  'cloud computing': 'IT Services and IT Consulting',
+  'ecommerce': 'Internet Marketplace Platforms',
+  'e commerce': 'Internet Marketplace Platforms',
+  'digital marketing': 'Advertising Services',
+  'healthcare': 'Hospitals and Health Care',
+  'health care': 'Hospitals and Health Care',
+  'biotech': 'Biotechnology',
+  'digital health': 'Hospitals and Health Care',
+  'consulting': 'Business Consulting and Services',
+  'marketing': 'Marketing Services',
+  'telecom': 'Telecommunications',
+  'logistics': 'Transportation, Logistics, Supply Chain and Storage',
+  'supply chain': 'Transportation, Logistics, Supply Chain and Storage',
+  'legal': 'Legal Services',
+  'law': 'Legal Services',
+  'hr': 'Human Resources Services',
+  'human resources': 'Human Resources Services',
+  'analytics': 'Data Infrastructure and Analytics',
+  'data analytics': 'Data Infrastructure and Analytics',
+  'data science': 'Data Infrastructure and Analytics',
+  'blockchain': 'Blockchain Services',
+  'crypto': 'Blockchain Services',
+  'cryptocurrency': 'Blockchain Services',
+  'robotics': 'Robotics Engineering',
+  'design': 'Design Services',
+  'nonprofit': 'Non-profit Organizations',
+  'non profit': 'Non-profit Organizations',
+  'ngo': 'Non-profit Organizations',
+  'gaming': 'Computer Games',
+  'video games': 'Computer Games',
+  'travel': 'Travel Arrangements',
+  'pharma': 'Pharmaceutical Manufacturing',
+  'pharmaceutical': 'Pharmaceutical Manufacturing',
+  'medical': 'Hospitals and Health Care',
+  'staffing': 'Staffing and Recruiting',
+  'recruitment': 'Staffing and Recruiting',
+  'recruiting': 'Staffing and Recruiting',
+  'real estate': 'Real Estate',
+  'realestate': 'Real Estate',
+  'proptech': 'Real Estate',
+  'construction': 'Construction',
+  'energy': 'Renewable Energy Power Generation',
+  'renewable energy': 'Renewable Energy Power Generation',
+  'cleantech': 'Climate Technology Product Manufacturing',
+  'clean tech': 'Climate Technology Product Manufacturing',
+  'oil and gas': 'Oil, Gas, and Mining',
+  'oil & gas': 'Oil, Gas, and Mining',
+  'food': 'Food and Beverage Manufacturing',
+  'food and beverage': 'Food and Beverage Manufacturing',
+  'retail': 'Retail',
+  'entertainment': 'Entertainment',
+  'media': 'Technology, Information and Media',
+  'advertising': 'Advertising Services',
+  'pr': 'Public Relations and Communications Services',
+  'public relations': 'Public Relations and Communications Services',
+  'insurance': 'Insurance',
+  'banking': 'Banking',
+  'finance': 'Financial Services',
+  'investment': 'Investment Management',
+  'venture capital': 'Venture Capital and Private Equity Principals',
+  'vc': 'Venture Capital and Private Equity Principals',
+  'private equity': 'Venture Capital and Private Equity Principals',
+  'pe': 'Venture Capital and Private Equity Principals',
+  'education': 'Education',
+  'edtech': 'E-Learning Providers',
+  'e-learning': 'E-Learning Providers',
+  'hospitality': 'Hospitality',
+  'hotels': 'Hotels and Motels',
+  'automotive': 'Automotive',
+  'aerospace': 'Aviation & Aerospace',
+  'defense': 'Defense & Space',
+  'semiconductor': 'Semiconductor Manufacturing',
+  'semiconductors': 'Semiconductors',
+  'networking': 'Computer Networking',
+  'security': 'Security and Investigations',
+  'agriculture': 'Agriculture',
+  'farming': 'Farming',
+  'b2b': null,  // not a valid industry — use keyword instead
+};
+
 /**
- * IcyPeas Find Companies — for discovery cascade
- * Uses POST /api/find-companies with industry, keyword, location, headcount filters
+ * Normalize an industry string to its exact IcyPeas taxonomy value.
+ * 1. Exact match (returns as-is if already canonical)
+ * 2. Case-insensitive match against full taxonomy
+ * 3. Alias map for common informal names
+ * Returns null if no match found (caller should omit the industry filter).
+ */
+export function normalizeIndustryForIcyPeas(input) {
+  if (!input || typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  // Case-insensitive exact taxonomy lookup
+  const canonical = _ICYPEAS_INDUSTRY_LOWER_MAP.get(trimmed.toLowerCase());
+  if (canonical) return canonical;
+  // Alias map
+  const lower = trimmed.toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(ICYPEAS_INDUSTRY_ALIASES, lower)) {
+    return ICYPEAS_INDUSTRY_ALIASES[lower]; // may be null
+  }
+  return null;
+}
+
+/**
+ * IcyPeas Find Companies — 3-step flow for discovery cascade
+ * Step 1: POST /api/find-companies to initiate search
+ * Step 2: If async (job ID returned), wait for completion
+ * Step 3: If async, read results via /api/bulk-single-searchs/read; else use leads from Step 1
  */
 export async function findCompaniesIcyPeas(criteria) {
   const apiKey = criteria?.apiKey || process.env.ICYPEAS_API_KEY;
@@ -169,7 +464,9 @@ export async function findCompaniesIcyPeas(criteria) {
   const { industry, keywords, locations, headcountMin, headcountMax, limit = 100, paginationToken } = criteria;
 
   const query = {};
-  if (industry) query.industry = { include: Array.isArray(industry) ? industry : [industry] };
+  const rawIndustries = Array.isArray(industry) ? industry : (industry ? [industry] : []);
+  const normalizedIndustries = rawIndustries.map(normalizeIndustryForIcyPeas).filter(Boolean);
+  if (normalizedIndustries.length) query.industry = { include: normalizedIndustries };
   if (locations?.length) query.location = { include: locations };
   if (keywords?.length) query.keyword = { include: Array.isArray(keywords) ? keywords : [keywords] };
   const hc = {};
@@ -181,13 +478,15 @@ export async function findCompaniesIcyPeas(criteria) {
   const pagination = { size: Math.min(limit || 100, 200) };
   if (paginationToken) pagination.token = paginationToken;
 
-  const response = await fetch('https://app.icypeas.com/api/find-companies', {
+  const body = { query, pagination };
+
+  const response = await fetch(`${ICYPEAS_BASE}/find-companies`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': apiKey,
     },
-    body: JSON.stringify({ query, pagination }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -200,7 +499,70 @@ export async function findCompaniesIcyPeas(criteria) {
     const errMsg = data.error || JSON.stringify(data.validationErrors || {});
     throw new Error(`IcyPeas find companies validation: ${errMsg}`);
   }
+
+  // Sync path: leads returned directly
+  const syncLeads = Array.isArray(data.leads) ? data.leads : [];
+  if (syncLeads.length > 0) return data;
+
+  // Async path: job ID returned (_id for single, file for bulk)
+  const jobId = data._id || data.file;
+  if (jobId) {
+    const waitMs = criteria?.asyncWaitMs ?? 10000;
+    await new Promise(r => setTimeout(r, waitMs));
+    const readResult = await readIcyPeasResultsById(apiKey, jobId);
+    return readResult;
+  }
+
+  // Possible eventual consistency: total > 0 but leads empty — wait and retry once
+  if (data.total > 0 && syncLeads.length === 0) {
+    const retryWaitMs = criteria?.retryWaitMs ?? 5000;
+    await new Promise(r => setTimeout(r, retryWaitMs));
+    const retryResponse = await fetch(`${ICYPEAS_BASE}/find-companies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': apiKey },
+      body: JSON.stringify(body),
+    });
+    if (retryResponse.ok) {
+      const retryData = await retryResponse.json();
+      if (retryData.success !== false && Array.isArray(retryData.leads) && retryData.leads.length > 0) {
+        return retryData;
+      }
+    }
+  }
+
   return data;
+}
+
+/**
+ * Read IcyPeas results by job ID (for async find-companies / single search)
+ * POST /api/bulk-single-searchs/read with id or file
+ */
+async function readIcyPeasResultsById(apiKey, id) {
+  const response = await fetch(`${ICYPEAS_BASE}/bulk-single-searchs/read`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': apiKey,
+    },
+    body: JSON.stringify({ id }),
+  });
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`IcyPeas read results failed: ${response.status} ${errText}`);
+  }
+  const data = await response.json();
+  let items = Array.isArray(data.items) ? data.items : Array.isArray(data.data) ? data.data : [];
+  if (items.length === 0 && data.item) items = [data.item];
+  if (items.length === 0 && data.leads) items = data.leads;
+  const leads = items.map((it) => ({
+    _id: it._id,
+    name: it.companyName || it.name || it.currentCompanyName,
+    website: it.website || it.domain || it.currentCompanyWebsite,
+    industry: it.industry,
+    numberOfEmployees: it.numberOfEmployees || it.headcount,
+    address: it.address || it.location,
+  })).filter(l => l.name || l.website);
+  return { success: true, total: leads.length, leads };
 }
 
 /**
@@ -450,14 +812,15 @@ export async function findEmailIcyPeas(person, apiKey) {
   }
 
   const searchData = await searchResponse.json();
-  const searchId = searchData._id;
+  // API response: { success: true, item: { _id: "...", status: "NONE" } }
+  const searchId = searchData.item?._id || searchData._id;
+  if (!searchId) throw new Error('IcyPeas email search: no job ID in response');
 
-  // Poll for result
-  let status = 'IN_PROGRESS';
-  let attempts = 0;
+  // Poll for result — first poll at 2s, then every 3s, up to 60 polls (~3 min max)
+  const ICYPEAS_MAX_POLLS = 60;
 
-  while (status === 'IN_PROGRESS' && attempts < 30) {
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s
+  for (let i = 0; i < ICYPEAS_MAX_POLLS; i++) {
+    await new Promise(resolve => setTimeout(resolve, i === 0 ? 2000 : 3000));
 
     const resultResponse = await fetch('https://app.icypeas.com/api/bulk-single-searchs/read', {
       method: 'POST',
@@ -469,13 +832,30 @@ export async function findEmailIcyPeas(person, apiKey) {
     });
 
     const resultData = await resultResponse.json();
-    status = resultData.status;
+    // Poll response: { success, items: [{ _id, status: "DEBITED"|"IN_PROGRESS"|"NONE", results: { emails: [...] } }], total }
+    const item = resultData.items?.[0];
+    const status = item?.status || resultData.status;
 
-    if (status === 'COMPLETED') {
-      return resultData;
+    if (status === 'DEBITED') {
+      // Job completed and credit was charged — results are available
+      const emails = item?.results?.emails || [];
+      const best = emails.find(e => e.email) || emails[0];
+      const email = best?.email || null;
+      if (!email) return { email: null, confidence: 0, found: false };
+      const certaintyMap = { ultra_sure: 95, probable: 75, risky: 45 };
+      const confidence = certaintyMap[best?.certainty] ?? 60;
+      return {
+        email,
+        confidence,
+        found: true,
+        certainty: best?.certainty,
+      };
     }
 
-    attempts++;
+    if (status === 'FAILED' || status === 'ERROR') {
+      throw new Error('IcyPeas email search job failed');
+    }
+    // status === 'NONE' or 'IN_PROGRESS' → keep polling
   }
 
   throw new Error('IcyPeas email search timeout');
@@ -682,46 +1062,90 @@ export async function checkFindyApiKey(apiKey) {
   return res.ok || res.status === 402;
 }
 
-/**
- * BetterContact Email Verification
- * @param {string} apiKey - BetterContact API key
- * @param {string} email - Email to verify
- * @returns {Promise<Object>} - { verified, result }
- */
-export async function verifyEmailBetterContact(apiKey, email) {
-  if (!apiKey) throw new Error('BetterContact API key required');
-  const response = await fetch('https://app.bettercontact.rocks/api/v2/verify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ email }),
-  });
-  if (!response.ok) throw new Error(`BetterContact verify failed: ${response.statusText}`);
-  const data = await response.json();
-  const valid = data.status === 'valid' || data.result === 'valid' || data.deliverable === true;
-  return { result: valid ? 'valid' : 'invalid', verified: valid, ...data };
-}
+const BETTERCONTACT_BASE = 'https://app.bettercontact.rocks/api/v2';
+const BC_MAX_POLLS = 80;   // 80 × 5 s = 400 s max (~6.7 min, matches observed processing time)
+const BC_POLL_MS   = 5000;
 
 /**
  * BetterContact Email Find (by name + company domain)
+ * Uses the async /v2/async endpoint with X-API-Key auth.
+ * Submits a job, polls until terminated, returns the found email + status.
  * @param {string} apiKey - BetterContact API key
  * @param {Object} params - { firstName, lastName, company, domain }
- * @returns {Promise<Object>} - { email, confidence }
+ * @returns {Promise<Object>} - { email, confidence, status, creditsLeft }
  */
 export async function findEmailBetterContact(apiKey, { firstName, lastName, company, domain }) {
   if (!apiKey) throw new Error('BetterContact API key required');
-  const response = await fetch('https://app.bettercontact.rocks/api/v2/enrich', {
+
+  // Step 1 — submit enrichment job
+  const submitRes = await fetch(`${BETTERCONTACT_BASE}/async`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
     body: JSON.stringify({
-      first_name: firstName,
-      last_name: lastName,
-      company_name: company,
-      company_domain: domain,
+      data: [{
+        first_name: firstName,
+        last_name: lastName,
+        company: company || '',
+        company_domain: domain || '',
+      }],
+      enrich_email_address: true,
+      enrich_phone_number: false,
     }),
   });
-  if (!response.ok) throw new Error(`BetterContact enrich failed: ${response.statusText}`);
-  const data = await response.json();
-  return { email: data.email || data.professional_email, confidence: data.confidence || (data.email ? 90 : 0), ...data };
+
+  if (!submitRes.ok) {
+    const errText = await submitRes.text().catch(() => '');
+    throw new Error(`BetterContact submit failed: ${submitRes.status} ${errText}`);
+  }
+
+  const submitData = await submitRes.json();
+  const jobId = submitData.id;
+  if (!jobId) throw new Error('BetterContact: no job ID in response');
+
+  // Step 2 — poll GET /async/{id} until terminated
+  for (let i = 0; i < BC_MAX_POLLS; i++) {
+    await new Promise(r => setTimeout(r, BC_POLL_MS));
+
+    const pollRes = await fetch(`${BETTERCONTACT_BASE}/async/${jobId}`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+
+    if (!pollRes.ok) {
+      const errText = await pollRes.text().catch(() => '');
+      throw new Error(`BetterContact poll failed: ${pollRes.status} ${errText}`);
+    }
+
+    const result = await pollRes.json();
+
+    if (result.status === 'terminated') {
+      const contact = result.data?.[0];
+      const email  = contact?.contact_email_address || null;
+      const emailStatus = contact?.contact_email_address_status || null;
+      if (!email) return { email: null, confidence: 0, found: false };
+      const deliverable = ['deliverable', 'catch_all_safe'].includes(emailStatus);
+      return {
+        email,
+        confidence:     deliverable ? 90 : 50,
+        found:          contact?.enriched === true,
+        status:         emailStatus,
+        creditsConsumed: result.credits_consumed,
+        creditsLeft:    result.credits_left,
+      };
+    }
+    // status === 'in progress' → keep polling
+  }
+
+  throw new Error('BetterContact enrichment timed out');
+}
+
+/**
+ * BetterContact Email Verification
+ * BetterContact does not expose a standalone verify endpoint — verification
+ * is embedded in find-email results via contact_email_address_status.
+ * This function intentionally throws so the waterfall skips to the next verifier.
+ */
+export async function verifyEmailBetterContact(apiKey, email) {
+  throw new Error('BetterContact does not support standalone email verification — skipping to next verifier');
 }
 
 /**
