@@ -17,14 +17,18 @@ const FB = "'DM Sans', 'Segoe UI', system-ui, sans-serif";
 
 // --- Helpers ---
 function StatCard({ label, value, sub, icon, color, trend }) {
+  const safeValue = (value != null && typeof value === 'object')
+    ? (value?.message ?? value?.error ?? '—')
+    : value;
+  const safeSub = (sub != null && typeof sub === 'object') ? (sub?.message ?? sub?.label ?? '') : sub;
   return (
     <div style={{ padding: "18px 16px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, flex: 1 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <span style={{ fontSize: 9, color: C.textDim, fontFamily: F, fontWeight: 600, letterSpacing: "0.06em" }}>{label.toUpperCase()}</span>
         <span style={{ fontSize: 14 }}>{icon}</span>
       </div>
-      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: F, color: color || C.text }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: trend === "up" ? C.green : trend === "down" ? C.danger : C.accent, fontWeight: 500, marginTop: 4 }}>{sub}</div>}
+      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: F, color: color || C.text }}>{safeValue}</div>
+      {safeSub && <div style={{ fontSize: 11, color: trend === "up" ? C.green : trend === "down" ? C.danger : C.accent, fontWeight: 500, marginTop: 4 }}>{safeSub}</div>}
     </div>
   );
 }
@@ -35,9 +39,10 @@ function roleLabel(role) {
 }
 
 function Badge({ text, color }) {
+  const safeText = (text != null && typeof text === 'object') ? (text?.label ?? text?.name ?? '—') : text;
   const cols = { active: C.green, trialling: C.accent, churned: C.danger, suspended: C.warn, starter: "#888", growth: C.accent, scale: C.purple, agency_pro: "#2dd4a8", "pro (agency)": "#2dd4a8", "standard (agency)": C.accent, open: C.warn, resolved: C.green, healthy: C.green, degraded: C.warn, down: C.danger, owner: C.accent, admin: C.purple, member: C.textMuted, "platform admin": C.purple };
-  const c = cols[text?.toLowerCase()] || C.accent;
-  return <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, fontFamily: F, fontWeight: 600, background: c + "15", color: c, border: `1px solid ${c}22`, textTransform: "capitalize" }}>{text}</span>;
+  const c = cols[String(safeText || '').toLowerCase()] || C.accent;
+  return <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, fontFamily: F, fontWeight: 600, background: c + "15", color: c, border: `1px solid ${c}22`, textTransform: "capitalize" }}>{safeText}</span>;
 }
 
 // --- Mock Data ---

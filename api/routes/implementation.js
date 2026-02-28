@@ -43,9 +43,14 @@ router.get('/phases', async (req, res) => {
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     await ensureImplementationPhasesTable();
     const { project_id } = req.query;
-    let sql = 'SELECT * FROM implementation_phases WHERE org_id = $1';
-    const params = [orgId];
-    if (project_id) { sql += ' AND project_id = $2'; params.push(project_id); }
+    let sql, params;
+    if (project_id) {
+      sql = 'SELECT * FROM implementation_phases WHERE project_id = $1';
+      params = [String(project_id)];
+    } else {
+      sql = 'SELECT * FROM implementation_phases WHERE org_id = $1';
+      params = [orgId];
+    }
     sql += ' ORDER BY sort_order ASC, created_at ASC';
     const result = await query(sql, params);
     res.json(result.rows);
@@ -87,17 +92,48 @@ router.post('/phases/bulk', async (req, res) => {
     if (!project_id) return res.status(400).json({ error: 'project_id required' });
     if (!Array.isArray(phases) || phases.length === 0) return res.status(400).json({ error: 'phases array required' });
 
+    const projectIdStr = String(project_id);
+    // Resolve org_id: use project's parent org if available (satisfies FK implementation_phases_project_id_fkey)
+    const projRow = await query(
+      'SELECT id, org_id FROM organisations WHERE id::text = $1 OR id = $1::uuid LIMIT 1',
+      [projectIdStr]
+    ).catch(() => ({ rows: [] }));
+    if (!projRow?.rows?.length) {
+      return res.status(400).json({ error: 'Invalid project_id: project not found. Select a valid project from the sidebar.' });
+    }
+    const projectOrgId = projRow.rows[0].org_id;
+    // Use project's org_id (parent) when valid; otherwise use user's orgId so FK constraints are satisfied
+    const effectiveOrgId = (projectOrgId && String(projectOrgId).trim()) ? String(projectOrgId) : orgId;
+
     const created = [];
+    let currentOrgId = effectiveOrgId;
     for (const phase of phases) {
-      const result = await query(
-        `INSERT INTO implementation_phases (org_id, project_id, sort_order, title, description, status, due_date, timeline, cost, color, tasks)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb) RETURNING *`,
-        [orgId, project_id, phase.sort_order || 0, phase.title || 'Untitled Phase',
-         phase.description || null, phase.status || 'not_started', phase.due_date || null,
-         phase.timeline || null, phase.cost || null, phase.color || null,
-         phase.tasks ? JSON.stringify(phase.tasks) : '[]']
-      );
-      created.push(result.rows[0]);
+      try {
+        const result = await query(
+          `INSERT INTO implementation_phases (org_id, project_id, sort_order, title, description, status, due_date, timeline, cost, color, tasks)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb) RETURNING *`,
+          [currentOrgId, projectIdStr, phase.sort_order || 0, phase.title || 'Untitled Phase',
+           phase.description || null, phase.status || 'not_started', phase.due_date || null,
+           phase.timeline || null, phase.cost || null, phase.color || null,
+           phase.tasks ? JSON.stringify(phase.tasks) : '[]']
+        );
+        created.push(result.rows[0]);
+      } catch (insertErr) {
+        if (insertErr.code === '23503' && currentOrgId !== orgId) {
+          currentOrgId = orgId;
+          const retry = await query(
+            `INSERT INTO implementation_phases (org_id, project_id, sort_order, title, description, status, due_date, timeline, cost, color, tasks)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb) RETURNING *`,
+            [currentOrgId, projectIdStr, phase.sort_order || 0, phase.title || 'Untitled Phase',
+             phase.description || null, phase.status || 'not_started', phase.due_date || null,
+             phase.timeline || null, phase.cost || null, phase.color || null,
+             phase.tasks ? JSON.stringify(phase.tasks) : '[]']
+          );
+          created.push(retry.rows[0]);
+        } else {
+          throw insertErr;
+        }
+      }
     }
     res.status(201).json(created);
   } catch (err) {

@@ -295,7 +295,7 @@ function AuthScreen({ onSuccess, mode: initialMode = "signin", resetToken: urlTo
               background: errorCode === "EMAIL_EXISTS" ? COLORS.warnBg : (["MISSING_FIELDS", "MISSING_ACCESS_TOKEN", "WEAK_PASSWORD", "PASSWORD_MISMATCH", "TOKEN_NOT_VALIDATED"].includes(errorCode) ? COLORS.blueBg : COLORS.dangerBg),
               border: `1px solid ${errorCode === "EMAIL_EXISTS" ? COLORS.warn + "44" : (["MISSING_FIELDS", "MISSING_ACCESS_TOKEN", "WEAK_PASSWORD", "PASSWORD_MISMATCH", "TOKEN_NOT_VALIDATED"].includes(errorCode) ? COLORS.blue + "44" : COLORS.danger + "44")}`,
               color: errorCode === "EMAIL_EXISTS" ? COLORS.warn : (["MISSING_FIELDS", "MISSING_ACCESS_TOKEN", "WEAK_PASSWORD", "PASSWORD_MISMATCH", "TOKEN_NOT_VALIDATED"].includes(errorCode) ? COLORS.blue : COLORS.danger),
-            }}>{error}</div>
+            }}>{typeof error === "string" ? error : (error?.message || String(error))}</div>
           )}
           <button type="submit" disabled={loading} style={{
             padding: "12px 20px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8,
@@ -4778,7 +4778,7 @@ function AuditCompanyTab({ transcripts }) {
 
       {researchError && (
         <div style={{ padding: "12px 16px", background: "#ff4d4f12", border: "1px solid #ff4d4f33", borderRadius: 8, marginBottom: 16, fontSize: 13, color: "#ff4d4f" }}>
-          {researchError}
+          {typeof researchError === "string" ? researchError : (researchError?.message || String(researchError))}
         </div>
       )}
 
@@ -5304,7 +5304,7 @@ function AuditSurveysTab() {
             </div>
 
             {saveError && (
-              <div style={{ padding: "10px 14px", background: COLORS.danger + "15", border: `1px solid ${COLORS.danger}33`, borderRadius: 8, marginBottom: 10, fontSize: 12, color: COLORS.danger }}>{saveError}</div>
+              <div style={{ padding: "10px 14px", background: COLORS.danger + "15", border: `1px solid ${COLORS.danger}33`, borderRadius: 8, marginBottom: 10, fontSize: 12, color: COLORS.danger }}>{typeof saveError === "string" ? saveError : (saveError?.message || String(saveError))}</div>
             )}
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => saveSurvey(false)} disabled={saving} style={{ padding: "12px 24px", background: saving ? COLORS.border : COLORS.accent, color: saving ? COLORS.textDim : COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: saving ? "default" : "pointer" }}>{saving ? "Saving..." : "Save Survey"}</button>
@@ -5616,7 +5616,7 @@ function AuditTranscriptsTab({ project, transcripts, setTranscripts }) {
               <button onClick={closeModal} style={{ background: "transparent", border: "none", color: COLORS.textDim, fontSize: 18, cursor: "pointer" }}>×</button>
             </div>
             <div style={{ padding: "20px 24px" }}>
-              {saveError && <div style={{ marginBottom: 12, padding: 10, background: "rgba(255,80,80,0.1)", border: `1px solid ${COLORS.danger}44`, borderRadius: 8, color: COLORS.danger, fontSize: 12 }}>{saveError}</div>}
+              {saveError && <div style={{ marginBottom: 12, padding: 10, background: "rgba(255,80,80,0.1)", border: `1px solid ${COLORS.danger}44`, borderRadius: 8, color: COLORS.danger, fontSize: 12 }}>{typeof saveError === "string" ? saveError : (saveError?.message || String(saveError))}</div>}
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 6 }}>NAME (OPTIONAL)</label>
                 <input value={addName} onChange={e => setAddName(e.target.value)} placeholder="e.g. CTO Interview" style={inputStyle} />
@@ -7691,18 +7691,20 @@ function IntegrationConfigModal({ intg, existingCredentials, onSave, onClose }) 
   useEffect(() => setForm(existingCredentials), [intg?.key, existingCredentials]);
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
   const labelStyle = { display: "block", fontFamily: FONT_BODY, fontSize: 13, color: COLORS.text, fontWeight: 500, marginBottom: 6 };
+  if (!intg || typeof intg !== "object") return null;
+  const credentialFields = Array.isArray(intg.credentialFields) ? intg.credentialFields : [];
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={onClose}>
       <div style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 24, maxWidth: 420, width: "90%", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-          <span style={{ fontSize: 28 }}>{intg.icon}</span>
+          <span style={{ fontSize: 28 }}>{typeof intg.icon === "string" ? intg.icon : "⚙️"}</span>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 16 }}>Configure {intg.label}</div>
-            <div style={{ fontSize: 12, color: COLORS.textDim }}>{intg.desc}</div>
+            <div style={{ fontWeight: 600, fontSize: 16 }}>Configure {typeof intg.label === "string" ? intg.label : intg.key || "Integration"}</div>
+            <div style={{ fontSize: 12, color: COLORS.textDim }}>{typeof intg.desc === "string" ? intg.desc : ""}</div>
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 24 }}>
-          {(intg.credentialFields || []).map(f => (
+          {credentialFields.map(f => (
             <div key={f.name}>
               <label style={labelStyle}>{f.label}</label>
               <input type={f.type || "text"} value={form[f.name] || ""} onChange={e => setForm({ ...form, [f.name]: e.target.value })} placeholder={f.placeholder || f.label} style={inputStyle} autoComplete="off" />
@@ -9462,7 +9464,7 @@ function LinkedInContentView() {
           {/* Generated Results */}
           {generateError && !isGenerating && (
             <div style={{ padding: "16px 20px", background: COLORS.danger + "10", border: `1px solid ${COLORS.danger}33`, borderRadius: 10, marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: COLORS.danger }}>{generateError}</div>
+              <div style={{ fontSize: 12, color: COLORS.danger }}>{typeof generateError === "string" ? generateError : (generateError?.message || String(generateError))}</div>
             </div>
           )}
           {isGenerating && (
