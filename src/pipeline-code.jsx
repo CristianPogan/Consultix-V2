@@ -1077,7 +1077,7 @@ export default function App() {
             SOLUTIONS
           </div>
           {[
-            { key: "audit", label: "Strategy", icon: "🔍", desc: "AI audits & analysis" },
+            { key: "audit", label: "Strategy", icon: "🔍", desc: "Client assessments" },
             { key: "implementation", label: "Implementation", icon: "📋", desc: "Project delivery" },
             { key: "workflows", label: "Workflows", icon: "⚙️", desc: "Automation library" },
             { key: "council", label: "AI Council", icon: "🧠", desc: "Strategic advisor" },
@@ -1097,8 +1097,8 @@ export default function App() {
             { key: "leads", label: "Leads", icon: "⚡", desc: "Build & send campaigns" },
             { key: "leadlists", label: "Lead Lists", icon: "📋", desc: "View scraped data" },
             { key: "campaigns_messaging", label: "Messaging", icon: "📝", desc: "AI copywriting workshop" },
-            { key: "campaigns_email", label: "Cold Email", icon: "📧", desc: "Instantly / SmartLead" },
-            { key: "campaigns_linkedin", label: "LinkedIn", icon: "💼", desc: "HeyReach / AimFox" },
+            { key: "campaigns_email", label: "Cold Email", icon: "📧", desc: "Native email automation" },
+            { key: "campaigns_linkedin", label: "LinkedIn", icon: "💼", desc: "Native outreach automation" },
           ].map(page => (
             <button key={page.key} onClick={() => setActivePage(page.key)} style={{ width: "100%", padding: "10px 12px", marginBottom: 2, background: activePage === page.key ? COLORS.accentBg : "transparent", border: activePage === page.key ? `1px solid ${COLORS.accent}22` : "1px solid transparent", borderRadius: 8, color: activePage === page.key ? COLORS.accent : COLORS.textMuted, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 10, transition: "all 0.15s" }}>
               <span style={{ fontSize: 16 }}>{page.icon}</span>
@@ -1301,8 +1301,8 @@ export default function App() {
         {activePage === "council" && <AICouncilView />}
 
         {activePage === "campaigns_messaging" && <MessagingWorkshopView />}
-        {activePage === "campaigns_email" && <ColdEmailCampaignsView />}
-        {activePage === "campaigns_linkedin" && <LinkedInCampaignsView />}
+        {activePage === "campaigns_email" && <ColdEmailCampaignsView setActivePage={setActivePage} />}
+        {activePage === "campaigns_linkedin" && <LinkedInCampaignsView setActivePage={setActivePage} />}
 
         {activePage === "content_linkedin" && <LinkedInContentView />}
         {activePage === "content_community" && <CommunityView />}
@@ -7130,7 +7130,7 @@ function AddLeadsModal({ campaign, onClose, accentColor, availableLists = [] }) 
   );
 }
 
-function ColdEmailCampaignsView() {
+function ColdEmailCampaignsView({ setActivePage }) {
   const [view, setView] = useState("list");
   const [addLeadsCampaign, setAddLeadsCampaign] = useState(null);
   const [campaignForm, setCampaignForm] = useState({
@@ -7205,7 +7205,10 @@ function ColdEmailCampaignsView() {
             <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>Cold Email <span style={{ color: COLORS.accent }}>Campaigns</span></h2>
             <p style={{ color: COLORS.textMuted, margin: "6px 0 0" }}>Manage your Instantly.ai campaigns</p>
           </div>
-          <button onClick={() => setView("create")} style={{ padding: "12px 24px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ CREATE CAMPAIGN</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setActivePage && setActivePage("settings")} style={{ padding: "10px 20px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer", color: COLORS.textMuted }}>🔑 Connect Accounts</button>
+            <button onClick={() => setView("create")} style={{ padding: "12px 24px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ CREATE CAMPAIGN</button>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 16, marginBottom: 28 }}>
           <StatCard label="Active Campaigns" value={MOCK_CAMPAIGNS.filter(c => c.status === "active").length} accent={COLORS.accent} />
@@ -7271,6 +7274,7 @@ function ColdEmailCampaignsView() {
                 </div>
               ))}
             </div>
+            <button onClick={() => setActivePage && setActivePage("settings")} style={{ marginTop: 8, padding: "6px 12px", background: COLORS.accent + "12", color: COLORS.accent, border: `1px solid ${COLORS.accent}33`, borderRadius: 6, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>+ Add More Accounts</button>
           </div>
         </div>
       </div>
@@ -7378,10 +7382,11 @@ function ColdEmailCampaignsView() {
   );
 }
 
-function LinkedInCampaignsView() {
+function LinkedInCampaignsView({ setActivePage }) {
   const [addLeadsCampaign, setAddLeadsCampaign] = useState(null);
   const [MOCK_CAMPAIGNS, setLiCampaigns] = useState([]);
   const [heyreachStats, setHeyreachStats] = useState(null);
+  const [integrationStatus, setIntegrationStatus] = useState({});
 
   useEffect(() => {
     api.heyreach.campaigns.list().then(data => {
@@ -7408,6 +7413,12 @@ function LinkedInCampaignsView() {
     });
   }, []);
 
+  useEffect(() => {
+    api.integrations.list().then(res => setIntegrationStatus(res.integrations || {})).catch(() => {});
+  }, []);
+
+  const accountConnected = !!integrationStatus.heyreach;
+
   const addLeadsBtn = (c) => (
     <button onClick={() => setAddLeadsCampaign(c)} style={{ padding: "7px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap" }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = COLORS.blue; e.currentTarget.style.color = COLORS.blue; }}
@@ -7418,9 +7429,21 @@ function LinkedInCampaignsView() {
   return (
     <div style={{ flex: 1, overflow: "auto", padding: 32 }}>
       {addLeadsCampaign && <AddLeadsModal campaign={addLeadsCampaign} onClose={() => setAddLeadsCampaign(null)} accentColor={COLORS.blue} />}
-      <div style={{ marginBottom: 28 }}>
-        <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>LinkedIn <span style={{ color: COLORS.blue }}>Campaigns</span></h2>
-        <p style={{ color: COLORS.textMuted, margin: "6px 0 0" }}>Manage your HeyReach & AimFox campaigns</p>
+      <div style={{ marginBottom: 28, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>LinkedIn <span style={{ color: COLORS.blue }}>Campaigns</span></h2>
+          <p style={{ color: COLORS.textMuted, margin: "6px 0 0" }}>Manage your HeyReach & AimFox campaigns</p>
+        </div>
+        <button onClick={() => setActivePage && setActivePage("settings")} style={{ padding: "10px 20px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer", color: COLORS.textMuted }}>🔑 Connect Accounts</button>
+      </div>
+      <div style={{ padding: "12px 18px", background: COLORS.surface, border: `1px solid ${accountConnected ? COLORS.green + "33" : COLORS.warn + "33"}`, borderRadius: 10, marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: accountConnected ? COLORS.green : COLORS.warn, boxShadow: `0 0 6px ${accountConnected ? COLORS.green : COLORS.warn}66` }} />
+          <div>
+            <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: accountConnected ? COLORS.green : COLORS.warn }}>{accountConnected ? "LinkedIn Connected" : "Not Connected"}</div>
+            <div style={{ fontSize: 10, color: COLORS.textDim }}>Connect HeyReach in Settings to run campaigns</div>
+          </div>
+        </div>
       </div>
       <div style={{ display: "flex", gap: 16, marginBottom: 28 }}>
         <StatCard label="Active Campaigns" value={MOCK_CAMPAIGNS.filter(c => c.status === "active").length} accent={COLORS.blue} />

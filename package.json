@@ -21,10 +21,11 @@
     "test:lead-search": "node --test tests/lead-search-integrations.test.js",
     "test:findy": "node --test tests/findy.test.js",
     "test:lead-persist": "node --test tests/lead-persistence.test.js",
-    "test:all": "node --test tests/api.test.js tests/api-gaps.test.js tests/heyreach.test.js tests/instantly.test.js tests/lead-search-integrations.test.js tests/findy.test.js tests/lead-persistence.test.js",
+    "test:all": "node --test tests/api.test.js tests/api-gaps.test.js tests/heyreach.test.js tests/instantly.test.js tests/lead-search-integrations.test.js tests/findy.test.js tests/lead-persistence.test.js tests/connect-accounts.test.js",
     "seed-signup-token": "node scripts/seed-signup-token.js",
     "seed-organisations": "node scripts/seed-organisations.js",
-    "set-admin": "node scripts/set-admin-role.js"
+    "set-admin": "node scripts/set-admin-role.js",
+    "test:connect-accounts": "node --test tests/connect-accounts.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
