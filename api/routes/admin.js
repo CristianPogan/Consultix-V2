@@ -213,7 +213,7 @@ router.get('/users', async (req, res) => {
     const { org_id } = req.query;
     let sql = `SELECT u.id, u.email, u.name, u.org_id, u.role, u.created_at, o.name AS org_name
       FROM app_users u
-      LEFT JOIN organisations o ON o.id = u.org_id`;
+      LEFT JOIN organisations o ON o.id::text = u.org_id`;
     const params = [];
     if (org_id) { sql += ' WHERE u.org_id = $1'; params.push(org_id); }
     sql += ' ORDER BY u.created_at DESC LIMIT 200';

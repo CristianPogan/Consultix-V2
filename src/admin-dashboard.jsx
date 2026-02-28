@@ -1364,7 +1364,7 @@ export default function AdminDashboard() {
             <span style={{ fontSize: 10, fontFamily: F, color: C.accent }}>{inv.stripe_invoice_id || String(inv.id).slice(0, 8)}</span>
             <span style={{ fontSize: 12, fontWeight: 500 }}>{inv.org_name || "—"}</span>
             <Badge text={inv.plan_tier || "—"} />
-            <span style={{ fontSize: 12, fontFamily: F, fontWeight: 600 }}>${(inv.amount_due ?? inv.amount_paid ?? 0).toFixed(2)}</span>
+            <span style={{ fontSize: 12, fontFamily: F, fontWeight: 600 }}>${Number(inv.amount_due ?? inv.amount_paid ?? 0).toFixed(2)}</span>
             <span style={{ fontSize: 10, color: C.textDim }}>{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : "—"}</span>
             <Badge text={(inv.status || "draft").toLowerCase()} />
             <div style={{ display: "flex", gap: 4 }}>
