@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query, getCreditActionCosts, ensureCreditSystemReady } from '../db.js';
+import { query, getCreditActionCosts, ensureCreditSystemReady, ensureOrganisationsReady } from '../db.js';
 
 const router = Router();
 
@@ -191,6 +191,101 @@ router.get('/credits/history', async (req, res) => {
     res.json(withBalance);
   } catch (err) {
     console.error('billing/credits/history GET', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Subscription (renewal date, payment method) ---
+router.get('/subscription', async (req, res) => {
+  try {
+    await ensureOrganisationsReady();
+    const orgId = req.orgId;
+    if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    const result = await query(
+      `SELECT subscription_current_period_end, payment_method_last4, payment_method_brand, stripe_customer_id
+       FROM organisations WHERE id::text = $1 LIMIT 1`,
+      [String(orgId)]
+    );
+    const row = result.rows[0];
+    if (!row) return res.status(503).json({ error: 'Organisation not found' });
+    const renewsAt = row.subscription_current_period_end;
+    const hasPayment = !!(row.payment_method_last4 || row.stripe_customer_id);
+    const d = renewsAt ? new Date(renewsAt) : new Date();
+    if (!renewsAt) d.setMonth(d.getMonth() + 1);
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    res.json({
+      renews_at: renewsAt || d.toISOString(),
+      renewal_date: renewsAt ? new Date(renewsAt).toISOString().slice(0, 10) : d.toISOString().slice(0, 10),
+      payment_method_last4: row.payment_method_last4 || null,
+      payment_method_brand: row.payment_method_brand || null,
+      has_payment_method: hasPayment,
+    });
+  } catch (err) {
+    console.error('billing/subscription GET', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Manage subscription (Stripe Customer Portal) ---
+router.post('/manage-subscription', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    const stripeSecret = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecret) {
+      return res.status(501).json({ error: 'Stripe not configured. Set STRIPE_SECRET_KEY to enable subscription management.' });
+    }
+    let st;
+    try {
+      const stripe = (await import('stripe')).default;
+      st = new stripe(stripeSecret);
+    } catch (e) {
+      return res.status(501).json({ error: 'Stripe SDK not installed. Run: npm install stripe' });
+    }
+    const org = await query('SELECT stripe_customer_id FROM organisations WHERE id::text = $1 LIMIT 1', [String(orgId)]);
+    const customerId = org.rows[0]?.stripe_customer_id;
+    if (!customerId) {
+      return res.status(400).json({ error: 'No Stripe customer linked to this organisation.' });
+    }
+    const session = await st.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: process.env.STRIPE_PORTAL_RETURN_URL || req.headers.origin || `${req.protocol}://${req.get('host')}`,
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('billing/manage-subscription POST', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- User plan change (upgrade/downgrade) ---
+router.put('/plan', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    const { plan_tier } = req.body || {};
+    if (!plan_tier) return res.status(400).json({ error: 'plan_tier required' });
+    const planRes = await query(
+      'SELECT credits_monthly FROM billing_plans WHERE tier_key::text = $1 OR tier::text = $1 OR name::text = $1 LIMIT 1',
+      [String(plan_tier)]
+    ).catch(() => ({ rows: [] }));
+    if (!planRes.rows.length) return res.status(400).json({ error: 'Invalid plan_tier. Choose starter, growth, or scale.' });
+    const creditsAllocated = planRes.rows[0]?.credits_monthly ?? null;
+    const sets = ['plan_tier = $1', 'updated_at = now()'];
+    const vals = [plan_tier, orgId];
+    if (creditsAllocated != null) {
+      sets.push('credits_allocated = $3');
+      vals.push(creditsAllocated);
+    }
+    const result = await query(
+      `UPDATE organisations SET ${sets.join(', ')} WHERE id::text = $2 RETURNING *`,
+      vals
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Organisation not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('billing/plan PUT', err);
     res.status(500).json({ error: err.message });
   }
 });

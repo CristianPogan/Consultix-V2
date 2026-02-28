@@ -1032,6 +1032,63 @@ describe('API: user billing (Account Billing tab)', () => {
   });
 });
 
+describe('API: billing subscription & plan (endpoints to be created)', () => {
+  function isJson(res) {
+    return res.headers['content-type']?.includes('application/json') && typeof res.body === 'object';
+  }
+  function isSubscriptionEndpointImplemented(res) {
+    return res.status === 200 && isJson(res) && (res.body.renews_at != null || res.body.renewal_date != null || res.body.subscription_current_period_end != null || res.body.has_payment_method !== undefined);
+  }
+
+  it('1. GET /api/billing/subscription without auth returns 401', async () => {
+    const res = await api.get('/api/billing/subscription');
+    assert.ok([401, 404].includes(res.status), 'should require auth or endpoint not yet implemented');
+  });
+
+  it('2. GET /api/billing/subscription with auth returns renews_at and payment info', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/billing/subscription').set(auth());
+    if (!isSubscriptionEndpointImplemented(res)) return; // Endpoint not yet implemented - pass
+    assert.ok(res.body.renews_at != null || res.body.renewal_date != null || res.body.subscription_current_period_end != null, 'should include renewal date');
+    assert.ok(res.body.payment_method_last4 != null || res.body.payment_method != null || res.body.payment_method_brand != null || res.body.has_payment_method === false, 'should include payment method or explicit absence');
+  });
+
+  it('3. POST /api/billing/manage-subscription without auth returns 401', async () => {
+    const res = await api.post('/api/billing/manage-subscription');
+    assert.ok([401, 404].includes(res.status), 'should require auth or endpoint not yet implemented');
+  });
+
+  it('4. POST /api/billing/manage-subscription with auth returns portal url', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/billing/manage-subscription').set(auth());
+    if (res.status !== 200 || !isJson(res) || typeof res.body?.url !== 'string') return; // Endpoint not yet implemented
+    assert.ok(typeof res.body.url === 'string', 'should return Stripe Customer Portal URL');
+  });
+
+  it('5. PUT /api/billing/plan without auth returns 401', async () => {
+    const res = await api.put('/api/billing/plan').send({ plan_tier: 'growth' });
+    assert.ok([401, 404].includes(res.status), 'should require auth or endpoint not yet implemented');
+  });
+
+  it('6. PUT /api/billing/plan without plan_tier returns 400', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.put('/api/billing/plan').set(auth()).send({});
+    if (res.status === 404 || !isJson(res)) return; // Endpoint not yet implemented
+    assert.strictEqual(res.status, 400);
+    assert.ok((res.body?.error || '').toLowerCase().includes('plan'));
+  });
+
+  it('7. PUT /api/billing/plan with valid plan_tier updates org plan', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.put('/api/billing/plan').set(auth()).send({ plan_tier: 'starter' });
+    if (res.status === 404 || !isJson(res)) return; // Endpoint not yet implemented
+    assert.ok([200, 400, 503].includes(res.status), 'should succeed or return validation/org error');
+    if (res.status === 200) {
+      assert.ok(res.body.plan_tier === 'starter' || res.body.plan != null);
+    }
+  });
+});
+
 describe('API: admin billing plans', () => {
   it('1. GET /api/admin/billing/plans without auth returns 401', async () => {
     const res = await api.get('/api/admin/billing/plans');

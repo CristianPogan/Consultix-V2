@@ -89,6 +89,10 @@ async function ensureOrganisationsTable() {
     await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()').catch(() => {});
     await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS is_project BOOLEAN DEFAULT false').catch(() => {});
     await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS org_id TEXT').catch(() => {});
+    await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS subscription_current_period_end TIMESTAMPTZ').catch(() => {});
+    await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS payment_method_last4 TEXT').catch(() => {});
+    await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS payment_method_brand TEXT').catch(() => {});
+    await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT').catch(() => {});
   } catch (_) {}
 }
 

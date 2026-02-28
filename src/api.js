@@ -458,6 +458,9 @@ export const api = {
     creditHistory: () => req('GET', '/billing/credits/history'),
     usageByAction: () => req('GET', '/billing/credits/usage-by-action'),
     creditCosts: () => req('GET', '/billing/credits/costs'),
+    subscription: () => req('GET', '/billing/subscription'),
+    manageSubscription: () => req('POST', '/billing/manage-subscription'),
+    updatePlan: (plan_tier) => req('PUT', '/billing/plan', { plan_tier }),
   },
   notifications: {
     list: (params) => {
