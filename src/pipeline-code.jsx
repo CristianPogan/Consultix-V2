@@ -85,6 +85,8 @@ const COLORS = {
   blueBg: "rgba(77, 158, 240, 0.08)",
   green: "#22c55e",
   greenBg: "rgba(34, 197, 94, 0.08)",
+  purple: "#7B61FF",
+  purpleBg: "rgba(123, 97, 255, 0.08)",
 };
 
 const FONT = "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace";
@@ -1014,8 +1016,8 @@ export default function App() {
               <button onClick={() => { setNewProjectName(""); setShowAddProjectModal(true); }} style={{ padding: "2px 8px", borderRadius: 6, background: "transparent", border: `1px solid ${COLORS.border}`, color: COLORS.accent, fontFamily: FONT, fontSize: 14, fontWeight: 600, cursor: "pointer", lineHeight: 1 }} title="Add project">+</button>
             </div>
             {showAddProjectModal && (
-              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={() => !addProjectCreating && setShowAddProjectModal(false)}>
-                <div style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 24, maxWidth: 360, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }} onClick={e => e.stopPropagation()}>
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={() => !addProjectCreating && setShowAddProjectModal(false)}>
+                <div style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 24, maxWidth: 360, width: "90%", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }} onClick={e => e.stopPropagation()}>
                   <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16 }}>New Project</div>
                   <label style={{ display: "block", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Project name</label>
                   <input value={newProjectName} onChange={e => setNewProjectName(e.target.value)} placeholder="e.g. Acme Corp AI Audit" style={{ width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 20 }} autoFocus />
@@ -1775,32 +1777,192 @@ function ICPForm({ form, setForm, onSubmit, isProcessing, canRunDiscovery = true
 }
 
 function DiscoveryPanel({ leads, selected, setSelected, onNext, isProcessing }) {
+  const [showScrapeConfig, setShowScrapeConfig] = useState(false);
+  const [scrapeConfig, setScrapeConfig] = useState({
+    batchSize: 5000,
+    scheduleEnabled: false,
+    schedulePreset: "daily",
+    customDays: 4,
+    dedupEnabled: true,
+  });
+  const totalMatches = Math.max(leads.length, 37400);
+
+  const getScheduleDays = () => {
+    if (scrapeConfig.schedulePreset === "daily") return 1;
+    if (scrapeConfig.schedulePreset === "weekly") return 7;
+    if (scrapeConfig.schedulePreset === "biweekly") return 14;
+    if (scrapeConfig.schedulePreset === "monthly") return 30;
+    return scrapeConfig.customDays;
+  };
+
+  const handleBatchSlider = (e) => {
+    const raw = parseInt(e.target.value);
+    const snapped = raw <= 500 ? Math.round(raw / 100) * 100 : Math.round(raw / 500) * 500;
+    setScrapeConfig({ ...scrapeConfig, batchSize: Math.max(100, snapped) });
+  };
+
+  const handleBatchInput = (e) => {
+    const val = parseInt(e.target.value) || 0;
+    setScrapeConfig({ ...scrapeConfig, batchSize: Math.min(10000, Math.max(0, val)) });
+  };
+
   const toggleLead = id => {
     const next = new Set(selected);
     next.has(id) ? next.delete(id) : next.add(id);
     setSelected(next);
   };
 
+  const handleScrapeConfirm = () => {
+    setShowScrapeConfig(false);
+    onNext();
+  };
+
   return (
     <div>
+      {/* Scrape Config Modal */}
+      {showScrapeConfig && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} onClick={() => setShowScrapeConfig(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "90%", maxWidth: 520, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden" }}>
+            <div style={{ padding: "20px 24px", borderBottom: `1px solid ${COLORS.border}` }}>
+              <div style={{ fontFamily: FONT, fontSize: 17, fontWeight: 600 }}>Scrape & <span style={{ color: COLORS.accent }}>Enrich</span></div>
+              <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 4 }}>{totalMatches.toLocaleString()} leads match your criteria</div>
+            </div>
+
+            <div style={{ padding: "20px 24px" }}>
+              {/* Batch size */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600 }}>BATCH SIZE</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="number" value={scrapeConfig.batchSize} onChange={handleBatchInput} min={100} max={10000} step={100} style={{
+                      width: 72, padding: "6px 8px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6,
+                      color: COLORS.accent, fontFamily: FONT, fontSize: 14, fontWeight: 700, textAlign: "right", outline: "none",
+                    }} />
+                    <span style={{ fontSize: 11, color: COLORS.textDim }}>leads</span>
+                  </div>
+                </div>
+                <div style={{ position: "relative", padding: "0 2px" }}>
+                  <input type="range" min={100} max={10000} step={100} value={scrapeConfig.batchSize} onChange={handleBatchSlider} style={{
+                    width: "100%", height: 6, appearance: "none", WebkitAppearance: "none", background: `linear-gradient(to right, ${COLORS.accent} ${(scrapeConfig.batchSize / 10000) * 100}%, ${COLORS.borderActive} ${(scrapeConfig.batchSize / 10000) * 100}%)`,
+                    borderRadius: 3, outline: "none", cursor: "pointer",
+                  }} />
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                    <span style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim }}>100</span>
+                    <span style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim }}>2,500</span>
+                    <span style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim }}>5,000</span>
+                    <span style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim }}>7,500</span>
+                    <span style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim }}>10,000</span>
+                  </div>
+                </div>
+                <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 8 }}>First batch of {scrapeConfig.batchSize.toLocaleString()} will start immediately</div>
+              </div>
+
+              {/* Schedule */}
+              <div style={{ padding: "14px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: scrapeConfig.scheduleEnabled ? 12 : 0 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>Schedule Remaining Batches</div>
+                    <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 2 }}>{Math.max(0, totalMatches - scrapeConfig.batchSize).toLocaleString()} leads remaining after first batch</div>
+                  </div>
+                  <div onClick={() => setScrapeConfig({ ...scrapeConfig, scheduleEnabled: !scrapeConfig.scheduleEnabled })} style={{ width: 44, height: 24, borderRadius: 12, cursor: "pointer", background: scrapeConfig.scheduleEnabled ? COLORS.accent : COLORS.borderActive, position: "relative", transition: "background 0.2s" }}>
+                    <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: scrapeConfig.scheduleEnabled ? 23 : 3, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                  </div>
+                </div>
+                {scrapeConfig.scheduleEnabled && (
+                  <div>
+                    <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 6 }}>FREQUENCY</div>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                      {[
+                        { key: "daily", label: "Daily" },
+                        { key: "weekly", label: "Weekly" },
+                        { key: "biweekly", label: "Biweekly" },
+                        { key: "monthly", label: "Monthly" },
+                        { key: "custom", label: "Custom" },
+                      ].map(opt => (
+                        <button key={opt.key} onClick={() => setScrapeConfig({ ...scrapeConfig, schedulePreset: opt.key })} style={{
+                          flex: 1, padding: "8px 4px", borderRadius: 6, cursor: "pointer", fontFamily: FONT, fontSize: 11, fontWeight: 600,
+                          border: `1px solid ${scrapeConfig.schedulePreset === opt.key ? COLORS.blue + "55" : COLORS.border}`,
+                          background: scrapeConfig.schedulePreset === opt.key ? COLORS.blue + "10" : "transparent",
+                          color: scrapeConfig.schedulePreset === opt.key ? COLORS.blue : COLORS.textDim,
+                        }}>{opt.label}</button>
+                      ))}
+                    </div>
+                    {scrapeConfig.schedulePreset === "custom" && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "8px 10px", background: COLORS.bg, borderRadius: 6, border: `1px solid ${COLORS.border}` }}>
+                        <span style={{ fontSize: 12, color: COLORS.textMuted }}>Every</span>
+                        <input type="number" min={1} max={90} value={scrapeConfig.customDays} onChange={e => setScrapeConfig({ ...scrapeConfig, customDays: Math.max(1, Math.min(90, parseInt(e.target.value) || 1)) })} style={{
+                          width: 48, padding: "4px 6px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 4,
+                          color: COLORS.blue, fontFamily: FONT, fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none",
+                        }} />
+                        <span style={{ fontSize: 12, color: COLORS.textMuted }}>days</span>
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10, color: COLORS.blue, padding: "6px 10px", background: COLORS.blue + "08", borderRadius: 4, border: `1px solid ${COLORS.blue}22` }}>
+                      ⏱ {Math.ceil((totalMatches - scrapeConfig.batchSize) / scrapeConfig.batchSize)} batches remaining · Completes in ~{Math.ceil(((totalMatches - scrapeConfig.batchSize) / scrapeConfig.batchSize) * getScheduleDays())} days
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Dedup */}
+              <div style={{ padding: "14px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>Exclude Duplicates</div>
+                    <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 2 }}>Skip contacts already in your workspace (42,000 existing leads)</div>
+                  </div>
+                  <div onClick={() => setScrapeConfig({ ...scrapeConfig, dedupEnabled: !scrapeConfig.dedupEnabled })} style={{ width: 44, height: 24, borderRadius: 12, cursor: "pointer", background: scrapeConfig.dedupEnabled ? COLORS.accent : COLORS.borderActive, position: "relative", transition: "background 0.2s" }}>
+                    <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: scrapeConfig.dedupEnabled ? 23 : 3, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                  </div>
+                </div>
+                {scrapeConfig.dedupEnabled && (
+                  <div style={{ marginTop: 8, fontSize: 10, color: COLORS.green, padding: "6px 10px", background: COLORS.green + "08", borderRadius: 4, border: `1px solid ${COLORS.green}22` }}>
+                    ✓ Estimated ~{Math.round(totalMatches * 0.76).toLocaleString()} unique leads after dedup · {Math.round(totalMatches * 0.24).toLocaleString()} duplicates will be skipped
+                  </div>
+                )}
+              </div>
+
+              {/* Summary */}
+              <div style={{ padding: "14px 16px", background: COLORS.accent + "08", border: `1px solid ${COLORS.accent}33`, borderRadius: 10, marginBottom: 20 }}>
+                <div style={{ fontFamily: FONT, fontSize: 10, fontWeight: 600, color: COLORS.accent, letterSpacing: "0.06em", marginBottom: 6 }}>SCRAPE SUMMARY</div>
+                <div style={{ display: "flex", gap: 16, fontSize: 12, flexWrap: "wrap" }}>
+                  <div><span style={{ color: COLORS.textDim }}>Total matches:</span> <strong>{totalMatches.toLocaleString()}</strong></div>
+                  <div><span style={{ color: COLORS.textDim }}>First batch:</span> <strong>{Math.min(scrapeConfig.batchSize, totalMatches).toLocaleString()}</strong></div>
+                  {scrapeConfig.scheduleEnabled && <div><span style={{ color: COLORS.textDim }}>Schedule:</span> <strong>{scrapeConfig.schedulePreset === "custom" ? `Every ${scrapeConfig.customDays}d` : scrapeConfig.schedulePreset.charAt(0).toUpperCase() + scrapeConfig.schedulePreset.slice(1)}</strong></div>}
+                  {scrapeConfig.dedupEnabled && <div><span style={{ color: COLORS.textDim }}>Est. unique:</span> <strong style={{ color: COLORS.green }}>~{Math.round(totalMatches * 0.76).toLocaleString()}</strong></div>}
+                </div>
+                <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 6 }}>~{(Math.min(scrapeConfig.batchSize, totalMatches) * 85).toLocaleString()} credits for first batch · Enrichment settings apply to all batches</div>
+              </div>
+            </div>
+
+            <div style={{ padding: "14px 24px", borderTop: `1px solid ${COLORS.border}`, background: COLORS.surface, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={() => setShowScrapeConfig(false)} style={{ padding: "10px 20px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, color: COLORS.textMuted, cursor: "pointer" }}>Cancel</button>
+              <button onClick={handleScrapeConfirm} style={{ padding: "10px 24px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Start Scrape & Enrich →</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>
             <span style={{ color: COLORS.accent }}>{leads.length}</span> Companies Discovered
           </h2>
-          <p style={{ color: COLORS.textMuted, margin: "6px 0 0" }}>Select companies to enrich with contact data. {selected.size} selected.</p>
+          <p style={{ color: COLORS.textMuted, margin: "6px 0 0" }}>
+            Showing {leads.length} preview results of <strong style={{ color: COLORS.text }}>{totalMatches.toLocaleString()}</strong> total matches. {selected.size} selected.
+          </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-          <button onClick={onNext} disabled={isProcessing || selected.size === 0} style={{
+          <button onClick={() => setShowScrapeConfig(true)} disabled={isProcessing || selected.size === 0} style={{
             padding: "12px 28px", background: selected.size > 0 ? COLORS.accent : COLORS.border, color: selected.size > 0 ? COLORS.bg : COLORS.textDim,
             border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600,
             cursor: isProcessing || selected.size === 0 ? "default" : "pointer", opacity: isProcessing ? 0.6 : 1,
           }}>
-            {isProcessing ? "ENRICHING..." : `ENRICH ${selected.size} COMPANIES →`}
+            {isProcessing ? "PROCESSING..." : `SCRAPE & ENRICH →`}
           </button>
           {selected.size > 0 && (
             <div style={{ fontFamily: FONT, fontSize: 11, color: COLORS.textDim }}>
-              ~{(selected.size * 85).toLocaleString()} credits estimated
+              {totalMatches.toLocaleString()} leads available · ~{(selected.size * 85).toLocaleString()} credits est.
             </div>
           )}
         </div>
@@ -2483,8 +2645,8 @@ function PersonalizeModal({ contacts, promptText, setPromptText, selectedPromptK
       
       {/* Save Prompt Template Modal */}
       {showSavePrompt && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSavePrompt(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 420, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSavePrompt(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 420, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${COLORS.border}` }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>Save Prompt Template</div>
               <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>Save this prompt to reuse later</div>
@@ -3159,13 +3321,15 @@ function DashboardView({ setActivePage, projectId }) {
   ];
 
   const ACTIVITY = dbStats?.recentActivity?.length > 0
-    ? dbStats.recentActivity.map(a => {
+    ? dbStats.recentActivity.map((a, i) => {
         const timeAgo = Math.round((Date.now() - new Date(a.time).getTime()) / (1000 * 60 * 60));
+        const isRecent = timeAgo < 1;
         return {
           action: a.action,
           detail: a.detail,
           time: timeAgo < 1 ? "Just now" : timeAgo < 24 ? `${timeAgo}h ago` : `${Math.round(timeAgo / 24)}d ago`,
           icon: a.action.includes('list') ? "📋" : a.action.includes('Company') ? "🏢" : "✨",
+          status: isRecent ? "RUNNING" : "COMPLETE",
         };
       })
     : [];
@@ -3200,6 +3364,34 @@ function DashboardView({ setActivePage, projectId }) {
             {stat.sub && <div style={{ fontSize: 11, color: COLORS.accent, fontWeight: 500 }}>{stat.sub}</div>}
           </div>
         ))}
+      </div>
+
+      {/* ROI & Time Saved Banner */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
+        <div style={{ padding: "18px 20px", background: `linear-gradient(135deg, ${COLORS.accent}12, ${COLORS.accent}06)`, border: `1px solid ${COLORS.accent}28`, borderRadius: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>⏱️</span>
+            <span style={{ fontSize: 9, fontFamily: FONT, fontWeight: 600, color: COLORS.accent, letterSpacing: "0.06em" }}>HOURS SAVED THIS MONTH</span>
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 700, fontFamily: FONT, color: COLORS.accent }}>— <span style={{ fontSize: 14, fontWeight: 500, color: COLORS.textMuted }}>hrs</span></div>
+          <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 4 }}>Lead research · Outreach · Analysis · Content</div>
+        </div>
+        <div style={{ padding: "18px 20px", background: `linear-gradient(135deg, ${COLORS.green}12, ${COLORS.green}06)`, border: `1px solid ${COLORS.green}28`, borderRadius: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>💵</span>
+            <span style={{ fontSize: 9, fontFamily: FONT, fontWeight: 600, color: COLORS.green, letterSpacing: "0.06em" }}>ESTIMATED SAVINGS THIS MONTH</span>
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 700, fontFamily: FONT, color: COLORS.green }}>— <span style={{ fontSize: 14, fontWeight: 500, color: COLORS.textMuted }}>/mo</span></div>
+          <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 4 }}>Based on $100/hr rate</div>
+        </div>
+        <div style={{ padding: "18px 20px", background: `linear-gradient(135deg, ${COLORS.purple}12, ${COLORS.purple}06)`, border: `1px solid ${COLORS.purple}28`, borderRadius: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>📈</span>
+            <span style={{ fontSize: 9, fontFamily: FONT, fontWeight: 600, color: COLORS.purple, letterSpacing: "0.06em" }}>ANNUAL PROJECTION</span>
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 700, fontFamily: FONT, color: COLORS.purple }}>— <span style={{ fontSize: 14, fontWeight: 500, color: COLORS.textMuted }}>/yr</span></div>
+          <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 4 }}>Equivalent hours saved</div>
+        </div>
       </div>
 
       {/* Chart */}
@@ -3290,21 +3482,31 @@ function DashboardView({ setActivePage, projectId }) {
       })()}
 
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
-        {/* Recent Activity */}
+        {/* AI Activity Feed */}
         <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ padding: "14px 18px", borderBottom: `1px solid ${COLORS.border}` }}>
-            <span style={{ fontSize: 11, fontFamily: FONT, fontWeight: 600, color: COLORS.textDim, letterSpacing: "0.04em" }}>RECENT ACTIVITY</span>
+          <div style={{ padding: "14px 18px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: COLORS.green, boxShadow: `0 0 6px ${COLORS.green}88`, animation: "pulse 2s infinite" }} />
+            <span style={{ fontSize: 11, fontFamily: FONT, fontWeight: 600, color: COLORS.textDim, letterSpacing: "0.04em" }}>AI AGENTS — LIVE ACTIVITY</span>
           </div>
-          {ACTIVITY.map((a, i) => (
+          {ACTIVITY.length > 0 ? ACTIVITY.map((a, i) => (
             <div key={i} style={{ padding: "12px 18px", display: "flex", alignItems: "center", gap: 12, borderBottom: i < ACTIVITY.length - 1 ? `1px solid ${COLORS.border}` : "none" }}>
               <span style={{ fontSize: 14, width: 28, textAlign: "center" }}>{a.icon}</span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.text }}>{a.action}</div>
                 <div style={{ fontSize: 11, color: COLORS.textDim }}>{a.detail}</div>
               </div>
+              <span style={{ fontSize: 9, fontFamily: FONT, fontWeight: 600, padding: "2px 8px", borderRadius: 6, background: a.status === "RUNNING" ? COLORS.green + "15" : a.status === "ACTION NEEDED" ? COLORS.warn + "15" : COLORS.border, border: `1px solid ${a.status === "RUNNING" ? COLORS.green + "33" : a.status === "ACTION NEEDED" ? COLORS.warn + "33" : COLORS.border}`, color: a.status === "RUNNING" ? COLORS.green : a.status === "ACTION NEEDED" ? COLORS.warn : COLORS.textDim, boxShadow: a.status === "RUNNING" ? `0 0 4px ${COLORS.green}88` : a.status === "ACTION NEEDED" ? `0 0 4px ${COLORS.warn}88` : "none", whiteSpace: "nowrap" }}>{a.status}</span>
               <span style={{ fontSize: 10, color: COLORS.textDim, whiteSpace: "nowrap" }}>{a.time}</span>
             </div>
-          ))}
+          )) : (
+            <div style={{ padding: "24px 18px", textAlign: "center", color: COLORS.textDim, fontSize: 12 }}>
+              <div style={{ marginBottom: 8, display: "flex", justifyContent: "center", gap: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: COLORS.green, boxShadow: `0 0 6px ${COLORS.green}88`, animation: "pulse 2s infinite" }} />
+                <span>No activity yet</span>
+              </div>
+              <div style={{ fontSize: 11 }}>AI agents will appear here when active</div>
+            </div>
+          )}
         </div>
 
         {/* Quick Actions */}
@@ -3835,7 +4037,7 @@ function UniboxView({ projectId }) {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: sdrActive ? COLORS.green : COLORS.textDim }}>{sdrActive ? "Active" : "Inactive"}</span>
-              <div onClick={() => { const v = !sdrActive; setSdrActive(v); saveSdrSettings({ active: v }); }} style={{ width: 52, height: 28, borderRadius: 14, cursor: "pointer", background: sdrActive ? COLORS.green : COLORS.borderActive, position: "relative", transition: "background 0.25s" }}>
+              <div onClick={() => { const v = !sdrActive; setSdrActive(v); saveSdrSettings({ active: v }); }} style={{ width: 52, height: 28, borderRadius: 12, cursor: "pointer", background: sdrActive ? COLORS.green : COLORS.borderActive, position: "relative", transition: "background 0.25s" }}>
                 <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: sdrActive ? 27 : 3, transition: "left 0.25s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
               </div>
             </div>
@@ -5407,8 +5609,8 @@ function AuditTranscriptsTab({ project, transcripts, setTranscripts }) {
         ))}
       </div>
       {showAddModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={closeModal}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 560, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={closeModal}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 560, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>Add Transcript</div>
               <button onClick={closeModal} style={{ background: "transparent", border: "none", color: COLORS.textDim, fontSize: 18, cursor: "pointer" }}>×</button>
@@ -5799,8 +6001,8 @@ function AuditProcessMapsTab() {
 
       {/* Edit Process Modal */}
       {editingProcess && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { setEditingProcess(null); setEditForm({}); }}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 460, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { setEditingProcess(null); setEditForm({}); }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 460, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "16px 24px", borderBottom: `1px solid ${COLORS.border}` }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>Edit Process</div>
             </div>
@@ -5837,8 +6039,8 @@ function AuditProcessMapsTab() {
 
       {/* Edit Step Modal */}
       {editingStep && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { setEditingStep(null); setEditForm({}); }}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 460, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { setEditingStep(null); setEditForm({}); }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 460, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "16px 24px", borderBottom: `1px solid ${COLORS.border}` }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>Edit Step</div>
             </div>
@@ -6797,8 +6999,8 @@ function MessagingWorkshopView() {
     <div style={{ flex: 1, display: "flex", height: "100%", overflow: "hidden" }}>
       {/* Save Playbook Modal */}
       {showSaveModal && messagingSuite && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSaveModal(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 520, maxHeight: "80vh", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSaveModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 520, maxHeight: "80vh", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }}>
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${COLORS.border}`, flexShrink: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>Save Messaging Playbook</div>
               <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 2 }}>Select which pieces to include in this playbook</div>
@@ -7079,8 +7281,8 @@ function AddLeadsModal({ campaign, onClose, accentColor, availableLists = [] }) 
   
   const lists = loadedLists.length > 0 ? loadedLists : MOCK_LISTS;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width: 500, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 500, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
         <div style={{ padding: "18px 24px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={{ fontWeight: 600, fontSize: 15 }}>Add Leads to Campaign</div>
@@ -7490,8 +7692,8 @@ function IntegrationConfigModal({ intg, existingCredentials, onSave, onClose }) 
   const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
   const labelStyle = { display: "block", fontFamily: FONT_BODY, fontSize: 13, color: COLORS.text, fontWeight: 500, marginBottom: 6 };
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={onClose}>
-      <div style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 24, maxWidth: 420, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={onClose}>
+      <div style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 24, maxWidth: 420, width: "90%", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
           <span style={{ fontSize: 28 }}>{intg.icon}</span>
           <div>
@@ -8504,8 +8706,8 @@ function SalesScriptGeneratorView() {
         )}
         {/* Save Modal */}
         {showSaveModal && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSaveModal(false)}>
-            <div onClick={e => e.stopPropagation()} style={{ width: 420, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSaveModal(false)}>
+            <div onClick={e => e.stopPropagation()} style={{ width: 420, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
               <div style={{ padding: "18px 24px", borderBottom: `1px solid ${COLORS.border}` }}>
                 <div style={{ fontWeight: 600, fontSize: 15 }}>Save Script</div>
                 <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>Give your script a name to save it to your library</div>
@@ -8809,8 +9011,8 @@ function VideoScriptView() {
 
       {/* Save Script Modal */}
       {showSaveModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSaveModal(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 440, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSaveModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 440, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${COLORS.border}` }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>Save Video Scripts</div>
             </div>
@@ -9317,8 +9519,8 @@ function LinkedInContentView() {
 
       {/* Schedule Modal */}
       {schedulePost && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSchedulePost(null)}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 440, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSchedulePost(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 440, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${COLORS.border}` }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>Schedule Post</div>
               <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 2 }}>Will publish directly to LinkedIn via API</div>
@@ -9498,8 +9700,8 @@ function CommunityView() {
     <div style={{ flex: 1, overflow: "auto", padding: 32 }}>
       {/* Agent Warning Modal */}
       {showAgentWarning && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowAgentWarning(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 480, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowAgentWarning(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 480, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "20px 24px", borderBottom: `1px solid ${COLORS.border}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                 <span style={{ fontSize: 24 }}>🤖</span>
@@ -10039,6 +10241,14 @@ function SolutionAIAssistantView() {
   );
 }
 
+const CATEGORY_META = {
+  "Lead Discovery": { icon: "🔍", color: COLORS.accent },
+  "Enrichment": { icon: "✉️", color: COLORS.blue },
+  "AI Analysis": { icon: "✨", color: "#7B61FF" },
+  "Content & Scripts": { icon: "📝", color: COLORS.warn },
+  "Other": { icon: "📊", color: COLORS.textMuted },
+};
+
 function AccountView() {
   const [activeTab, setActiveTab] = useState("profile");
   const [profile, setProfile] = useState({ firstName: "", lastName: "", email: "", company: "", timezone: "Europe/London", photoUrl: "" });
@@ -10047,9 +10257,16 @@ function AccountView() {
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
-  const [currentPlan] = useState("growth");
-  const [creditsUsed] = useState(1247);
-  const [creditsTotal] = useState(2000);
+  const [currentPlan, setCurrentPlan] = useState("growth");
+  const [planName, setPlanName] = useState("Growth");
+  const [planPrice, setPlanPrice] = useState("£247");
+  const [creditsUsed, setCreditsUsed] = useState(0);
+  const [creditsTotal, setCreditsTotal] = useState(2000);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [usageBreakdown, setUsageBreakdown] = useState([]);
+  const [plans, setPlans] = useState([]);
+  const [creditCosts, setCreditCosts] = useState([]);
+  const [usageHistory, setUsageHistory] = useState([]);
   const [notifications, setNotifications] = useState({ weeklyDigest: true, creditAlert80: true, creditAlert100: true, campaignComplete: true, surveyResponses: false });
   const fileInputRef = useRef(null);
 
@@ -10079,6 +10296,90 @@ function AccountView() {
     }
     loadProfile();
   }, []);
+
+  useEffect(() => {
+    async function loadBilling() {
+      setBillingLoading(true);
+      try {
+        const [planRes, creditsRes, usageRes, plansRes, costsRes, historyRes] = await Promise.all([
+          api.billing.plan().catch(() => null),
+          api.billing.credits().catch(() => null),
+          api.billing.usageByAction().catch(() => null),
+          api.billing.plans().catch(() => []),
+          api.billing.creditCosts().catch(() => []),
+          api.billing.creditHistory().catch(() => []),
+        ]);
+        if (planRes) {
+          const key = (planRes.plan || planRes.name || "starter").toLowerCase();
+          setCurrentPlan(key);
+          setPlanName(planRes.name || "Starter");
+          const p = planRes.price_monthly ?? planRes.price;
+          setPlanPrice(typeof p === "number" ? `£${p}` : (p || "£97"));
+        }
+        if (creditsRes) {
+          const used = creditsRes.credits_used_this_month ?? 0;
+          const total = creditsRes.credits_allocated ?? creditsRes.credits ?? 2000;
+          setCreditsUsed(used);
+          setCreditsTotal(total);
+        }
+        if (usageRes?.byCategory) {
+          const cats = Object.entries(usageRes.byCategory).map(([category, credits]) => ({
+            category,
+            credits,
+            icon: (CATEGORY_META[category] || CATEGORY_META.Other).icon,
+            color: (CATEGORY_META[category] || CATEGORY_META.Other).color,
+          }));
+          setUsageBreakdown(cats);
+        }
+        if (Array.isArray(plansRes) && plansRes.length) {
+          setPlans(plansRes.map(p => ({
+            key: p.key || (p.name || "").toLowerCase(),
+            name: p.name || p.key || "Plan",
+            price: typeof p.price === "number" ? `£${p.price}` : (p.price || "£0"),
+            credits: p.credits ?? 0,
+            features: Array.isArray(p.features_json) ? p.features_json : (typeof p.features_json === "string" ? (() => { try { return JSON.parse(p.features_json); } catch { return []; } })() : []),
+          })));
+        }
+        if (Array.isArray(costsRes) && costsRes.length) {
+          setCreditCosts(costsRes.map(c => ({
+            action: c.action_label || c.action_key || "",
+            cost: c.costDisplay || `${c.credits} credit${c.credits !== 1 ? "s" : ""}${c.unit ? "/" + (c.unit.replace(/^per /, "") || c.unit) : ""}`,
+          })));
+        }
+        if (Array.isArray(historyRes) && historyRes.length) {
+          setUsageHistory(historyRes.filter(h => (h.amount || 0) < 0).map(h => {
+            const d = h.created_at ? new Date(h.created_at) : new Date();
+            const dateStr = d.toLocaleDateString("en-GB", { month: "short", day: "numeric" });
+            return {
+              date: dateStr,
+              action: h.description || (h.action ? `${h.action.replace(/_/g, " ")}` : "Credit usage"),
+              credits: Math.abs(Number(h.amount || 0)),
+              balance: h.balance_after ?? 0,
+            };
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to load billing:", err);
+      } finally {
+        setBillingLoading(false);
+      }
+    }
+    if (activeTab === "billing") loadBilling();
+  }, [activeTab]);
+
+  useEffect(() => {
+    async function loadPlanForProfile() {
+      if (activeTab !== "profile") return;
+      try {
+        const planRes = await api.billing.plan().catch(() => null);
+        if (planRes) {
+          setCurrentPlan((planRes.plan || planRes.name || "starter").toLowerCase());
+          setPlanName(planRes.name || "Starter");
+        }
+      } catch (_) {}
+    }
+    loadPlanForProfile();
+  }, [activeTab]);
 
   async function handleSaveProfile() {
     setSaving(true);
@@ -10225,7 +10526,7 @@ function AccountView() {
                     <div style={{ 
                       position: "absolute", 
                       inset: 0, 
-                      background: "rgba(0,0,0,0.6)", 
+                      background: "rgba(0,0,0,0.7)", 
                       display: "flex", 
                       alignItems: "center", 
                       justifyContent: "center",

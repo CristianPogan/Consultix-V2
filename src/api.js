@@ -452,9 +452,12 @@ export const api = {
   },
   billing: {
     plan: () => req('GET', '/billing/plan'),
+    plans: () => req('GET', '/billing/plans'),
     invoices: () => req('GET', '/billing/invoices'),
     credits: () => req('GET', '/billing/credits'),
     creditHistory: () => req('GET', '/billing/credits/history'),
+    usageByAction: () => req('GET', '/billing/credits/usage-by-action'),
+    creditCosts: () => req('GET', '/billing/credits/costs'),
   },
   notifications: {
     list: (params) => {
