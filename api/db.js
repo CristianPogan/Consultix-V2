@@ -1603,4 +1603,29 @@ export async function ensureDiscountCodesReady() {
   _discountCodesReady = true;
 }
 
+// Add missing invoice_status enum values and invoices.updated_at for retry/refund admin endpoints.
+// The invoices table may use an invoice_status enum created elsewhere (e.g. Heroku);
+// retry uses 'failed', 'past_due', 'open'; refund uses 'refunded'.
+let _invoiceStatusEnumReady = false;
+export async function ensureInvoiceStatusEnum() {
+  if (_invoiceStatusEnumReady) return;
+  try {
+    await query('ALTER TABLE invoices ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()').catch(() => {});
+  } catch (_) {}
+  const values = ['failed', 'past_due', 'open', 'refunded'];
+  for (const v of values) {
+    if (!/^[a-z0-9_]+$/.test(v)) continue;
+    try {
+      await query(`ALTER TYPE invoice_status ADD VALUE IF NOT EXISTS '${v}'`);
+    } catch (err) {
+      if (err.code === '42704') {
+        // type "invoice_status" does not exist - invoices table may use TEXT or different schema
+        break;
+      }
+      // Ignore other errors (e.g. duplicate, permission)
+    }
+  }
+  _invoiceStatusEnumReady = true;
+}
+
 export default pool;

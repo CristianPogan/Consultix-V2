@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query, ensureDiscountCodesReady, ensureCreditSystemReady, getCreditActionCosts, updateCreditActionCost, recordPlatformApiCost, getPlatformApiCosts, getPlatformApiCostTotal } from '../db.js';
+import { query, ensureDiscountCodesReady, ensureCreditSystemReady, ensureInvoiceStatusEnum, getCreditActionCosts, updateCreditActionCost, recordPlatformApiCost, getPlatformApiCosts, getPlatformApiCostTotal } from '../db.js';
 
 const router = Router();
 
@@ -353,6 +353,7 @@ router.post('/billing/invoices', async (req, res) => {
 
 router.post('/invoices/:id/retry', async (req, res) => {
   try {
+    await ensureInvoiceStatusEnum();
     const result = await query(
       `UPDATE invoices SET status = 'open', updated_at = now() WHERE id = $1 AND status IN ('failed', 'past_due') RETURNING *`,
       [req.params.id]
@@ -367,6 +368,7 @@ router.post('/invoices/:id/retry', async (req, res) => {
 
 router.post('/invoices/:id/refund', async (req, res) => {
   try {
+    await ensureInvoiceStatusEnum();
     const result = await query(
       `UPDATE invoices SET status = 'refunded', updated_at = now() WHERE id = $1 RETURNING *`,
       [req.params.id]

@@ -10268,6 +10268,9 @@ function AccountView() {
   const [creditCosts, setCreditCosts] = useState([]);
   const [usageHistory, setUsageHistory] = useState([]);
   const [notifications, setNotifications] = useState({ weeklyDigest: true, creditAlert80: true, creditAlert100: true, campaignComplete: true, surveyResponses: false });
+  const [subscriptionInfo, setSubscriptionInfo] = useState(null);
+  const [managingSubscription, setManagingSubscription] = useState(false);
+  const [updatingPlan, setUpdatingPlan] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -10301,13 +10304,14 @@ function AccountView() {
     async function loadBilling() {
       setBillingLoading(true);
       try {
-        const [planRes, creditsRes, usageRes, plansRes, costsRes, historyRes] = await Promise.all([
+        const [planRes, creditsRes, usageRes, plansRes, costsRes, historyRes, subRes] = await Promise.all([
           api.billing.plan().catch(() => null),
           api.billing.credits().catch(() => null),
           api.billing.usageByAction().catch(() => null),
           api.billing.plans().catch(() => []),
           api.billing.creditCosts().catch(() => []),
           api.billing.creditHistory().catch(() => []),
+          api.billing.subscription().catch(() => null),
         ]);
         if (planRes) {
           const key = (planRes.plan || planRes.name || "starter").toLowerCase();
@@ -10357,6 +10361,9 @@ function AccountView() {
               balance: h.balance_after ?? 0,
             };
           }));
+        }
+        if (subRes && typeof subRes === "object") {
+          setSubscriptionInfo(subRes);
         }
       } catch (err) {
         console.error("Failed to load billing:", err);
@@ -10538,7 +10545,7 @@ function AccountView() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 16 }}>{profile.firstName || "Your Name"}</div>
                   <div style={{ fontSize: 12, color: COLORS.textDim }}>{profile.email}</div>
-                  <div style={{ fontSize: 11, color: COLORS.accent, marginTop: 2 }}>{PLANS.find(p => p.key === currentPlan)?.name} Plan</div>
+                  <div style={{ fontSize: 11, color: COLORS.accent, marginTop: 2 }}>{planName} Plan</div>
                 </div>
                 <input 
                   ref={fileInputRef}
@@ -10625,13 +10632,35 @@ function AccountView() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                  <span style={{ fontWeight: 700, fontSize: 20 }}>{PLANS.find(p => p.key === currentPlan)?.name}</span>
-                  <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, background: COLORS.accent + "15", color: COLORS.accent }}>{PLANS.find(p => p.key === currentPlan)?.price}/mo</span>
+                  <span style={{ fontWeight: 700, fontSize: 20 }}>{planName}</span>
+                  <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, background: COLORS.accent + "15", color: COLORS.accent }}>{planPrice}/mo</span>
                 </div>
-                <div style={{ fontSize: 12, color: COLORS.textDim }}>Renews March 11, 2025 · Paid via Visa ****4821</div>
+                <div style={{ fontSize: 12, color: COLORS.textDim }}>
+                  {subscriptionInfo ? (
+                    <>
+                      Renews {subscriptionInfo.renewal_date ? new Date(subscriptionInfo.renewal_date).toLocaleDateString("en-GB", { month: "long", day: "numeric", year: "numeric" }) : (subscriptionInfo.renews_at ? new Date(subscriptionInfo.renews_at).toLocaleDateString("en-GB", { month: "long", day: "numeric", year: "numeric" }) : "—")}
+                      {subscriptionInfo.has_payment_method && subscriptionInfo.payment_method_last4 ? ` · Paid via ${subscriptionInfo.payment_method_brand || "Card"} ****${subscriptionInfo.payment_method_last4}` : subscriptionInfo.has_payment_method === false ? " · No payment method" : ""}
+                    </>
+                  ) : "Renews — · Payment method —"}
+                </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button style={{ padding: "8px 16px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Manage Subscription</button>
+                <button
+                  onClick={async () => {
+                    setManagingSubscription(true);
+                    try {
+                      const data = await api.billing.manageSubscription();
+                      if (data?.url) window.location.href = data.url;
+                    } catch (e) {
+                      console.error(e);
+                      alert(e?.message || "Could not open subscription management.");
+                    } finally {
+                      setManagingSubscription(false);
+                    }
+                  }}
+                  disabled={managingSubscription}
+                  style={{ padding: "8px 16px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: managingSubscription ? "default" : "pointer", opacity: managingSubscription ? 0.6 : 1 }}
+                >{managingSubscription ? "Opening..." : "Manage Subscription"}</button>
               </div>
             </div>
             <div style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -10649,7 +10678,7 @@ function AccountView() {
 
           {/* Credit Usage Breakdown */}
           <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
-            {USAGE_BREAKDOWN.map((cat, i) => (
+            {(usageBreakdown.length ? usageBreakdown : USAGE_BREAKDOWN).map((cat, i) => (
               <div key={i} style={{ flex: 1, padding: "16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
                   <span style={{ fontSize: 14 }}>{cat.icon}</span>
@@ -10665,20 +10694,41 @@ function AccountView() {
           <div style={{ marginBottom: 24 }}>
             <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Plans</div>
             <div style={{ display: "flex", gap: 12 }}>
-              {PLANS.map(plan => (
+              {(plans.length ? plans : PLANS).map(plan => {
+                const allPlans = plans.length ? plans : PLANS;
+                const currentPlanCredits = allPlans.find(p => p.key === currentPlan)?.credits ?? creditsTotal;
+                return (
                 <div key={plan.key} style={{ flex: 1, padding: "20px", background: COLORS.surface, border: `1px solid ${plan.key === currentPlan ? COLORS.accent + "55" : COLORS.border}`, borderRadius: 12, position: "relative" }}>
                   {plan.key === currentPlan && <div style={{ position: "absolute", top: -1, left: 20, right: 20, height: 3, background: COLORS.accent, borderRadius: "0 0 2px 2px" }} />}
                   <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 2 }}>{plan.name}</div>
                   <div style={{ fontSize: 24, fontWeight: 700, color: COLORS.accent, marginBottom: 4 }}>{plan.price}<span style={{ fontSize: 12, fontWeight: 400, color: COLORS.textDim }}>/mo</span></div>
-                  <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 14 }}>{plan.credits.toLocaleString()} credits/month</div>
-                  {plan.features.map((f, fi) => (
+                  <div style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 14 }}>{(plan.credits || 0).toLocaleString()} credits/month</div>
+                  {(Array.isArray(plan.features) ? plan.features : []).map((f, fi) => (
                     <div key={fi} style={{ fontSize: 11, color: COLORS.text, padding: "4px 0", display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ color: COLORS.accent, fontSize: 10 }}>✓</span> {f}
+                      <span style={{ color: COLORS.accent, fontSize: 10 }}>✓</span> {typeof f === "string" ? f : f.label || f.name || ""}
                     </div>
                   ))}
-                  <button style={{ width: "100%", marginTop: 14, padding: "10px", borderRadius: 8, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer", background: plan.key === currentPlan ? "transparent" : COLORS.accent, color: plan.key === currentPlan ? COLORS.textDim : COLORS.bg, border: plan.key === currentPlan ? `1px solid ${COLORS.border}` : "none" }}>{plan.key === currentPlan ? "Current Plan" : plan.credits > PLANS.find(p => p.key === currentPlan).credits ? "Upgrade" : "Downgrade"}</button>
+                  <button
+                    disabled={plan.key === currentPlan || updatingPlan !== null}
+                    onClick={async () => {
+                      if (plan.key === currentPlan) return;
+                      setUpdatingPlan(plan.key);
+                      try {
+                        await api.billing.updatePlan(plan.key);
+                        setCurrentPlan(plan.key);
+                        setPlanName(plan.name);
+                        setPlanPrice(plan.price);
+                      } catch (e) {
+                        console.error(e);
+                        alert(e?.message || "Could not update plan.");
+                      } finally {
+                        setUpdatingPlan(null);
+                      }
+                    }}
+                    style={{ width: "100%", marginTop: 14, padding: "10px", borderRadius: 8, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: plan.key === currentPlan || updatingPlan ? "default" : "pointer", background: plan.key === currentPlan ? "transparent" : COLORS.accent, color: plan.key === currentPlan ? COLORS.textDim : COLORS.bg, border: plan.key === currentPlan ? `1px solid ${COLORS.border}` : "none", opacity: updatingPlan && updatingPlan !== plan.key ? 0.6 : 1 }}
+                  >{plan.key === currentPlan ? "Current Plan" : updatingPlan === plan.key ? "Updating..." : (plan.credits || 0) > currentPlanCredits ? "Upgrade" : "Downgrade"}</button>
                 </div>
-              ))}
+              );})}
             </div>
           </div>
 
@@ -10686,7 +10736,7 @@ function AccountView() {
           <div style={{ marginBottom: 24 }}>
             <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Credit Costs</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-              {[
+              {(creditCosts.length ? creditCosts : [
                 { action: "Lead discovery", cost: "1 credit/lead" },
                 { action: "Email verification", cost: "1 credit/lead" },
                 { action: "Phone lookup", cost: "2 credits/lead" },
@@ -10697,7 +10747,7 @@ function AccountView() {
                 { action: "Deck generation", cost: "15 credits" },
                 { action: "Script generation", cost: "5 credits" },
                 { action: "Niche research", cost: "10 credits" },
-              ].map((item, i) => (
+              ]).map((item, i) => (
                 <div key={i} style={{ padding: "8px 12px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: 11, color: COLORS.text }}>{item.action}</span>
                   <span style={{ fontSize: 10, color: COLORS.accent, fontFamily: FONT, fontWeight: 600 }}>{item.cost}</span>
@@ -10710,8 +10760,8 @@ function AccountView() {
           <div>
             <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Recent Usage</div>
             <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
-              {USAGE_HISTORY.map((entry, i) => (
-                <div key={i} style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: i < USAGE_HISTORY.length - 1 ? `1px solid ${COLORS.border}` : "none" }}>
+              {(usageHistory.length ? usageHistory : USAGE_HISTORY).map((entry, i, arr) => (
+                <div key={i} style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: i < arr.length - 1 ? `1px solid ${COLORS.border}` : "none" }}>
                   <div>
                     <div style={{ fontSize: 12, color: COLORS.text }}>{entry.action}</div>
                     <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 2 }}>{entry.date}</div>
