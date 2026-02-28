@@ -102,8 +102,10 @@ router.post('/phases/bulk', async (req, res) => {
       return res.status(400).json({ error: 'Invalid project_id: project not found. Select a valid project from the sidebar.' });
     }
     const projectOrgId = projRow.rows[0].org_id;
-    // Use project's org_id (parent) when valid; otherwise use user's orgId so FK constraints are satisfied
-    const effectiveOrgId = (projectOrgId && String(projectOrgId).trim()) ? String(projectOrgId) : orgId;
+    // Use project's org_id (parent) when valid; for top-level projects (org_id null), project is its own org — use project id
+    const effectiveOrgId = (projectOrgId && String(projectOrgId).trim())
+      ? String(projectOrgId)
+      : projectIdStr;
 
     const created = [];
     let currentOrgId = effectiveOrgId;

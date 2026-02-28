@@ -446,13 +446,30 @@ router.post('/transcripts', async (req, res) => {
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
     await ensureOrgExists(orgId);
     const { project_id, name, speaker_name, speaker_role, department, content_text, source } = req.body || {};
+    // Resolve project_id: must satisfy FK audit_transcripts_project_id_fkey (references organisations).
+    // Projects are organisations with is_project=true. Fallback to org_id when project_id is missing.
+    let effectiveProjectId = project_id && String(project_id).trim() ? String(project_id).trim() : null;
+    if (effectiveProjectId) {
+      const projRow = await query(
+        'SELECT id FROM organisations WHERE id::text = $1 OR id = $1::uuid LIMIT 1',
+        [effectiveProjectId]
+      ).catch(() => ({ rows: [] }));
+      if (!projRow?.rows?.length) {
+        return res.status(400).json({ error: 'Invalid project. Please select a valid project from the dropdown.' });
+      }
+    } else {
+      effectiveProjectId = orgId;
+    }
     const result = await query(
       `INSERT INTO audit_transcripts (org_id, project_id, name, speaker_name, speaker_role, department, content_text, source)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [orgId, project_id || null, name || 'Untitled', speaker_name || null, speaker_role || null, department || null, content_text || '', source || 'manual']
+      [orgId, effectiveProjectId, name || 'Untitled', speaker_name || null, speaker_role || null, department || null, content_text || '', source || 'manual']
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    if (err.code === '23503') {
+      return res.status(400).json({ error: 'Invalid project. Please select a valid project from the dropdown and try again.' });
+    }
     console.error('audit/transcripts POST', err);
     res.status(500).json({ error: err.message });
   }
