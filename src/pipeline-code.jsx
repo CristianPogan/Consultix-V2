@@ -4494,7 +4494,7 @@ function AuditView({ project, projects, selectedProject, setSelectedProject }) {
         {activeTab === "overview" && <AuditCompanyTab transcripts={transcripts} />}
         {activeTab === "surveys" && <AuditSurveysTab />}
         {activeTab === "interviews" && <AuditInterviewsTab />}
-        {activeTab === "transcripts" && <AuditTranscriptsTab transcripts={transcripts} setTranscripts={setTranscripts} />}
+        {activeTab === "transcripts" && <AuditTranscriptsTab project={project} transcripts={transcripts} setTranscripts={setTranscripts} />}
         {activeTab === "processmaps" && <AuditProcessMapsTab />}
         {activeTab === "analysis" && <AuditAnalysisTab project={project} />}
       </div>
@@ -5324,7 +5324,7 @@ function AuditInterviewsTab() {
   );
 }
 
-function AuditTranscriptsTab({ transcripts, setTranscripts }) {
+function AuditTranscriptsTab({ project, transcripts, setTranscripts }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addContent, setAddContent] = useState("");
   const [addName, setAddName] = useState("");
@@ -5344,6 +5344,7 @@ function AuditTranscriptsTab({ transcripts, setTranscripts }) {
     try {
       const name = addName.trim() || "Transcript " + new Date().toLocaleDateString();
       const saved = await api.audit.transcripts.create({
+        project_id: project?.id,
         name,
         content_text: content,
         speaker_name: addSpeaker.trim() || null,
