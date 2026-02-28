@@ -334,6 +334,12 @@ function AuthGate({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
+    const onSessionExpired = () => setIsAuthenticated(false);
+    window.addEventListener('sessionexpired', onSessionExpired);
+    return () => window.removeEventListener('sessionexpired', onSessionExpired);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     async function check() {
       try {

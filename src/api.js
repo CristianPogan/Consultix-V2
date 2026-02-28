@@ -33,7 +33,12 @@ async function getToken() {
   let token = getStoredToken();
   if (token) return token;
   const apiKey = (typeof localStorage !== 'undefined' ? localStorage.getItem(API_KEY_KEY) : null) || import.meta.env?.VITE_API_KEY;
-  if (!apiKey) throw new Error('No API key. Set apiKey in localStorage or VITE_API_KEY.');
+  if (!apiKey) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sessionexpired'));
+    }
+    throw new Error('Session expired or no API key. Please log in again, or add your API key (e.g. ?apiKey=xxx in the URL).');
+  }
   const res = await fetch(`${API_BASE}/auth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -68,6 +73,10 @@ async function req(method, path, body) {
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
     clearStoredToken();
+    const apiKey = (typeof localStorage !== 'undefined' ? localStorage.getItem(API_KEY_KEY) : null) || import.meta.env?.VITE_API_KEY;
+    if (!apiKey && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sessionexpired'));
+    }
   }
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
