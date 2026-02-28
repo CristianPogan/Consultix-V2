@@ -4543,13 +4543,14 @@ function WorkflowsLibraryView() {
             </div>
             <div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
-                {wf.tools.map(tool => (
-                  <span key={tool} style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, background: COLORS.bg, border: `1px solid ${COLORS.border}`, color: COLORS.textDim, fontFamily: FONT }}>{tool}</span>
-                ))}
+                {(wf.tools || []).map((tool, ti) => {
+                  const label = typeof tool === 'object' && tool != null ? (tool.action || tool.label || '') : tool;
+                  return <span key={ti} style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, background: COLORS.bg, border: `1px solid ${COLORS.border}`, color: COLORS.textDim, fontFamily: FONT }}>{String(label || '')}</span>;
+                })}
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", gap: 12, fontSize: 10, color: COLORS.textDim }}>
-                  <span>{wf.steps} steps</span>
+                  <span>{(Array.isArray(wf.steps) ? wf.steps.length : (typeof wf.steps === 'number' ? wf.steps : 0))} steps</span>
                   <span>{wf.downloads} downloads</span>
                 </div>
                 <button style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}
@@ -6438,12 +6439,14 @@ function AuditFullDeckViewer({ project, onClose }) {
   };
 
   const EditableText = ({ value, onChange, style, multiline }) => {
+    const safeVal = (v) => (v != null && typeof v === 'object') ? (v.action || v.label || v.name || '') : v;
+    const displayValue = safeVal(value);
     const [editing, setEditing] = useState(false);
-    const [tempVal, setTempVal] = useState(value);
+    const [tempVal, setTempVal] = useState(displayValue);
     if (editing) {
       const El = multiline ? "textarea" : "input";
       return React.createElement(El, {
-        value: tempVal, onChange: e => setTempVal(e.target.value),
+        value: String(tempVal ?? ''), onChange: e => setTempVal(e.target.value),
         onBlur: () => { onChange(tempVal); setEditing(false); },
         onKeyDown: !multiline ? e => { if (e.key === "Enter") { onChange(tempVal); setEditing(false); } } : undefined,
         autoFocus: true,
@@ -6451,10 +6454,10 @@ function AuditFullDeckViewer({ project, onClose }) {
       });
     }
     return (
-      <div onClick={() => { setEditing(true); setTempVal(value); }} style={{ ...style, cursor: "text", borderRadius: 4, transition: "background 0.15s" }}
+      <div onClick={() => { setEditing(true); setTempVal(displayValue); }} style={{ ...style, cursor: "text", borderRadius: 4, transition: "background 0.15s" }}
         onMouseEnter={e => e.currentTarget.style.background = "rgba(234,179,8,0.05)"}
         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-      >{value}</div>
+      >{displayValue}</div>
     );
   };
 

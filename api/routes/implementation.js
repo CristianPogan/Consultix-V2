@@ -93,7 +93,6 @@ router.post('/phases/bulk', async (req, res) => {
     if (!Array.isArray(phases) || phases.length === 0) return res.status(400).json({ error: 'phases array required' });
 
     const projectIdStr = String(project_id);
-    // Resolve org_id: use project's parent org if available (satisfies FK implementation_phases_project_id_fkey)
     const projRow = await query(
       'SELECT id, org_id FROM organisations WHERE id::text = $1 OR id = $1::uuid LIMIT 1',
       [projectIdStr]
@@ -102,10 +101,8 @@ router.post('/phases/bulk', async (req, res) => {
       return res.status(400).json({ error: 'Invalid project_id: project not found. Select a valid project from the sidebar.' });
     }
     const projectOrgId = projRow.rows[0].org_id;
-    // Use project's org_id (parent) when valid; for top-level projects (org_id null), project is its own org — use project id
-    const effectiveOrgId = (projectOrgId && String(projectOrgId).trim())
-      ? String(projectOrgId)
-      : projectIdStr;
+    // FK implementation_phases_project_id_fkey: use project's org when available; for top-level (org_id null), project is its own org
+    let effectiveOrgId = (projectOrgId && String(projectOrgId).trim()) ? String(projectOrgId) : projectIdStr;
 
     const created = [];
     let currentOrgId = effectiveOrgId;
@@ -121,24 +118,40 @@ router.post('/phases/bulk', async (req, res) => {
         );
         created.push(result.rows[0]);
       } catch (insertErr) {
-        if (insertErr.code === '23503' && currentOrgId !== orgId) {
-          currentOrgId = orgId;
-          const retry = await query(
-            `INSERT INTO implementation_phases (org_id, project_id, sort_order, title, description, status, due_date, timeline, cost, color, tasks)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb) RETURNING *`,
-            [currentOrgId, projectIdStr, phase.sort_order || 0, phase.title || 'Untitled Phase',
-             phase.description || null, phase.status || 'not_started', phase.due_date || null,
-             phase.timeline || null, phase.cost || null, phase.color || null,
-             phase.tasks ? JSON.stringify(phase.tasks) : '[]']
-          );
-          created.push(retry.rows[0]);
-        } else {
-          throw insertErr;
+        if (insertErr.code !== '23503') throw insertErr;
+        // Retry with different (org_id, project_id) pairs; FK may require project_id in organisations or (org_id, project_id) consistency
+        const pairsToTry = [
+          [orgId, projectIdStr],
+          [projectIdStr, projectIdStr],
+          [effectiveOrgId, effectiveOrgId],
+        ].filter(([o, p]) => o && (o !== currentOrgId || p !== projectIdStr));
+        let inserted = false;
+        for (const [tryOrgId, tryProjectId] of pairsToTry) {
+          try {
+            const retry = await query(
+              `INSERT INTO implementation_phases (org_id, project_id, sort_order, title, description, status, due_date, timeline, cost, color, tasks)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb) RETURNING *`,
+              [tryOrgId, tryProjectId, phase.sort_order || 0, phase.title || 'Untitled Phase',
+               phase.description || null, phase.status || 'not_started', phase.due_date || null,
+               phase.timeline || null, phase.cost || null, phase.color || null,
+               phase.tasks ? JSON.stringify(phase.tasks) : '[]']
+            );
+            created.push(retry.rows[0]);
+            currentOrgId = tryOrgId;
+            inserted = true;
+            break;
+          } catch (_) {}
+        }
+        if (!inserted) {
+          return res.status(400).json({ error: 'Could not create phases for this project. Select a valid project from the sidebar and try again.' });
         }
       }
     }
     res.status(201).json(created);
   } catch (err) {
+    if (err.code === '23503') {
+      return res.status(400).json({ error: 'Invalid project. Select a valid project from the sidebar and try again.' });
+    }
     console.error('implementation/phases/bulk POST', err);
     res.status(500).json({ error: err.message });
   }

@@ -38,6 +38,15 @@ function roleLabel(role) {
   return ROLE_TO_LABEL[role] || (role ? String(role).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "—");
 }
 
+function safeCell(val) {
+  if (val == null) return '—';
+  if (typeof val === 'object') {
+    const v = val?.label ?? val?.name ?? val?.action ?? (typeof val?.config === 'string' ? val.config : null);
+    return (v != null && typeof v !== 'object') ? String(v) : '—';
+  }
+  return String(val);
+}
+
 function Badge({ text, color }) {
   const safeText = (text != null && typeof text === 'object') ? (text?.label ?? text?.name ?? '—') : text;
   const cols = { active: C.green, trialling: C.accent, churned: C.danger, suspended: C.warn, starter: "#888", growth: C.accent, scale: C.purple, agency_pro: "#2dd4a8", "pro (agency)": "#2dd4a8", "standard (agency)": C.accent, open: C.warn, resolved: C.green, healthy: C.green, degraded: C.warn, down: C.danger, owner: C.accent, admin: C.purple, member: C.textMuted, "platform admin": C.purple };
@@ -603,7 +612,7 @@ export default function AdminDashboard() {
                 {[["Plan", org.plan], ["Status", org.status], ["Created", org.created], ["Last Active", org.lastActive], ["Billing Email", org.email]].map(([k, v]) => (
                   <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
                     <span style={{ fontSize: 12, color: C.textDim }}>{k}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>{v}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{safeCell(v)}</span>
                   </div>
                 ))}
                 <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
