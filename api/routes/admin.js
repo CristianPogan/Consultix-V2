@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query, ensureDiscountCodesReady } from '../db.js';
+import { query, ensureDiscountCodesReady, ensureCreditSystemReady, getCreditActionCosts, updateCreditActionCost, recordPlatformApiCost, getPlatformApiCosts, getPlatformApiCostTotal } from '../db.js';
 
 const router = Router();
 
@@ -101,7 +101,9 @@ router.get('/organisations', async (req, res) => {
       const result = await query(`
         SELECT o.*,
           COALESCE(bp.price_monthly::numeric, 0) AS mrr,
-          (SELECT COALESCE(SUM(ct.amount), 0)::int FROM credit_transactions ct WHERE ct.org_id::text = o.id::text) AS credits_total
+          COALESCE(o.credits_allocated, bp.credits_monthly, 0)::int AS credits_allocated,
+          (SELECT COALESCE(SUM(ct.amount), 0)::int FROM credit_transactions ct WHERE ct.org_id::text = o.id::text) AS credits_balance,
+          (SELECT COALESCE(SUM(ABS(ct.amount)), 0)::int FROM credit_transactions ct WHERE ct.org_id::text = o.id::text AND ct.amount < 0) AS credits_used
         FROM organisations o
         LEFT JOIN billing_plans bp ON (
           (bp.tier_key::text = o.plan_tier::text) OR
@@ -122,9 +124,10 @@ router.get('/organisations', async (req, res) => {
     }
     for (const r of rows) {
       r.mrr = Number(r.mrr) || 0;
-      if (r.credits_total == null) {
-        const cr = await query('SELECT COALESCE(SUM(amount), 0)::int AS bal FROM credit_transactions WHERE org_id::text = $1', [String(r.id)]).catch(() => ({ rows: [{ bal: 0 }] }));
-        r.credits_total = cr.rows[0]?.bal ?? 0;
+      r.credits_total = r.credits_allocated ?? r.credits_total ?? 0;
+      if (r.credits_used == null) {
+        const cu = await query('SELECT COALESCE(SUM(ABS(amount)), 0)::int AS used FROM credit_transactions WHERE org_id::text = $1 AND amount < 0', [String(r.id)]).catch(() => ({ rows: [{ used: 0 }] }));
+        r.credits_used = cu.rows[0]?.used ?? 0;
       }
     }
     res.json(rows);
@@ -139,7 +142,9 @@ router.get('/organisations/:id', async (req, res) => {
     const result = await query(`
       SELECT o.*,
         COALESCE(bp.price_monthly::numeric, 0) AS mrr,
-        (SELECT COALESCE(SUM(ct.amount), 0)::int FROM credit_transactions ct WHERE ct.org_id::text = o.id::text) AS credits_total
+        COALESCE(o.credits_allocated, bp.credits_monthly, 0)::int AS credits_allocated,
+        (SELECT COALESCE(SUM(ct.amount), 0)::int FROM credit_transactions ct WHERE ct.org_id::text = o.id::text) AS credits_balance,
+        (SELECT COALESCE(SUM(ABS(ct.amount)), 0)::int FROM credit_transactions ct WHERE ct.org_id::text = o.id::text AND ct.amount < 0) AS credits_used
       FROM organisations o
       LEFT JOIN billing_plans bp ON ((bp.tier_key::text = o.plan_tier::text) OR (bp.name::text = o.plan_tier::text))
       WHERE o.id = $1
@@ -147,7 +152,8 @@ router.get('/organisations/:id', async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: 'Not found' });
     const row = result.rows[0];
     row.mrr = Number(row.mrr) || 0;
-    row.credits_total = row.credits_total ?? 0;
+    row.credits_total = row.credits_allocated ?? row.credits_total ?? 0;
+    row.credits_used = row.credits_used ?? 0;
     res.json(row);
   } catch (err) {
     console.error('admin/organisations/:id GET', err);
@@ -159,10 +165,11 @@ router.put('/organisations/:id/credits', async (req, res) => {
   try {
     const { amount, description } = req.body || {};
     if (amount === undefined) return res.status(400).json({ error: 'amount required' });
+    const transactionType = amount >= 0 ? 'grant' : 'consumption';
     await query(
-      `INSERT INTO credit_transactions (org_id, amount, description, created_by)
-       VALUES ($1, $2, $3, $4)`,
-      [req.params.id, amount, description || 'Admin adjustment', req.userId || null]
+      `INSERT INTO credit_transactions (org_id, amount, description, created_by, transaction_type, action)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [req.params.id, amount, description || 'Admin adjustment', req.userId || null, transactionType, amount >= 0 ? 'admin_adjustment' : null]
     );
     const bal = await query('SELECT COALESCE(SUM(amount), 0)::int as balance FROM credit_transactions WHERE org_id = $1', [req.params.id]);
     res.json({ balance: bal.rows[0]?.balance || 0 });
@@ -176,9 +183,20 @@ router.put('/organisations/:id/plan', async (req, res) => {
   try {
     const { plan_tier } = req.body || {};
     if (!plan_tier) return res.status(400).json({ error: 'plan_tier required' });
+    const planRes = await query(
+      'SELECT credits_monthly FROM billing_plans WHERE tier_key::text = $1 OR name::text = $1 LIMIT 1',
+      [String(plan_tier)]
+    ).catch(() => ({ rows: [] }));
+    const creditsAllocated = planRes.rows[0]?.credits_monthly ?? null;
+    const sets = ['plan_tier = $1', 'updated_at = now()'];
+    const vals = [plan_tier, req.params.id];
+    if (creditsAllocated != null) {
+      sets.push('credits_allocated = $3');
+      vals.push(creditsAllocated);
+    }
     const result = await query(
-      'UPDATE organisations SET plan_tier = $1, updated_at = now() WHERE id = $2 RETURNING *',
-      [plan_tier, req.params.id]
+      `UPDATE organisations SET ${sets.join(', ')} WHERE id = $2 RETURNING *`,
+      vals
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Not found' });
     res.json(result.rows[0]);
@@ -384,6 +402,57 @@ router.post('/discount-codes', async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('admin/discount-codes POST', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Credit Action Costs & Platform API Costs ---
+router.get('/credits/action-costs', async (req, res) => {
+  try {
+    const rows = await getCreditActionCosts();
+    res.json(rows);
+  } catch (err) {
+    console.error('admin/credits/action-costs GET', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/credits/action-costs/:id', async (req, res) => {
+  try {
+    const updated = await updateCreditActionCost(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: 'Not found' });
+    res.json(updated);
+  } catch (err) {
+    console.error('admin/credits/action-costs/:id PUT', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/credits/api-costs', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const today = new Date().toISOString().slice(0, 10);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const fromDate = from || thirtyDaysAgo;
+    const toDate = to || today;
+    const rows = await getPlatformApiCosts(fromDate, toDate);
+    const todayTotal = await getPlatformApiCostTotal();
+    res.json({ rows, todayTotalDollars: todayTotal });
+  } catch (err) {
+    console.error('admin/credits/api-costs GET', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/credits/api-costs', async (req, res) => {
+  try {
+    const { provider, amountCents, costDate, description } = req.body || {};
+    if (!provider) return res.status(400).json({ error: 'provider required' });
+    const amt = Number(amountCents) || 0;
+    const row = await recordPlatformApiCost(provider, amt, costDate, description);
+    res.status(201).json(row);
+  } catch (err) {
+    console.error('admin/credits/api-costs POST', err);
     res.status(500).json({ error: err.message });
   }
 });

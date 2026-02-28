@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { authMiddleware } from './api/auth.js';
-import { ensureProjectStatsColumns, ensureCRMPipelineColumns, ensureProjectSettingsTable, ensureDiscountCodesReady } from './api/db.js';
+import { ensureProjectStatsColumns, ensureCRMPipelineColumns, ensureProjectSettingsTable, ensureDiscountCodesReady, ensureCreditSystemReady } from './api/db.js';
 import authRouter from './api/routes/auth.js';
 import icpProfilesRouter from './api/routes/icp-profiles.js';
 import leadListsRouter from './api/routes/lead-lists.js';
@@ -110,6 +110,7 @@ if (process.env.NODE_ENV !== 'test') {
   ensureCRMPipelineColumns().catch(() => {});
   ensureProjectSettingsTable().catch(() => {});
   ensureDiscountCodesReady().catch(() => {});
+  ensureCreditSystemReady().catch(() => {});
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });

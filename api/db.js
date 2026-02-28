@@ -1411,6 +1411,139 @@ export async function validateSignupToken(accessToken) {
   }
 }
 
+// --- Credit System: credit_action_costs, platform_api_costs, credit_transactions columns, organisations.credits_allocated ---
+const CREDIT_ACTION_COSTS_SEED = [
+  { action_key: 'lead_discovery', action_label: 'Lead Discovery', credits: 1, unit: 'per lead', cost_cents: 1.2, margin_pct: 88, sort_order: 1 },
+  { action_key: 'email_verification', action_label: 'Email Verification', credits: 1, unit: 'per lead', cost_cents: 0.8, margin_pct: 92, sort_order: 2 },
+  { action_key: 'ai_personalisation', action_label: 'AI Personalisation', credits: 2, unit: 'per lead', cost_cents: 3.5, margin_pct: 82, sort_order: 3 },
+  { action_key: 'ai_audit_analysis', action_label: 'AI Audit Analysis', credits: 25, unit: 'per analysis', cost_cents: 42, margin_pct: 83, sort_order: 4 },
+  { action_key: 'deck_generation', action_label: 'Deck Generation', credits: 15, unit: 'per deck', cost_cents: 28, margin_pct: 81, sort_order: 5 },
+  { action_key: 'niche_research', action_label: 'Niche Research', credits: 10, unit: 'per report', cost_cents: 18, margin_pct: 82, sort_order: 6 },
+  { action_key: 'script_generation', action_label: 'Script Generation', credits: 5, unit: 'per script', cost_cents: 9, margin_pct: 82, sort_order: 7 },
+  { action_key: 'process_map', action_label: 'Process Map', credits: 10, unit: 'per map', cost_cents: 15, margin_pct: 85, sort_order: 8 },
+  { action_key: 'ai_assistant_query', action_label: 'AI Assistant Query', credits: 1, unit: 'per turn', cost_cents: 1.4, margin_pct: 86, sort_order: 9 },
+  { action_key: 'ai_council_query', action_label: 'AI Council Query', credits: 2, unit: 'per turn', cost_cents: 3.2, margin_pct: 84, sort_order: 10 },
+];
+
+async function ensureCreditActionCostsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS credit_action_costs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      action_key TEXT UNIQUE NOT NULL,
+      action_label TEXT NOT NULL,
+      credits INT NOT NULL DEFAULT 1,
+      unit TEXT,
+      cost_cents NUMERIC,
+      margin_pct NUMERIC,
+      sort_order INT DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    )
+  `);
+  await query('CREATE INDEX IF NOT EXISTS idx_credit_action_costs_key ON credit_action_costs(action_key)').catch(() => {});
+  for (const row of CREDIT_ACTION_COSTS_SEED) {
+    await query(
+      `INSERT INTO credit_action_costs (action_key, action_label, credits, unit, cost_cents, margin_pct, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (action_key) DO UPDATE SET
+         action_label = EXCLUDED.action_label, credits = EXCLUDED.credits, unit = EXCLUDED.unit,
+         cost_cents = EXCLUDED.cost_cents, margin_pct = EXCLUDED.margin_pct, sort_order = EXCLUDED.sort_order,
+         updated_at = now()`,
+      [row.action_key, row.action_label, row.credits, row.unit, row.cost_cents, row.margin_pct, row.sort_order]
+    ).catch(() => {});
+  }
+}
+
+async function ensurePlatformApiCostsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS platform_api_costs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      cost_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      provider TEXT NOT NULL,
+      amount_cents NUMERIC NOT NULL DEFAULT 0,
+      currency TEXT DEFAULT 'USD',
+      description TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )
+  `);
+  await query('CREATE INDEX IF NOT EXISTS idx_platform_api_costs_date ON platform_api_costs(cost_date)').catch(() => {});
+  await query('CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_api_costs_date_provider ON platform_api_costs(cost_date, provider)').catch(() => {});
+}
+
+
+async function ensureCreditTransactionsColumns() {
+  await query('ALTER TABLE credit_transactions ADD COLUMN IF NOT EXISTS action TEXT').catch(() => {});
+  await query('ALTER TABLE credit_transactions ADD COLUMN IF NOT EXISTS transaction_type TEXT').catch(() => {});
+  await query('ALTER TABLE credit_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()').catch(() => {});
+}
+
+async function ensureOrganisationCreditsAllocated() {
+  await query('ALTER TABLE organisations ADD COLUMN IF NOT EXISTS credits_allocated INT').catch(() => {});
+}
+
+let _creditSystemReady = false;
+export async function ensureCreditSystemReady() {
+  if (_creditSystemReady) return;
+  await ensureCreditActionCostsTable();
+  await ensurePlatformApiCostsTable();
+  await ensureCreditTransactionsColumns();
+  await ensureOrganisationCreditsAllocated();
+  _creditSystemReady = true;
+}
+
+export async function getCreditActionCosts() {
+  await ensureCreditSystemReady();
+  const res = await query('SELECT * FROM credit_action_costs ORDER BY sort_order ASC, action_key');
+  return res.rows;
+}
+
+export async function updateCreditActionCost(id, updates) {
+  await ensureCreditSystemReady();
+  const { credits, unit, cost_cents, margin_pct } = updates || {};
+  const sets = []; const vals = []; let p = 1;
+  if (credits !== undefined) { sets.push(`credits = $${p++}`); vals.push(credits); }
+  if (unit !== undefined) { sets.push(`unit = $${p++}`); vals.push(unit); }
+  if (cost_cents !== undefined) { sets.push(`cost_cents = $${p++}`); vals.push(cost_cents); }
+  if (margin_pct !== undefined) { sets.push(`margin_pct = $${p++}`); vals.push(margin_pct); }
+  if (!sets.length) return null;
+  vals.push(id);
+  const res = await query(`UPDATE credit_action_costs SET ${sets.join(', ')}, updated_at = now() WHERE id = $${p} RETURNING *`, vals);
+  return res.rows[0] || null;
+}
+
+export async function recordPlatformApiCost(provider, amountCents, costDate = null, description = null) {
+  await ensureCreditSystemReady();
+  const date = costDate || new Date().toISOString().slice(0, 10);
+  const res = await query(
+    `INSERT INTO platform_api_costs (cost_date, provider, amount_cents, description)
+     VALUES ($1::date, $2, $3, $4)
+     ON CONFLICT (cost_date, provider) DO UPDATE SET amount_cents = platform_api_costs.amount_cents + EXCLUDED.amount_cents, description = COALESCE(EXCLUDED.description, platform_api_costs.description)
+     RETURNING *`,
+    [date, provider, amountCents, description]
+  );
+  return res.rows[0];
+}
+
+export async function getPlatformApiCosts(fromDate, toDate) {
+  await ensureCreditSystemReady();
+  const from = fromDate || new Date().toISOString().slice(0, 10);
+  const to = toDate || new Date().toISOString().slice(0, 10);
+  const res = await query(
+    `SELECT cost_date, provider, amount_cents, description, created_at
+     FROM platform_api_costs WHERE cost_date >= $1::date AND cost_date <= $2::date
+     ORDER BY cost_date DESC, provider`,
+    [from, to]
+  );
+  return res.rows;
+}
+
+export async function getPlatformApiCostTotal(forDate) {
+  await ensureCreditSystemReady();
+  const date = forDate || new Date().toISOString().slice(0, 10);
+  const res = await query(`SELECT COALESCE(SUM(amount_cents), 0)::numeric / 100 AS total_dollars FROM platform_api_costs WHERE cost_date = $1::date`, [date]);
+  return Number(res.rows[0]?.total_dollars ?? 0);
+}
+
 // --- Discount codes & admin billing ---
 async function ensureDiscountCodesTable() {
   await query(`

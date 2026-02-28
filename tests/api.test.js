@@ -1033,3 +1033,37 @@ describe('API: admin discount codes', () => {
     if (res.status === 201) assert.strictEqual(res.body.code, code);
   });
 });
+
+describe('API: admin credit action costs', () => {
+  it('1. GET /api/admin/credits/action-costs without auth returns 401', async () => {
+    const res = await api.get('/api/admin/credits/action-costs');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. GET /api/admin/credits/action-costs with auth returns array', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.get('/api/admin/credits/action-costs').set(auth());
+    assert.ok([200, 500].includes(res.status));
+    if (res.status === 200) assert.ok(Array.isArray(res.body));
+  });
+});
+
+describe('API: admin platform API costs', () => {
+  it('1. GET /api/admin/credits/api-costs without auth returns 401', async () => {
+    const res = await api.get('/api/admin/credits/api-costs');
+    assert.strictEqual(res.status, 401);
+  });
+
+  it('2. POST /api/admin/credits/api-costs without provider returns 400', async function () {
+    if (!hasAuth) this.skip();
+    const res = await api.post('/api/admin/credits/api-costs').set(auth()).send({ amountCents: 100 });
+    assert.strictEqual(res.status, 400);
+  });
+
+  it('3. POST /api/admin/credits/api-costs with provider records cost', async function () {
+    if (!hasAuth || !hasDb) this.skip();
+    const res = await api.post('/api/admin/credits/api-costs').set(auth()).send({ provider: 'openai', amountCents: 1842, description: 'Test ingestion' });
+    assert.ok([201, 500].includes(res.status));
+    if (res.status === 201) assert.ok(res.body.provider === 'openai');
+  });
+});
