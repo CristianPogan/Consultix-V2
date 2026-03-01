@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query, ensureOrgExists, getIntegrationCredentials } from '../db.js';
+import { getSystemPromptForOrg } from './admin-prompts.js';
 
 const router = Router();
 
@@ -166,7 +167,7 @@ router.post('/chat', async (req, res) => {
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 4096,
-        system: NICHE_SYSTEM_PROMPT,
+        system: await getSystemPromptForOrg(orgId, 'niche_researcher'),
         messages: anthropicMessages,
       }),
     });

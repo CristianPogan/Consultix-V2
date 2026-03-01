@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query, ensureOrgExists, getIntegrationCredentials } from '../db.js';
+import { getSystemPromptForOrg } from './admin-prompts.js';
 
 const router = Router();
 
@@ -124,9 +125,10 @@ router.post('/research', async (req, res) => {
       return res.status(503).json({ error: 'OpenRouter API key not configured. Add it in Settings → Integrations → OpenRouter.' });
     }
 
+    const researchPrompt = await getSystemPromptForOrg(orgId, 'audit_research');
     const rawContent = await callPerplexitySonar(
       apiKey,
-      RESEARCH_SYSTEM_PROMPT,
+      researchPrompt,
       `Research this company thoroughly: ${company_url}`
     );
 
@@ -764,7 +766,8 @@ router.post('/analyse', async (req, res) => {
 
     dataPrompt += '\n\nNow perform the full analysis and return the JSON result.';
 
-    const rawContent = await callClaude(apiKey, ANALYSIS_SYSTEM_PROMPT, dataPrompt, 8192);
+    const analysisPrompt = await getSystemPromptForOrg(orgId, 'audit_analysis');
+    const rawContent = await callClaude(apiKey, analysisPrompt, dataPrompt, 8192);
 
     let analysis;
     try {
@@ -818,7 +821,8 @@ router.post('/analyse/chat', async (req, res) => {
     const { message, analysis_context, history } = req.body || {};
     if (!message) return res.status(400).json({ error: 'message required' });
 
-    let contextPrompt = ANALYSIS_CHAT_SYSTEM;
+    const chatBasePrompt = await getSystemPromptForOrg(orgId, 'audit_analysis_chat');
+    let contextPrompt = chatBasePrompt;
     if (analysis_context) {
       contextPrompt += `\n\nHere is the completed analysis data:\n${JSON.stringify(analysis_context).substring(0, 12000)}`;
     }

@@ -932,6 +932,109 @@ All frontend components now call real API endpoints instead of using hardcoded m
 
 ---
 
+## 32. March 2026 Re-Assessment — Actual Frontend Wiring State
+
+**Date:** 2026-03-01
+**Method:** Direct code inspection of `src/pipeline-code.jsx` (lines 4060–10488), `src/api.js`, and all `api/routes/*.js` files.
+
+> **Key finding:** The Feb 10 audit (Section 31) correctly documented which API client methods were added to `api.js` and which route files exist. However, it conflated **data-loading wiring** (reads) with **action wiring** (generate/save/analyse writes). Several views load their library from the API correctly but still execute the primary user action against `setTimeout` + hardcoded mock constants.
+
+---
+
+### ✅ Fully Live — Both Reads and Writes Confirmed in Code
+
+| Page / Tab | Evidence |
+|---|---|
+| Auth (login, signup, validate token) | `authReq` calls at lines 103–116 |
+| Dashboard (stats + chart) | `api.stats.dashboard/chart` at lines 3361, 3377 |
+| Leads — Discovery | `api.leadGeneration.discover` in discovery handler |
+| Leads — Enrichment | `api.leadGeneration.enrichBulk` in enrich handler |
+| Leads — Personalize + Outreach | `api.leadGeneration.personalize`, `sendToInstantly/HeyReach` |
+| CRM Pipeline — load, drag, notes | `api.crm.pipeline`, `api.leads.update` (stage + notes) |
+| Appointments — calendar + integrations | `api.calendar.getEvents`, `api.integrations.list` |
+| Unibox — conversations + messages load | `api.conversations.list` (line 4066), `api.messages.list` (line 4075) |
+| Unibox — AI SDR settings | `api.settings.get/save("ai_sdr")`, `api.aiSdr.generateSample` |
+| AI Council chat | `api.aiCouncil.chat` |
+| Niche Researcher — research + library | `api.niches.list` (line 8375), `api.niches.chat` (line 8477), `api.niches.create` (line 8497) |
+| Audit — Company Research | `api.audit.research` (line 4825), `api.settings.save('audit_company')` |
+| Audit — Surveys (full CRUD + responses) | `api.audit.surveys.list/create/update/delete/listResponses` (lines 4998–5054) |
+| Audit — Interviews (full CRUD) | `api.audit.interviews.list/create/delete` (lines 5458–5515) |
+| Audit — Transcripts (full CRUD) | `api.audit.transcripts.list/create/delete` (lines 4740, 5638, 5694) |
+| Audit — Process Maps (load) | `api.audit.processMaps.list` (line 5755) |
+| Audit — Analysis | `api.audit.analyse` (line 6262), `api.audit.analyseChat` (line 6329), `api.audit.analyses.list` (line 6210) |
+| Implementation phases (load + update) | `api.implementation.list` (line 4396), `api.implementation.update` (line 4443), `api.implementation.bulkCreate` (line 4405) |
+| Workflows — load | `api.workflows.list` (line 4568) |
+| Cold Email Campaigns — load | `api.instantly.campaigns.list` primary (line 7441), falls back to `api.campaigns.list` (line 7467) |
+| LinkedIn Campaigns — load | `api.heyreach` + `api.aimfox` calls (lines 7706, 7709) |
+| LinkedIn Content — generate, load | `api.contentPosts.generate` (line 9427), `api.contentPosts.list` (lines 9406, 9410), `api.trackedCompetitors.list` (line 9396) |
+| Community — all sub-sections | `api.community.accounts/keywords/voiceSamples/feed` (lines 9747–9780) |
+| Solution AI Assistant — chat | `api.assistant.chat` (line 10287) |
+| Settings — brand voice, buyer persona | `api.settings.get/save` (lines 7873–7932) |
+| Settings — integrations | `api.integrations.list/connect/save` (lines 8054–8107) |
+| Account — profile read/write | `api.me` + `api.updateProfile` + `api.uploadProfilePhoto` |
+| Account — Billing (all 7 endpoints) | `api.billing.plan/credits/usageByAction/plans/creditCosts/creditHistory/subscription` (lines 10406–10413) |
+| Sales Scripts — library load | `api.salesScripts.list` (line 8689) |
+| Sales Call Analyser — history load | `api.callAnalyses.list` (line 9152) |
+| Video Scripts — library load | `api.contentPosts.list({format:'video_script'})` (line 8848) |
+| Messaging Workshop — library load | `api.messagingCopies.list` (line 6811) |
+
+---
+
+### ❌ Reads Wired, but Action Flow Still Mock — Must Fix
+
+These views correctly load their library from the API. However, the primary user-facing action (generate, analyse, save, send) is still using `setTimeout` + hardcoded mock constants. No data is written to the database when users click these buttons.
+
+| Page / Tab | Mock Code Location | What Uses | Should Call |
+|---|---|---|---|
+| **Sales Script Generator — generate** | `line 8713–8715` | `setTimeout(1200)` + `MOCK_SCRIPT` constant | `api.salesScripts.generate()` |
+| **Sales Script Generator — save** | `line 8722–8724` | `setSavedScripts(prev => [newScript, ...prev])` local state only | `api.salesScripts.create()` |
+| **Sales Call Analyser — analyse** | `line 9199` | `setTimeout(3000)` + `MOCK_ANALYSIS` constant | `api.callAnalyses.create()` with transcript |
+| **Sales Call Analyser — Common Objections** | `lines 9158–9164` | Hardcoded `COMMON_OBJECTIONS` array | `call_objections` table via new endpoint |
+| **Video Script Generator — generate** | `line 8908` | `setTimeout(2000)` + `MOCK_SCRIPTS` constant | `api.contentPosts.generate({format:'video_script'})` |
+| **Video Script Generator — save** | `line 8914` | `setSavedVideoScripts(prev => [...])` local state only | `api.contentPosts.create()` |
+| **Messaging Workshop — generate suite** | `lines 6832–6865` | `MOCK_SUITE` constant (hardcoded email/LinkedIn copy) | `api.messagingCopies.generate()` or `api.messagingCopies.copywriterChat()` |
+| **Unibox Inbox — Generate AI Drafts** | `lines 4094–4103` | `setTimeout(1500)` + hardcoded draft array | `api.aiSdr.generateSample()` or equivalent |
+
+---
+
+### ⚠️ Partial — Incomplete Wiring (Non-trivial gaps)
+
+| Page / Tab | Gap | Location |
+|---|---|---|
+| **CRM Activity Feed** | Activity items are not loaded from `api.activity` — the feed is populated from CRM pipeline data only; `api.activity.list()` is defined in `api.js` and the backend exists, but is never called from the CRM view | `api/routes/activity.js` ✅ exists; no call in `CRMPipelineView` |
+| **Lead Lists — Import "Start Enrichment"** | Clicking "Start Enrichment" triggers a `setTimeout` progress loop (line 3108) — no call to any enrichment API | `line 3108` |
+| **Unibox — Send Reply** | Reply text field and "Send" button exist; no `api.messages.create()` call visible in the inbox code path | `lines 4080–4105` |
+| **Appointments — "View in CRM"** | Button present, no handler (no-op) | `line 283` of old audit |
+| **Appointments — "Prep Script"** | Button present, no handler (no-op) | `line 284` of old audit |
+| **Messaging Workshop — save after generate** | After workshop completion, `openSaveModal` is called (line 6885) but the save path calls `setPlaybooks` local state; `api.messagingCopies.create()` is not confirmed called | `lines 6885–6892` |
+| **Cold Email Campaigns — "New Campaign" create** | Create form is present but no `api.instantly.campaigns.create()` or `api.campaigns.create()` observed in the submit path | `ColdEmailCampaignsView` create view |
+| **Senders fallback** | When `api.instantly.accounts()` fails, falls back to hardcoded `MOCK_SENDERS` array (lines 7479–7482) with real email addresses | `lines 7479–7482` |
+
+---
+
+### 📊 Updated Status Summary (March 2026)
+
+| Status | Count | Pages / Tabs |
+|---|---|---|
+| ✅ Fully live (read + write wired) | 32 | Auth, Dashboard, Leads pipeline, CRM (load/drag/notes), Calendar, Unibox SDR, AI Council, Niche Researcher, all Audit sub-tabs, Implementation, Workflows (load), LinkedIn Content, Community, AI Assistant, Settings, Account/Billing |
+| ❌ Read wired, write/generate still mock | 8 | Sales Script Generator, Sales Call Analyser, Video Script Generator, Messaging Workshop generate, Unibox "Generate AI Drafts" |
+| ⚠️ Partial — specific action gap | 5 | CRM Activity Feed, Lead Lists Import, Unibox Send Reply, Appointments buttons, New Campaign create |
+| 🚫 Intentionally not implemented | 2 | Forgot Password, Reset Password |
+
+---
+
+### Priority Fix List
+
+1. **Sales Call Analyser — `runAnalysis`** → Replace `setTimeout(3000)` + `MOCK_ANALYSIS` with `api.callAnalyses.create({ transcript, name, source })` call; render real response.
+2. **Sales Script Generator — `sendMessage` end + `handleSave`** → Wire `api.salesScripts.generate()` for AI generation; wire `api.salesScripts.create()` in save modal.
+3. **Video Script Generator — `generateScripts` + `handleSave`** → Wire `api.contentPosts.generate({format:'video_script'})` and `api.contentPosts.create()`.
+4. **Messaging Workshop — generate flow** → Wire `api.messagingCopies.generate()` / `api.messagingCopies.copywriterChat()` instead of showing `MOCK_SUITE`.
+5. **Unibox — Send Reply** → Add `api.messages.create({ conversation_id, body, direction:'outbound' })` in send handler.
+6. **CRM Activity Feed** → Add `api.activity.list({ resource_type:'lead', resource_id: deal.id })` in the deal detail panel; log stage changes via `api.activity.create`.
+7. **Lead Lists — Import Enrichment** → Replace `setTimeout` loop with real call to `api.leadGeneration.enrichBulk()` using the imported list.
+
+---
+
 ## HeyReach API Integration (Full Implementation)
 
 ### API Documentation Source

@@ -525,6 +525,13 @@ export const api = {
       list: () => req('GET', '/admin/feature-flags'),
       update: (id, data) => req('PUT', `/admin/feature-flags/${id}`, data),
     },
+    prompts: {
+      list: () => req('GET', '/admin/prompts'),
+      get: (type) => req('GET', `/admin/prompts/${type}`),
+      save: (type, data) => req('PUT', `/admin/prompts/${type}`, data),
+      delete: (type) => req('DELETE', `/admin/prompts/${type}`),
+      test: (type, testMessage) => req('POST', `/admin/prompts/${type}/test`, { testMessage }),
+    },
     systemHealth: () => req('GET', '/admin/system-health'),
     errors: {
       list: () => req('GET', '/admin/errors'),

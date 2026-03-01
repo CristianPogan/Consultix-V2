@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query, ensureOrgExists, getIntegrationCredentials } from '../db.js';
+import { getSystemPromptForOrg, savePromptToDb } from './admin-prompts.js';
 
 const router = Router();
 
@@ -15,18 +16,7 @@ Guidelines:
 - If you don't have specific data, acknowledge it and suggest how to get it`;
 
 async function getSystemPrompt(orgId) {
-  try {
-    const res = await query(
-      `SELECT settings_data FROM project_settings
-       WHERE org_id = $1 AND settings_type = 'ai_assistant'
-       AND (user_id IS NULL) LIMIT 1`,
-      [orgId]
-    );
-    const data = res.rows[0]?.settings_data;
-    return (data && typeof data === 'object' && data.system_prompt) ? data.system_prompt : ASSISTANT_SYSTEM_PROMPT;
-  } catch {
-    return ASSISTANT_SYSTEM_PROMPT;
-  }
+  return getSystemPromptForOrg(orgId, 'ai_assistant');
 }
 
 async function getAnthropicKey(orgId) {
@@ -49,6 +39,34 @@ async function getOrgContext(orgId) {
     return '';
   }
 }
+
+// GET /api/assistant/system-prompt
+router.get('/system-prompt', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    const prompt = await getSystemPrompt(orgId);
+    res.json({ systemPrompt: prompt });
+  } catch (err) {
+    console.error('assistant/system-prompt GET', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/assistant/system-prompt
+router.post('/system-prompt', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    const { systemPrompt } = req.body || {};
+    if (typeof systemPrompt !== 'string') return res.status(400).json({ error: 'systemPrompt string required' });
+    await savePromptToDb(orgId, 'ai_assistant', systemPrompt);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('assistant/system-prompt POST', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.post('/chat', async (req, res) => {
   try {

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query, ensureOrgExists, getIntegrationCredentials } from '../db.js';
+import { getSystemPromptForOrg } from './admin-prompts.js';
 
 const router = Router();
 
@@ -105,7 +106,7 @@ router.post('/copywriter-chat', async (req, res) => {
       content: (m.text || '').trim(),
     }));
 
-    let systemPrompt = COPYWRITER_SYSTEM_PROMPT;
+    let systemPrompt = await getSystemPromptForOrg(orgId, 'copywriter');
     if (reviseRequest && currentSuite) {
       const suiteJson = JSON.stringify(currentSuite);
       systemPrompt += `\n\nREVISE MODE: User wants to revise "${reviseRequest.itemLabel}". Their feedback: "${reviseRequest.userFeedback || 'make it better'}".\nCurrent suite (update only the requested piece, keep others identical):\n${suiteJson}\n\nOutput <SUITE> with the revised piece.`;
