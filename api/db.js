@@ -688,16 +688,23 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
     if (res3.rows?.length > rows.length) rows = res3.rows;
   }
   // Helper: deduplicate and append leads-derived companies to rows
+  // A valid company name: non-empty, ≤100 chars, no pipe character.
+  // Pipes (|) are the definitive LinkedIn headline separator and never appear in real company names.
+  // Strings > 100 chars are almost certainly profile taglines, not company names.
+  const isValidCompanyName = (name) =>
+    typeof name === 'string' && name.trim().length > 0 && name.trim().length <= 100 && !name.includes('|');
+
   const appendLeadCompanies = (leadRows, existingIds, existingDomains, remaining, score = 85) => {
     const newFromLeads = leadRows
       .filter(r => {
-        const key = (r.domain || r.name || '').toLowerCase().trim();
-        return key && !existingDomains.has(key) && !existingIds.has(String(r.id));
+        if (!isValidCompanyName(r.name)) return false;  // reject null, empty, headlines
+        const key = r.name.trim().toLowerCase();
+        return !existingDomains.has(key) && !existingIds.has(String(r.id));
       })
       .slice(0, remaining)
       .map(r => ({
-        id: r.id || `lead-${(r.name || r.domain || '').replace(/\s/g, '-')}`,
-        name: r.name,
+        id: r.id || `lead-${r.name.trim().replace(/\s/g, '-')}`,
+        name: r.name.trim(),
         domain: r.domain,
         industry: null,
         employee_count: null,
@@ -709,7 +716,9 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
       }));
     for (const c of newFromLeads) {
       existingIds.add(String(c.id));
-      existingDomains.add((c.domain || c.name || '').toLowerCase().trim());
+      // Register both name and domain so cross-source dedup works in both directions
+      existingDomains.add(c.name.toLowerCase());
+      if (c.domain) existingDomains.add(c.domain.toLowerCase().trim());
     }
     return newFromLeads;
   };
@@ -722,12 +731,16 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
     const remaining = limit - rows.length;
     const leadTopicConditions = topicPatterns.map((_, i) => `(COALESCE(l.company, '') ILIKE $${i + 2} OR COALESCE(l.company_domain, '') ILIKE $${i + 2} OR COALESCE(l.title, '') ILIKE $${i + 2})`).join(' OR ');
     const sqlLeads = `
-      SELECT DISTINCT ON (LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))))
+      SELECT DISTINCT ON (LOWER(TRIM(l.company)))
         l.company_id as id, l.company as name, l.company_domain as domain, l.title
       FROM leads l
       WHERE l.org_id = $1
+        AND l.company IS NOT NULL
+        AND TRIM(l.company) != ''
+        AND l.company NOT LIKE '%|%'
+        AND CHAR_LENGTH(TRIM(l.company)) <= 100
         AND (${leadTopicConditions})
-      ORDER BY LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))), l.created_at DESC
+      ORDER BY LOWER(TRIM(l.company)), l.created_at DESC
       LIMIT $${topicPatterns.length + 2}`;
     const leadParams = [orgId, ...topicPatterns, remaining + 20];
     const resLeads = await query(sqlLeads, leadParams);
@@ -743,13 +756,16 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
     const remaining = limit - rows.length;
     const roleConditions = rolesList.map((_, i) => `COALESCE(l.title, '') ILIKE $${i + 2}`).join(' OR ');
     const sqlLeadRoles = `
-      SELECT DISTINCT ON (LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))))
+      SELECT DISTINCT ON (LOWER(TRIM(l.company)))
         l.company_id as id, l.company as name, l.company_domain as domain, l.title
       FROM leads l
       WHERE l.org_id = $1
         AND (${roleConditions})
-        AND COALESCE(l.company, l.company_domain, '') != ''
-      ORDER BY LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))), l.created_at DESC
+        AND l.company IS NOT NULL
+        AND TRIM(l.company) != ''
+        AND l.company NOT LIKE '%|%'
+        AND CHAR_LENGTH(TRIM(l.company)) <= 100
+      ORDER BY LOWER(TRIM(l.company)), l.created_at DESC
       LIMIT $${rolesList.length + 2}`;
     const roleParams = [orgId, ...rolesList.map(r => `%${r}%`), remaining + 20];
     const resRoles = await query(sqlLeadRoles, roleParams);
@@ -763,12 +779,15 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
   if (needMore()) {
     const remaining = limit - rows.length;
     const sqlLeadAll = `
-      SELECT DISTINCT ON (LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))))
+      SELECT DISTINCT ON (LOWER(TRIM(l.company)))
         l.company_id as id, l.company as name, l.company_domain as domain, l.title
       FROM leads l
       WHERE l.org_id = $1
-        AND COALESCE(l.company, l.company_domain, '') != ''
-      ORDER BY LOWER(TRIM(COALESCE(l.company_domain, l.company, ''))), l.created_at DESC
+        AND l.company IS NOT NULL
+        AND TRIM(l.company) != ''
+        AND l.company NOT LIKE '%|%'
+        AND CHAR_LENGTH(TRIM(l.company)) <= 100
+      ORDER BY LOWER(TRIM(l.company)), l.created_at DESC
       LIMIT $2`;
     const resAll = await query(sqlLeadAll, [orgId, remaining + 20]);
     sqlQueries.push({ sql: sqlLeadAll, params: [orgId, remaining + 20], label: 'Postgres discovery (from leads - all org)', rowCount: resAll.rows?.length || 0 });
