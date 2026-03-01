@@ -639,12 +639,10 @@ async function runEnrichmentCascade(orgId, companies, opts = {}) {
       continue;
     }
 
-    const companyId = await upsertDiscoveredCompany(orgId, comp, { source, projectId });
-    if (!companyId) {
-      log(`${companyName || domain} — failed to upsert company`, 'warn');
-      continue;
-    }
-
+    // People search runs BEFORE any DB write.
+    // Upsert is deferred to after we confirm at least one person exists —
+    // this prevents new companies from receiving a 30-day enriched_at lock
+    // when the people search returns 0 results.
     let people = [];
 
     if (icypeasKey) {
@@ -689,6 +687,13 @@ async function runEnrichmentCascade(orgId, companies, opts = {}) {
 
     if (people.length === 0) {
       log(`${companyName} — no people found`, 'warn');
+      continue;  // No DB write — company gets no 30-day enriched_at lock
+    }
+
+    // At least one person found — now safe to upsert the company record
+    const companyId = await upsertDiscoveredCompany(orgId, comp, { source, projectId });
+    if (!companyId) {
+      log(`${companyName || domain} — failed to upsert company`, 'warn');
       continue;
     }
 
@@ -863,23 +868,29 @@ router.post('/enrich/bulk', async (req, res) => {
       const skipEnrich = status && isEnrichmentFresh(status.enriched_at);
 
       if (skipEnrich && status.id) {
-        log(`${companyName} — using cache (enriched < 30 days)`, 'info');
         const leads = await getLeadsByCompanyId(orgId, status.id);
-        for (const l of leads) {
-          const name = [l.first_name, l.last_name].filter(Boolean).join(' ') || l.email || 'Unknown';
-          allContacts.push({
-            id: l.id,
-            name,
-            title: l.title || 'Unknown',
-            email: l.email || 'Not found',
-            linkedin: l.linkedin_url || '',
-            company: l.company || companyName,
-            companyId: status.id,
-            bounceRisk: l.email_bounce_risk === 'low' ? 'low' : l.email_bounce_risk === 'high' ? 'high' : 'unknown',
-            validationStatus: l.email_bounce_risk === 'low' ? 'valid' : l.email_bounce_risk === 'high' ? 'invalid' : 'pending',
-            linkedinData: l.company_data_json?.linkedinData || null,
-            fromCache: true,
-          });
+        if (leads.length > 0) {
+          log(`${companyName} — using cache (enriched < 30 days)`, 'info');
+          for (const l of leads) {
+            const name = [l.first_name, l.last_name].filter(Boolean).join(' ') || l.email || 'Unknown';
+            allContacts.push({
+              id: l.id,
+              name,
+              title: l.title || 'Unknown',
+              email: l.email || 'Not found',
+              linkedin: l.linkedin_url || '',
+              company: l.company || companyName,
+              companyId: status.id,
+              bounceRisk: l.email_bounce_risk === 'low' ? 'low' : l.email_bounce_risk === 'high' ? 'high' : 'unknown',
+              validationStatus: l.email_bounce_risk === 'low' ? 'valid' : l.email_bounce_risk === 'high' ? 'invalid' : 'pending',
+              linkedinData: l.company_data_json?.linkedinData || null,
+              fromCache: true,
+            });
+          }
+        } else {
+          // Previously enriched but 0 contacts stored — don't silently drop, retry enrichment
+          log(`${companyName} — cached but 0 contacts found, re-enriching`, 'info');
+          toEnrich.push(comp);
         }
       } else {
         toEnrich.push(comp);

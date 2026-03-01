@@ -879,8 +879,11 @@ export async function getCompanyEnrichmentStatus(orgId, { id, name, domain }) {
     p++;
   }
   if (nm) {
-    sql += ` AND name ILIKE $${p}`;
-    params.push(`%${nm}%`);
+    // Exact case-insensitive match: prevents ILIKE '%name%' from matching
+    // superstrings like "My SaaS Ventures Portfolio" when looking up "SaaS Ventures",
+    // and prevents polluted records like "Omni Lab | tagline..." from matching "Omni Lab".
+    sql += ` AND LOWER(TRIM(name)) = LOWER(TRIM($${p}))`;
+    params.push(nm);
     p++;
   }
   sql += ' LIMIT 1';
@@ -1014,6 +1017,7 @@ export async function upsertDiscoveredCompany(orgId, company, meta = {}) {
          search_source = COALESCE($11, search_source),
          discovery_query_json = COALESCE($12, discovery_query_json),
          website = COALESCE($13, website),
+         enriched_at = now(),
          updated_at = now()
        WHERE id = $1`,
       [
