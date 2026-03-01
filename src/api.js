@@ -275,6 +275,30 @@ export const api = {
     },
     network: (senderId) => req('POST', '/heyreach/network', { senderId }),
   },
+  aimfox: {
+    accounts: {
+      list: () => req('GET', '/aimfox/accounts'),
+    },
+    campaigns: {
+      list: (opts) => req('GET', '/aimfox/campaigns' + toQS(opts)),
+      get: (id) => req('GET', `/aimfox/campaigns/${id}`),
+      pause: (id) => req('POST', `/aimfox/campaigns/${id}/pause`),
+      resume: (id) => req('POST', `/aimfox/campaigns/${id}/resume`),
+      metrics: (id) => req('GET', `/aimfox/campaigns/${id}/metrics`),
+      addLeads: (id, leads) => req('POST', `/aimfox/campaigns/${id}/leads`, { leads }),
+      addLeadsDefault: (leads, campaignId) => req('POST', '/aimfox/campaigns/add-leads', { leads, campaignId }),
+    },
+    leads: {
+      lookup: (opts) => req('POST', '/aimfox/leads/lookup', opts),
+    },
+    conversations: (opts) => req('POST', '/aimfox/conversations', opts || {}),
+    stats: (opts) => req('POST', '/aimfox/stats', opts || {}),
+    analytics: {
+      interactions: (opts) => req('GET', '/aimfox/analytics/interactions' + toQS(opts)),
+      recentLeads: () => req('GET', '/aimfox/analytics/recent-leads'),
+    },
+    network: () => req('POST', '/aimfox/network', {}),
+  },
   calendar: {
     getEvents: (date) => req('GET', '/calendar/events' + (date ? `?date=${encodeURIComponent(date)}` : '')),
   },

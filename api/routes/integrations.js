@@ -402,8 +402,36 @@ router.post('/unipile/connect', async (req, res) => {
   }
 });
 
+// POST /api/integrations/aimfox/connect - Validate API key via GET /api/v2/accounts then save
+router.post('/aimfox/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    const campaignId = credentials?.campaign_id || credentials?.campaignId || '';
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch('https://api.aimfox.com/api/v2/accounts', {
+      headers: { 'Authorization': `Bearer ${apiKey.trim()}` },
+    });
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid AimFox API key' });
+      const errText = await testRes.text().catch(() => '');
+      return res.status(400).json({ error: errText || 'Failed to validate AimFox API key' });
+    }
+    await saveIntegrationCredentials(orgId, 'aimfox', {
+      api_key: apiKey.trim(),
+      ...(campaignId ? { campaign_id: String(campaignId).trim() } : {}),
+    });
+    res.json({ integration_key: 'aimfox', connected: true });
+  } catch (err) {
+    console.error('AimFox connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Generic connect for providers without dedicated validation endpoints
-for (const providerKey of ['wiza', 'leadsmagix', 'smartlead', 'aimfox', 'fathom', 'fireflies', 'cleanlist']) {
+for (const providerKey of ['wiza', 'leadsmagix', 'smartlead', 'fathom', 'fireflies', 'cleanlist']) {
   router.post(`/${providerKey}/connect`, async (req, res) => {
     try {
       const orgId = req.orgId;

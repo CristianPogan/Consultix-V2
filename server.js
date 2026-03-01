@@ -39,6 +39,7 @@ import notificationsRouter from './api/routes/notifications.js';
 import adminRouter from './api/routes/admin.js';
 import heyreachRouter from './api/routes/heyreach.js';
 import instantlyRouter from './api/routes/instantly.js';
+import aimfoxRouter from './api/routes/aimfox.js';
 import publicSurveyRouter from './api/routes/public-survey.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -96,6 +97,7 @@ app.use('/api/notifications', authMiddleware, notificationsRouter);
 app.use('/api/admin', authMiddleware, adminRouter);
 app.use('/api/heyreach', authMiddleware, heyreachRouter);
 app.use('/api/instantly', authMiddleware, instantlyRouter);
+app.use('/api/aimfox', authMiddleware, aimfoxRouter);
 
 // Serve static files from the Vite build output
 app.use(express.static(path.join(__dirname, 'dist')));

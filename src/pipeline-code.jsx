@@ -919,7 +919,7 @@ export default function App() {
     if (linkedinContacts.length > 0 && linkedinPlatform === "heyreach") {
       addLog(`→ Connecting to HeyReach...`, "system");
       await sleep(600);
-      
+
       try {
         const leadsData = linkedinContacts.map(contact => ({
           profileUrl: contact.linkedin,
@@ -929,15 +929,15 @@ export default function App() {
           companyName: contact.company,
           position: contact.title,
         }));
-        
+
         await api.heyreach.campaigns.addLeadsDefault(leadsData, linkedinCampaignId || undefined);
         addLog(`✓ ${linkedinContacts.length} leads added to HeyReach campaign`, "success");
-        
+
         for (const contact of linkedinContacts) {
           addLog(`  ✓ ${contact.name}`, "data");
           await sleep(100);
         }
-        
+
       } catch (err) {
         addLog(`✗ HeyReach error: ${err.message}`, "error");
         addLog(`→ ${linkedinContacts.length} leads saved locally`, "info");
@@ -946,7 +946,42 @@ export default function App() {
           await sleep(100);
         }
       }
-      
+
+      await sleep(300);
+      addLog(``, "info");
+    }
+
+    // LinkedIn outreach via AimFox
+    if (linkedinContacts.length > 0 && linkedinPlatform === "aimfox") {
+      addLog(`→ Connecting to AimFox...`, "system");
+      await sleep(600);
+
+      try {
+        const leadsData = linkedinContacts.map(contact => ({
+          profileUrl: contact.linkedin,
+          firstName: contact.name.split(" ")[0],
+          lastName: contact.name.split(" ").slice(1).join(" "),
+          companyName: contact.company,
+          position: contact.title,
+        }));
+
+        await api.aimfox.campaigns.addLeadsDefault(leadsData, linkedinCampaignId || undefined);
+        addLog(`✓ ${linkedinContacts.length} leads added to AimFox campaign`, "success");
+
+        for (const contact of linkedinContacts) {
+          addLog(`  ✓ ${contact.name}`, "data");
+          await sleep(100);
+        }
+
+      } catch (err) {
+        addLog(`✗ AimFox error: ${err.message}`, "error");
+        addLog(`→ ${linkedinContacts.length} leads saved locally`, "info");
+        for (const contact of linkedinContacts) {
+          addLog(`  + ${contact.name} → ${contact.linkedin || "profile found"}`, "data");
+          await sleep(100);
+        }
+      }
+
       await sleep(300);
       addLog(``, "info");
     }
@@ -2159,15 +2194,20 @@ function CampaignSetupPanel({ contacts, emails, channelAssignments, setChannelAs
       setHeyreachCampaignList(items.map(c => ({ id: c.id, name: c.name || c.campaignName || `Campaign ${c.id}` })));
     }).catch(() => {});
   }, []);
+  const [aimfoxCampaignList, setAimfoxCampaignList] = useState([]);
+  useEffect(() => {
+    api.aimfox.campaigns.list().then(data => {
+      const items = Array.isArray(data) ? data : data.campaigns || [];
+      setAimfoxCampaignList(items.map(c => ({ id: c.id, name: c.name || `Campaign ${c.id}` })));
+    }).catch(() => {});
+  }, []);
   const LINKEDIN_CAMPAIGNS = {
     heyreach: heyreachCampaignList.length > 0
       ? heyreachCampaignList.map(c => c.name)
       : ["Connection Request — Warm Intro", "Content Engagement Sequence", "Decision Maker Outreach — Q1"],
-    aimfox: [
-      "LinkedIn Drip — VP Level",
-      "Founder Connect Campaign",
-      "InMail Sequence — Enterprise",
-    ],
+    aimfox: aimfoxCampaignList.length > 0
+      ? aimfoxCampaignList.map(c => c.name)
+      : ["LinkedIn Drip — VP Level", "Founder Connect Campaign", "InMail Sequence — Enterprise"],
   };
 
   const selectStyle = {
@@ -2349,10 +2389,20 @@ function CampaignSetupPanel({ contacts, emails, channelAssignments, setChannelAs
             <div>
               <label style={labelStyle}>CAMPAIGN</label>
               <select
-                value={linkedinPlatform === 'heyreach' ? (heyreachCampaignList.find(c => c.name === linkedinCampaign)?.id || '') : linkedinCampaign}
+                value={
+                  linkedinPlatform === 'heyreach'
+                    ? (heyreachCampaignList.find(c => c.name === linkedinCampaign)?.id || '')
+                    : linkedinPlatform === 'aimfox'
+                    ? (aimfoxCampaignList.find(c => c.name === linkedinCampaign)?.id || '')
+                    : linkedinCampaign
+                }
                 onChange={e => {
                   if (linkedinPlatform === 'heyreach') {
                     const sel = heyreachCampaignList.find(c => String(c.id) === e.target.value);
+                    setLinkedinCampaign(sel?.name || e.target.value);
+                    if (setLinkedinCampaignId) setLinkedinCampaignId(e.target.value);
+                  } else if (linkedinPlatform === 'aimfox') {
+                    const sel = aimfoxCampaignList.find(c => String(c.id) === e.target.value);
                     setLinkedinCampaign(sel?.name || e.target.value);
                     if (setLinkedinCampaignId) setLinkedinCampaignId(e.target.value);
                   } else {
@@ -2365,6 +2415,8 @@ function CampaignSetupPanel({ contacts, emails, channelAssignments, setChannelAs
                 <option value="" style={{ background: COLORS.surface, color: COLORS.textDim }}>Select campaign...</option>
                 {linkedinPlatform === 'heyreach' && heyreachCampaignList.length > 0
                   ? heyreachCampaignList.map(c => <option key={c.id} value={String(c.id)} style={{ background: COLORS.surface, color: COLORS.text }}>{c.name}</option>)
+                  : linkedinPlatform === 'aimfox' && aimfoxCampaignList.length > 0
+                  ? aimfoxCampaignList.map(c => <option key={c.id} value={String(c.id)} style={{ background: COLORS.surface, color: COLORS.text }}>{c.name}</option>)
                   : (LINKEDIN_CAMPAIGNS[linkedinPlatform] || []).map(c => <option key={c} value={c} style={{ background: COLORS.surface, color: COLORS.text }}>{c}</option>)
                 }
               </select>
