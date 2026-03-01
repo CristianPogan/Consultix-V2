@@ -630,6 +630,15 @@ async function runEnrichmentCascade(orgId, companies, opts = {}) {
     const domain = (comp.domain || comp.website || '').replace(/^https?:\/\//, '').split('/')[0].trim();
     if (!companyName && !domain) continue;
 
+    // Guard: reject LinkedIn headlines before hitting external APIs or writing to DB.
+    // Pipe (|) is the definitive LinkedIn separator; >100 chars is always a tagline.
+    // If we don't catch these here, IcyPeas wastes a credit and the garbage name
+    // gets upserted into companies with a 30-day enriched_at lock.
+    if (companyName && (companyName.includes('|') || companyName.trim().length > 100)) {
+      log(`${companyName.slice(0, 60)}... — skipping, not a valid company name`, 'warn');
+      continue;
+    }
+
     const companyId = await upsertDiscoveredCompany(orgId, comp, { source, projectId });
     if (!companyId) {
       log(`${companyName || domain} — failed to upsert company`, 'warn');
@@ -839,6 +848,14 @@ router.post('/enrich/bulk', async (req, res) => {
       const domain = comp.domain || comp.website?.replace?.(/^https?:\/\//, '') || '';
       if (!companyName) {
         log(`Skipping company with no name (domain: ${domain || 'none'})`, 'warn');
+        continue;
+      }
+
+      // Guard: reject LinkedIn headlines stored as company names.
+      // Pipe (|) is the definitive LinkedIn separator; >100 chars is always a tagline.
+      // These cannot be enriched and would pollute the cache with garbage records.
+      if (companyName.includes('|') || companyName.trim().length > 100) {
+        log(`${companyName.slice(0, 60)}... — skipping, not a valid company name`, 'warn');
         continue;
       }
 

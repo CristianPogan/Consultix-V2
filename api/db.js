@@ -964,7 +964,10 @@ export async function upsertDiscoveredCompany(orgId, company, meta = {}) {
   if (!orgId || (!company.name && !company.domain)) return null;
 
   const dom = normDom(company.domain || company.website);
-  const name = (company.name || '').trim();
+  // Sanitize: strip LinkedIn taglines (everything after |) before storing.
+  // "Omni Lab Consulting | Driving Revenue For B2B SaaS..." → "Omni Lab Consulting"
+  const rawName = (company.name || '').trim();
+  const name = rawName.includes('|') ? rawName.slice(0, rawName.indexOf('|')).trim() : rawName;
 
   let existing = null;
   if (dom) {
