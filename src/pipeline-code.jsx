@@ -1333,7 +1333,7 @@ export default function App() {
         )}
 
         {activePage === "crm" && <CRMPipelineView projectId={selectedAuditProject} />}
-        {activePage === "appointments" && <AppointmentsView />}
+        {activePage === "appointments" && <AppointmentsView setActivePage={setActivePage} />}
         {activePage === "unibox" && <UniboxView projectId={selectedAuditProject} />}
 
         {activePage === "audit" && <AuditView project={auditProjects.find(p => String(p.id) === String(selectedAuditProject))} projects={auditProjects} selectedProject={selectedAuditProject} setSelectedProject={setSelectedAuditProject} />}
@@ -3626,6 +3626,7 @@ function CRMPipelineView({ projectId }) {
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [viewMode, setViewMode] = useState("kanban");
   const [note, setNote] = useState("");
+  const [dealActivity, setDealActivity] = useState([]);
 
   const pipelineValue = useMemo(() =>
     deals.filter(d => d.stage !== "Lost").reduce((sum, d) => sum + (d.valueNum || 0), 0),
@@ -3650,9 +3651,14 @@ function CRMPipelineView({ projectId }) {
 
   const updateDealStage = async (dealId, newStage) => {
     try {
+      const currentDeal = deals.find(d => d.id === dealId);
+      const oldStage = currentDeal?.stage;
       await api.leads.update(dealId, { stage: newStage });
       setDeals(prev => prev.map(d => d.id === dealId ? { ...d, stage: newStage } : d));
       if (selectedDeal?.id === dealId) setSelectedDeal(prev => prev ? { ...prev, stage: newStage } : null);
+      api.activity.create({ action: `Stage changed: ${oldStage} → ${newStage}`, resource_type: 'lead', resource_id: dealId, metadata_json: { from: oldStage, to: newStage } })
+        .then(entry => setDealActivity(prev => [entry, ...prev]))
+        .catch(() => {});
     } catch (err) {
       console.error("Failed to update deal stage:", err);
     }
@@ -3669,6 +3675,16 @@ function CRMPipelineView({ projectId }) {
 
   useEffect(() => {
     if (selectedDeal) setNote(selectedDeal.crm_notes || "");
+  }, [selectedDeal?.id]);
+
+  useEffect(() => {
+    if (selectedDeal?.id) {
+      api.activity.list({ resource_type: 'lead', resource_id: selectedDeal.id, limit: 20 })
+        .then(data => setDealActivity(Array.isArray(data) ? data : []))
+        .catch(() => setDealActivity([]));
+    } else {
+      setDealActivity([]);
+    }
   }, [selectedDeal?.id]);
 
   const handleNoteBlur = () => {
@@ -3780,16 +3796,18 @@ function CRMPipelineView({ projectId }) {
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, letterSpacing: "0.06em" }}>ACTIVITY</div>
-                {[
-                  { action: selectedDeal.lastActivity, time: "Latest" },
-                  { action: "Email opened", time: "2d ago" },
-                  { action: "Added to list", time: "5d ago" },
-                ].map((a, i) => (
-                  <div key={i} style={{ padding: "6px 0", borderBottom: i < 2 ? `1px solid ${COLORS.border}` : "none", display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 11, color: COLORS.text }}>{a.action}</span>
-                    <span style={{ fontSize: 10, color: COLORS.textDim }}>{a.time}</span>
-                  </div>
-                ))}
+                {dealActivity.length === 0 ? (
+                  <div style={{ fontSize: 11, color: COLORS.textDim, padding: "6px 0" }}>No activity recorded yet.</div>
+                ) : dealActivity.slice(0, 8).map((a, i) => {
+                  const ts = a.created_at ? new Date(a.created_at) : null;
+                  const timeLabel = ts ? ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+                  return (
+                    <div key={a.id || i} style={{ padding: "6px 0", borderBottom: i < Math.min(dealActivity.length, 8) - 1 ? `1px solid ${COLORS.border}` : "none", display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 11, color: COLORS.text }}>{a.action}</span>
+                      <span style={{ fontSize: 10, color: COLORS.textDim }}>{timeLabel}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -3813,7 +3831,7 @@ function parseSlotHour(h) {
   return n;
 }
 
-function AppointmentsView() {
+function AppointmentsView({ setActivePage }) {
   const [activeTab, setActiveTab] = useState("calls");
   const [integrationStatus, setIntegrationStatus] = useState({});
   const [calendarData, setCalendarData] = useState({ events: [], bySource: {}, date: "", hours: CALENDAR_HOURS });
@@ -3921,8 +3939,8 @@ function AppointmentsView() {
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                          <button style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, cursor: "pointer" }}>View in CRM</button>
-                          <button style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, cursor: "pointer" }}>Prep Script</button>
+                          <button onClick={() => setActivePage && setActivePage("crm")} style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, cursor: "pointer" }}>View in CRM</button>
+                          <button onClick={() => setActivePage && setActivePage("sales_scripts")} style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, cursor: "pointer" }}>Prep Script</button>
                         </div>
                       </div>
                     );
@@ -4063,11 +4081,58 @@ function UniboxView({ projectId }) {
   const [threadMessages, setThreadMessages] = useState([]);
 
   useEffect(() => {
-    api.conversations.list().then(data => {
-      const convos = Array.isArray(data) ? data : data.conversations || [];
-      setConversations(convos);
-      if (convos.length > 0 && !selectedConvo) setSelectedConvo(convos[0]);
-    }).catch(() => {});
+    // Fetch local conversations + external provider inboxes in parallel, then merge
+    const normalizeHeyReach = (items) => (Array.isArray(items) ? items : []).map(c => ({
+      id: `hr_${c.conversationId || c.id}`,
+      name: [c.leadFirstName, c.leadLastName].filter(Boolean).join(' ') || c.leadLinkedInUrl || 'LinkedIn Contact',
+      company: c.leadCompanyName || '',
+      channel: 'linkedin',
+      subject: c.lastMessageText ? c.lastMessageText.slice(0, 60) : '',
+      status: 'open',
+      unread: c.hasUnreadMessages || false,
+      time: c.lastMessageTime || c.updatedAt || null,
+      source: 'heyreach',
+      preview: c.lastMessageText || '',
+    }));
+    const normalizeAimFox = (items) => (Array.isArray(items) ? items : []).map(c => ({
+      id: `af_${c.id}`,
+      name: [c.firstName, c.lastName].filter(Boolean).join(' ') || c.linkedInUrl || 'LinkedIn Contact',
+      company: c.company || '',
+      channel: 'linkedin',
+      subject: c.lastMessage ? c.lastMessage.slice(0, 60) : '',
+      status: 'open',
+      unread: c.unread || false,
+      time: c.lastMessageAt || c.updatedAt || null,
+      source: 'aimfox',
+      preview: c.lastMessage || '',
+    }));
+    const normalizeInstantly = (items) => (Array.isArray(items) ? items : []).map(e => ({
+      id: `ins_${e.id}`,
+      name: e.from_address || e.to_address || 'Email Contact',
+      company: '',
+      channel: 'email',
+      subject: e.subject || '',
+      status: e.is_read ? 'read' : 'open',
+      unread: !e.is_read,
+      time: e.timestamp || e.created_at || null,
+      source: 'instantly',
+      preview: e.body ? e.body.slice(0, 100) : '',
+    }));
+
+    Promise.allSettled([
+      api.conversations.list(),
+      api.heyreach.conversations({ offset: 0, limit: 50 }),
+      api.aimfox.conversations({ inApp: true }),
+      api.instantly.emails.list({ limit: 50 }),
+    ]).then(([localRes, hrRes, afRes, insRes]) => {
+      const local = localRes.status === 'fulfilled' ? (Array.isArray(localRes.value) ? localRes.value : localRes.value?.conversations || []) : [];
+      const hr = hrRes.status === 'fulfilled' ? normalizeHeyReach(hrRes.value?.items || hrRes.value?.conversations || hrRes.value || []) : [];
+      const af = afRes.status === 'fulfilled' ? normalizeAimFox(afRes.value?.items || afRes.value?.conversations || afRes.value || []) : [];
+      const ins = insRes.status === 'fulfilled' ? normalizeInstantly(insRes.value?.items || insRes.value?.emails || insRes.value || []) : [];
+      const all = [...local, ...hr, ...af, ...ins].sort((a, b) => (b.time ? new Date(b.time) : 0) - (a.time ? new Date(a.time) : 0));
+      setConversations(all);
+      if (all.length > 0 && !selectedConvo) setSelectedConvo(all[0]);
+    });
   }, []);
 
   useEffect(() => {
@@ -4312,7 +4377,16 @@ function UniboxView({ projectId }) {
           )}
           <textarea value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Type your reply..." rows={3} style={{ width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6 }} />
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-            <button style={{ padding: "8px 20px", background: replyText.trim() ? COLORS.accent : COLORS.border, color: replyText.trim() ? COLORS.bg : COLORS.textDim, border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: replyText.trim() ? "pointer" : "default" }}>Send Reply</button>
+            <button onClick={async () => {
+              if (!replyText.trim() || !selectedConvo?.id) return;
+              try {
+                const msg = await api.messages.create({ conversation_id: selectedConvo.id, direction: 'outbound', body: replyText });
+                setThreadMessages(prev => [...prev, msg]);
+                setReplyText('');
+              } catch (err) {
+                console.error('Failed to send reply:', err);
+              }
+            }} style={{ padding: "8px 20px", background: replyText.trim() ? COLORS.accent : COLORS.border, color: replyText.trim() ? COLORS.bg : COLORS.textDim, border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: replyText.trim() ? "pointer" : "default" }}>Send Reply</button>
           </div>
         </div>
       </div>
@@ -7675,7 +7749,16 @@ function ColdEmailCampaignsView({ setActivePage }) {
       {/* Footer */}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, paddingBottom: 32 }}>
         <button onClick={() => setView("list")} style={{ padding: "12px 24px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
-        <button onClick={() => setView("list")} style={{ padding: "12px 28px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Create Campaign</button>
+        <button onClick={async () => {
+          if (!campaignForm.name.trim()) { alert('Campaign name is required'); return; }
+          try {
+            const created = await api.campaigns.create({ campaign_name: campaignForm.name, platform: 'email' });
+            setEmailCampaigns(prev => [{ id: created.id, name: created.name || created.campaign_name || campaignForm.name, status: created.status || 'draft', leads: 0, sent: 0, opened: 0, replied: 0, bounced: 0, dailyLimit: campaignForm.dailyLimit, startDate: campaignForm.startDate }, ...prev]);
+            setView("list");
+          } catch (err) {
+            alert(err.message || 'Failed to create campaign');
+          }
+        }} style={{ padding: "12px 28px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Create Campaign</button>
       </div>
     </div>
   );

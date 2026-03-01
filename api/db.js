@@ -1648,6 +1648,15 @@ export async function ensureDiscountCodesReady() {
   _discountCodesReady = true;
 }
 
+// Add source and external_id columns to conversations for multi-provider Unibox.
+let _conversationsSourceReady = false;
+export async function ensureConversationsSourceColumns() {
+  if (_conversationsSourceReady) return;
+  await query("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'local'").catch(() => {});
+  await query("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS external_id TEXT").catch(() => {});
+  _conversationsSourceReady = true;
+}
+
 // Add missing invoice_status enum values and invoices.updated_at for retry/refund admin endpoints.
 // The invoices table may use an invoice_status enum created elsewhere (e.g. Heroku);
 // retry uses 'failed', 'past_due', 'open'; refund uses 'refunded'.
