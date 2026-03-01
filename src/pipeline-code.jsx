@@ -593,40 +593,80 @@ export default function App() {
     const selected = discoveredLeads.filter(c => selectedLeads.has(c.id));
     addLog("→ Checking DB enrichment cache (skip if enriched < 30 days)...", "system");
     addLog("→ Using Lead Search cascade for person finding, Lead Enrichment cascade for email", "info");
+    addLog(`→ Calling enrich/bulk for ${selected.length} companies… (streaming)`, "info");
 
     let allContacts = [];
     try {
-      const enrichBulkFn = api?.leadGeneration?.enrichBulk;
-      if (typeof enrichBulkFn !== "function") {
-        addLog(`✗ Enrichment failed: api.leadGeneration.enrichBulk is not available`, "error");
-        if (typeof console !== "undefined") console.error("[Enrichment] api.leadGeneration:", api?.leadGeneration);
-        setIsProcessing(false);
-        return;
-      }
-      addLog(`→ Calling enrich/bulk for ${selected.length} companies…`, "info");
-      const result = await enrichBulkFn({
-        companies: selected.map(c => ({
-          id: c.id,
-          name: c.name,
-          domain: c.domain || c.website?.replace?.(/^https?:\/\//, ''),
-          industry: c.industry,
-          website: c.website,
-        })),
-        roles: icpForm.roles || ["CEO", "CTO", "VP Sales"],
-        listName: icpForm.listName || undefined,
+      // Use streaming fetch (SSE) instead of a single JSON request.
+      // The backend sends SSE headers immediately, bypassing Heroku's 30-second
+      // router timeout. Progress events arrive in real time; 'done' delivers results.
+      const token = localStorage.getItem("jwt_token");
+      const response = await fetch("/api/lead-generation/enrich/bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          companies: selected.map(c => ({
+            id: c.id,
+            name: c.name,
+            domain: c.domain || c.website?.replace?.(/^https?:\/\//, ""),
+            industry: c.industry,
+            website: c.website,
+          })),
+          roles: icpForm.roles || ["CEO", "CTO", "VP Sales"],
+          listName: icpForm.listName || undefined,
+        }),
       });
-      allContacts = (result.contacts || []).map((c, i) => ({
-        ...c,
-        id: c.id || `gen-${i + 1}`,
-      }));
-      const logs = result.enrichmentLog || [];
-      for (const entry of logs) {
-        const type = entry.type === "error" ? "error" : entry.type === "warn" ? "warning" : "info";
-        addLog(entry.msg, type);
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(errText || `HTTP ${response.status}`);
       }
+
+      // Read the SSE stream
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let done = false;
+
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        if (streamDone) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Split on double-newline (SSE event boundary)
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop(); // keep incomplete trailing chunk
+
+        for (const part of parts) {
+          if (!part.trim() || part.startsWith(":")) continue; // skip heartbeats/comments
+          const eventMatch = part.match(/^event: (\S+)$/m);
+          const dataMatch = part.match(/^data: (.+)$/m);
+          if (!dataMatch) continue;
+
+          const eventType = eventMatch?.[1] || "message";
+          let data;
+          try { data = JSON.parse(dataMatch[1]); } catch { continue; }
+
+          if (eventType === "log") {
+            const type = data.type === "error" ? "error" : data.type === "warn" ? "warning" : "info";
+            addLog(data.msg, type);
+          } else if (eventType === "done") {
+            allContacts = (data.contacts || []).map((c, i) => ({
+              ...c,
+              id: c.id || `gen-${i + 1}`,
+            }));
+            done = true;
+          } else if (eventType === "error") {
+            throw new Error(data.error || "Enrichment failed");
+          }
+        }
+      }
+
       const fromCache = allContacts.filter(c => c.fromCache).length;
       const enriched = allContacts.length - fromCache;
-      if (fromCache > 0) addLog(`→ Loaded ${fromCache} contacts from cache (enriched < 30 days)`, "info");
       if (enriched > 0) addLog(`→ Enriched ${enriched} new contacts via waterfall`, "info");
       addLog(`\n✓ Enrichment complete: ${allContacts.length} contacts across ${selected.length} companies`, "success");
       const verified = allContacts.filter(c => c.bounceRisk === "low").length;

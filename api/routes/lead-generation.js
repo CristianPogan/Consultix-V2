@@ -587,7 +587,7 @@ async function verifyEmailWaterfall(orgId, email, opts = {}) {
 // Reusable function called from /discover after API results return.
 // ============================================================================
 
-async function runEnrichmentCascade(orgId, companies, opts = {}) {
+async function runEnrichmentCascade(orgId, companies, opts = {}, onLog = null) {
   const {
     roles = ['CEO', 'Founder', 'CTO', 'VP of Sales', 'Head of Growth'],
     listName,
@@ -599,6 +599,7 @@ async function runEnrichmentCascade(orgId, companies, opts = {}) {
   const log = (msg, type = 'info') => {
     cascadeLog.push({ msg, type, ts: Date.now() });
     console.log(`[Cascade] ${msg}`);
+    if (onLog) onLog(msg, type);
   };
 
   if (!companies?.length) return { contacts: [], listId: null, cascadeLog, usageTracker: {} };
@@ -824,23 +825,59 @@ router.post('/verify/email', async (req, res) => {
 });
 
 // POST /api/lead-generation/enrich/bulk — Triggered by "ENRICH N COMPANIES →" button.
-// Takes only user-selected companies, checks cache, then runs the full cascade
-// (find people → find email → verify → persist) using the enrichment service order.
+// Uses Server-Sent Events (SSE) to stream progress in real time, bypassing Heroku's
+// 30-second router timeout (H12). The first byte is sent immediately via SSE headers;
+// a heartbeat every 20s prevents the H15 idle-connection timeout (55s limit).
 router.post('/enrich/bulk', async (req, res) => {
+  // --- SSE handshake: send headers + first byte immediately ---
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no', // disable nginx/Heroku proxy buffering
+  });
+  res.flushHeaders();
+
+  let closed = false;
+  req.on('close', () => { closed = true; });
+
+  const sendEvent = (event, data) => {
+    if (closed) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // Heartbeat every 20s keeps connection alive (Heroku H15 threshold is 55s idle)
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(':hb\n\n');
+  }, 20000);
+
   const enrichmentLog = [];
   const log = (msg, type = 'info') => {
     enrichmentLog.push({ msg, type, ts: Date.now() });
     console.log(`[Enrich] ${msg}`);
+    sendEvent('log', { msg, type });
+  };
+
+  const finish = (payload) => {
+    clearInterval(heartbeat);
+    sendEvent('done', payload);
+    res.end();
+  };
+
+  const fail = (msg) => {
+    clearInterval(heartbeat);
+    sendEvent('error', { error: msg });
+    res.end();
   };
 
   try {
     const orgId = req.orgId;
-    if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    if (!orgId) return fail('No organisation configured');
     await ensureOrgExists(orgId);
 
     const { companies: companiesInput, roles, listName } = req.body || {};
     if (!companiesInput || !Array.isArray(companiesInput) || companiesInput.length === 0) {
-      return res.status(400).json({ error: 'companies array is required' });
+      return fail('companies array is required');
     }
 
     const rolesList = Array.isArray(roles) ? roles : (roles ? [roles] : ['CEO', 'CTO', 'VP Sales']);
@@ -849,6 +886,7 @@ router.post('/enrich/bulk', async (req, res) => {
     // Separate cached vs fresh companies
     const toEnrich = [];
     for (const comp of companiesInput) {
+      if (closed) break;
       const companyName = comp.name || comp.company;
       const domain = comp.domain || comp.website?.replace?.(/^https?:\/\//, '') || '';
       if (!companyName) {
@@ -857,8 +895,6 @@ router.post('/enrich/bulk', async (req, res) => {
       }
 
       // Guard: reject LinkedIn headlines stored as company names.
-      // Pipe (|) is the definitive LinkedIn separator; >100 chars is always a tagline.
-      // These cannot be enriched and would pollute the cache with garbage records.
       if (companyName.includes('|') || companyName.trim().length > 100) {
         log(`${companyName.slice(0, 60)}... — skipping, not a valid company name`, 'warn');
         continue;
@@ -888,7 +924,6 @@ router.post('/enrich/bulk', async (req, res) => {
             });
           }
         } else {
-          // Previously enriched but 0 contacts stored — don't silently drop, retry enrichment
           log(`${companyName} — cached but 0 contacts found, re-enriching`, 'info');
           toEnrich.push(comp);
         }
@@ -900,20 +935,17 @@ router.post('/enrich/bulk', async (req, res) => {
     const fromCache = allContacts.length;
     if (fromCache > 0) log(`Loaded ${fromCache} contacts from cache (enriched < 30 days)`, 'info');
 
-    // Run the enrichment cascade for companies that need fresh data
+    // Run the enrichment cascade for companies that need fresh data.
+    // Pass log as onLog so cascade events stream to the client in real time.
     let cascade = { contacts: [], listId: null, cascadeLog: [], usageTracker: {} };
-    if (toEnrich.length > 0) {
+    if (toEnrich.length > 0 && !closed) {
       log(`Running enrichment cascade for ${toEnrich.length} companies — roles: ${rolesList.join(', ')}`, 'info');
       cascade = await runEnrichmentCascade(orgId, toEnrich, {
         roles: rolesList,
         listName: listName || `Enrichment ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
         source: 'enrichment',
         maxPeoplePerCompany: 5,
-      });
-
-      for (const entry of cascade.cascadeLog) {
-        enrichmentLog.push(entry);
-      }
+      }, log);
 
       for (const c of cascade.contacts) {
         allContacts.push({
@@ -938,11 +970,11 @@ router.post('/enrich/bulk', async (req, res) => {
       log('Tip: Ensure company names are real (e.g. "Acme Corp") not generic (e.g. "B2B SaaS"). Providers find people by company name.', 'info');
     }
 
-    res.json({ success: true, contacts: allContacts, listId: cascade.listId, enrichmentLog, usageTracker: cascade.usageTracker });
+    finish({ success: true, contacts: allContacts, listId: cascade.listId, enrichmentLog, usageTracker: cascade.usageTracker });
   } catch (err) {
     log(`Bulk enrichment error: ${err.message}`, 'error');
     console.error('Bulk enrichment error:', err);
-    res.status(500).json({ error: err.message, enrichmentLog });
+    fail(err.message);
   }
 });
 
