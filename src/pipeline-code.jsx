@@ -629,48 +629,64 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let done = false;
+      let gotDoneEvent = false;
 
-      while (!done) {
-        const { value, done: streamDone } = await reader.read();
-        if (streamDone) break;
-        buffer += decoder.decode(value, { stream: true });
+      try {
+        while (true) {
+          const { value, done: streamDone } = await reader.read();
+          if (streamDone) break;
+          buffer += decoder.decode(value, { stream: true });
 
-        // Split on double-newline (SSE event boundary)
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop(); // keep incomplete trailing chunk
+          // Split on double-newline (SSE event boundary)
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop(); // keep incomplete trailing chunk
 
-        for (const part of parts) {
-          if (!part.trim() || part.startsWith(":")) continue; // skip heartbeats/comments
-          const eventMatch = part.match(/^event: (\S+)$/m);
-          const dataMatch = part.match(/^data: (.+)$/m);
-          if (!dataMatch) continue;
+          for (const part of parts) {
+            if (!part.trim() || part.startsWith(":")) continue; // skip heartbeats/comments
+            const eventMatch = part.match(/^event: (\S+)$/m);
+            const dataMatch = part.match(/^data: (.+)$/m);
+            if (!dataMatch) continue;
 
-          const eventType = eventMatch?.[1] || "message";
-          let data;
-          try { data = JSON.parse(dataMatch[1]); } catch { continue; }
+            const eventType = eventMatch?.[1] || "message";
+            let data;
+            try { data = JSON.parse(dataMatch[1]); } catch { continue; }
 
-          if (eventType === "log") {
-            const type = data.type === "error" ? "error" : data.type === "warn" ? "warning" : "info";
-            addLog(data.msg, type);
-          } else if (eventType === "done") {
-            allContacts = (data.contacts || []).map((c, i) => ({
-              ...c,
-              id: c.id || `gen-${i + 1}`,
-            }));
-            done = true;
-          } else if (eventType === "error") {
-            throw new Error(data.error || "Enrichment failed");
+            if (eventType === "log") {
+              const type = data.type === "error" ? "error" : data.type === "warn" ? "warning" : "info";
+              addLog(data.msg, type);
+            } else if (eventType === "done") {
+              allContacts = (data.contacts || []).map((c, i) => ({
+                ...c,
+                id: c.id || `gen-${i + 1}`,
+              }));
+              gotDoneEvent = true;
+              break;
+            } else if (eventType === "error") {
+              throw new Error(data.error || "Enrichment failed");
+            }
           }
+
+          if (gotDoneEvent) break;
+        }
+      } catch (streamErr) {
+        // AbortError or network error — stream was cancelled before completion
+        if (!gotDoneEvent) {
+          addLog(`⚠ Enrichment stream was interrupted before completing (${streamErr.message}). Results below are partial or empty.`, "warning");
+        } else {
+          throw streamErr;
         }
       }
 
-      const fromCache = allContacts.filter(c => c.fromCache).length;
-      const enriched = allContacts.length - fromCache;
-      if (enriched > 0) addLog(`→ Enriched ${enriched} new contacts via waterfall`, "info");
-      addLog(`\n✓ Enrichment complete: ${allContacts.length} contacts across ${selected.length} companies`, "success");
-      const verified = allContacts.filter(c => c.bounceRisk === "low").length;
-      addLog(`  Verified emails: ${verified}/${allContacts.length}`, "info");
+      if (!gotDoneEvent && allContacts.length === 0) {
+        addLog("⚠ Enrichment did not complete — navigate back and try again.", "warning");
+      } else {
+        const fromCache = allContacts.filter(c => c.fromCache).length;
+        const enriched = allContacts.length - fromCache;
+        if (enriched > 0) addLog(`→ Enriched ${enriched} new contacts via waterfall`, "info");
+        addLog(`\n✓ Enrichment complete: ${allContacts.length} contacts across ${selected.length} companies`, "success");
+        const verified = allContacts.filter(c => c.bounceRisk === "low").length;
+        addLog(`  Verified emails: ${verified}/${allContacts.length}`, "info");
+      }
     } catch (err) {
       addLog(`✗ Enrichment failed: ${err.message}`, "error");
       if (typeof console !== "undefined") console.error("[Enrichment] Error:", err);

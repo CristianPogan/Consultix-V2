@@ -506,14 +506,20 @@ router.post('/discover/icypeas', async (req, res) => {
 // LEAD ENRICHMENT
 // ============================================================================
 
-// Helpers for enrichment waterfall (uses lead_enrichment_order from Settings)
-const FIND_EMAIL_KEYS = ['findymail', 'icypeas', 'bettercontact', 'ai_ark'];
+// Helpers for enrichment waterfall (uses lead_enrichment_order from Settings).
+// ai_ark is excluded from FIND_EMAIL_KEYS — it only discovers companies, not individual emails.
+// bettercontact is excluded from VERIFY_EMAIL_KEYS — it throws on standalone verify by design.
+const FIND_EMAIL_KEYS = ['findymail', 'icypeas', 'bettercontact'];
 const VERIFY_EMAIL_KEYS = ['findymail', 'neverbounce', 'zerobounce', 'cleanlist'];
 
+// opts.orderRow — pre-fetched integration_service_order row (avoids per-call DB query).
+// opts.usageTracker — shared tracker object updated in place.
 async function findEmailWaterfall(orgId, { firstName, lastName, company, domain }, opts = {}) {
   const usageTracker = opts.usageTracker || {};
-  const orderRow = await getIntegrationServiceOrder(orgId);
-  const order = orderRow?.lead_enrichment_order || ['findymail', 'icypeas', 'bettercontact', 'neverbounce'];
+  // Re-use pre-fetched orderRow from cascade to avoid one DB round-trip per person
+  const orderRow = opts.orderRow !== undefined ? opts.orderRow : await getIntegrationServiceOrder(orgId);
+  const order = orderRow?.lead_enrichment_order?.length ? orderRow.lead_enrichment_order
+    : ['findymail', 'icypeas', 'bettercontact'];
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
   const dom = (domain || (company && company.includes('.') ? company : '')).replace(/^https?:\/\//, '').split('/')[0];
 
@@ -524,19 +530,26 @@ async function findEmailWaterfall(orgId, { firstName, lastName, company, domain 
     if (!apiKey) continue;
 
     usageTracker.findEmail = usageTracker.findEmail || {};
-    usageTracker.findEmail[key] = (usageTracker.findEmail[key] || 0) + 1;
-
     try {
       if (key === 'findymail' && fullName && dom) {
         const data = await findEmailFindyMail(apiKey, { name: fullName, domain: dom });
-        if (data?.email) return { email: data.email, confidence: data.confidence, source: key };
+        if (data?.email) {
+          usageTracker.findEmail[key] = (usageTracker.findEmail[key] || 0) + 1;
+          return { email: data.email, confidence: data.confidence, source: key };
+        }
       } else if (key === 'icypeas') {
         const data = await findEmailIcyPeas({ firstName, lastName, company }, apiKey);
         const email = data?.email || data?.emails?.[0];
-        if (email) return { email, confidence: data.confidence, source: key };
+        if (email) {
+          usageTracker.findEmail[key] = (usageTracker.findEmail[key] || 0) + 1;
+          return { email, confidence: data.confidence, source: key };
+        }
       } else if (key === 'bettercontact' && (firstName || lastName) && (dom || company)) {
         const data = await findEmailBetterContact(apiKey, { firstName, lastName, company, domain: dom });
-        if (data?.email) return { email: data.email, confidence: data.confidence, source: key };
+        if (data?.email) {
+          usageTracker.findEmail[key] = (usageTracker.findEmail[key] || 0) + 1;
+          return { email: data.email, confidence: data.confidence, source: key };
+        }
       }
     } catch (e) {
       console.log(`[Enrich] ${key} find-email failed:`, e.message);
@@ -547,8 +560,10 @@ async function findEmailWaterfall(orgId, { firstName, lastName, company, domain 
 
 async function verifyEmailWaterfall(orgId, email, opts = {}) {
   const usageTracker = opts.usageTracker || {};
-  const orderRow = await getIntegrationServiceOrder(orgId);
-  const order = orderRow?.lead_enrichment_order || ['findymail', 'neverbounce', 'bettercontact', 'zerobounce'];
+  // Re-use pre-fetched orderRow from cascade to avoid one DB round-trip per person
+  const orderRow = opts.orderRow !== undefined ? opts.orderRow : await getIntegrationServiceOrder(orgId);
+  const order = orderRow?.lead_enrichment_order?.length ? orderRow.lead_enrichment_order
+    : ['neverbounce', 'zerobounce', 'findymail', 'cleanlist'];
   let lastErr = null;
 
   for (const key of order) {
@@ -557,22 +572,25 @@ async function verifyEmailWaterfall(orgId, email, opts = {}) {
     const apiKey = getApiKeyFromCredentials(creds);
     if (!apiKey) continue;
 
-    usageTracker.verifyEmail = usageTracker.verifyEmail || {};
-    usageTracker.verifyEmail[key] = (usageTracker.verifyEmail[key] || 0) + 1;
-
     try {
+      let result;
       if (key === 'findymail') {
         const data = await verifyEmailFindyMail(apiKey, email);
-        return { result: data.verified ? 'valid' : 'invalid', verified: data.verified, source: key };
+        result = { result: data.verified ? 'valid' : 'invalid', verified: data.verified, source: key };
       } else if (key === 'neverbounce') {
         const data = await verifyEmailNeverBounce(email, apiKey);
-        return { result: data.result === 'valid' ? 'valid' : 'invalid', verified: data.result === 'valid', source: key };
-      } else if (key === 'bettercontact') {
-        const data = await verifyEmailBetterContact(apiKey, email);
-        return { result: data.verified ? 'valid' : 'invalid', verified: data.verified, source: key };
+        result = { result: data.result === 'valid' ? 'valid' : 'invalid', verified: data.result === 'valid', source: key };
       } else if (key === 'zerobounce') {
         const data = await verifyEmailZeroBounce(apiKey, email);
-        return { result: data.verified ? 'valid' : 'invalid', verified: data.verified, source: key };
+        result = { result: data.verified ? 'valid' : 'invalid', verified: data.verified, source: key };
+      } else if (key === 'cleanlist') {
+        // placeholder — no cleanlist verify service function exists yet; skip
+        continue;
+      }
+      if (result) {
+        usageTracker.verifyEmail = usageTracker.verifyEmail || {};
+        usageTracker.verifyEmail[key] = (usageTracker.verifyEmail[key] || 0) + 1;
+        return result;
       }
     } catch (e) {
       lastErr = e;
@@ -609,6 +627,14 @@ async function runEnrichmentCascade(orgId, companies, opts = {}, onLog = null) {
   const allContacts = [];
   const usageTracker = { findPeople: {}, findEmail: {}, verifyEmail: {} };
 
+  // Fetch integration order and credentials once — avoids N×M DB round-trips
+  // (100 companies × 5 people × 2 waterfall calls = 1000 queries without this)
+  const orderRow = await getIntegrationServiceOrder(orgId);
+
+  // People search: IcyPeas (find-people by company name/domain) and
+  // Findy/FindyMail (find-employees by domain). These are the only two services
+  // with person-within-company search. AI Ark / Wiza / LeadsMagix are company
+  // discovery tools, not people-search tools.
   const icypeasCreds = await getIntegrationCredentials(orgId, 'icypeas');
   const icypeasKey = getApiKeyFromCredentials(icypeasCreds);
 
@@ -620,11 +646,12 @@ async function runEnrichmentCascade(orgId, companies, opts = {}, onLog = null) {
   }
 
   if (!icypeasKey && !findyKey) {
-    log('No people-search integration available (IcyPeas or Findy). Skipping enrichment cascade.', 'warn');
-    return { contacts: [], listId, cascadeLog };
+    log('No people-search key found. Connect IcyPeas (Settings → Integrations → IcyPeas) or Findy/FindyMail for employee lookup. AI Ark / Wiza are company-discovery tools and cannot find people within companies.', 'warn');
+    return { contacts: [], listId, cascadeLog, usageTracker };
   }
 
-  log(`Starting cascade for ${companies.length} companies — roles: ${roles.join(', ')}`, 'info');
+  const activeSearchers = [icypeasKey && 'IcyPeas', findyKey && 'Findy/FindyMail'].filter(Boolean);
+  log(`Starting cascade for ${companies.length} companies — people search: ${activeSearchers.join(', ')} — roles: ${roles.join(', ')}`, 'info');
 
   for (const comp of companies) {
     const companyName = comp.name || comp.company || '';
@@ -713,7 +740,7 @@ async function runEnrichmentCascade(orgId, companies, opts = {}, onLog = null) {
             firstName, lastName,
             company: companyName,
             domain: dom,
-          }, { usageTracker });
+          }, { usageTracker, orderRow });
           email = emailData?.email || null;
           if (email) log(`${fullName} — email found via ${emailData.source}`, 'info');
         } catch (_) {}
@@ -723,7 +750,7 @@ async function runEnrichmentCascade(orgId, companies, opts = {}, onLog = null) {
       let validationStatus = 'pending';
       if (email) {
         try {
-          const v = await verifyEmailWaterfall(orgId, email, { usageTracker });
+          const v = await verifyEmailWaterfall(orgId, email, { usageTracker, orderRow });
           bounceRisk = v.verified ? 'low' : 'high';
           validationStatus = v.verified ? 'valid' : 'invalid';
         } catch (_) {}
