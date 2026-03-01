@@ -604,8 +604,8 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
     const maxV = Math.max(...empRanges.map(([, b]) => b));
     const enumList = empEnums.length ? empEnums.map(e => `'${String(e).replace(/'/g, "''")}'`).join(',') : '';
     employeeWhere = enumList
-      ? ` AND ( (c.employee_count IS NOT NULL AND c.employee_count > 0 AND c.employee_count BETWEEN ${minV} AND ${maxV}) OR (c.employee_range::text IN (${enumList})) OR (c.employee_count IS NULL AND c.employee_range IS NULL) )`
-      : ` AND ( (c.employee_count IS NOT NULL AND c.employee_count > 0 AND c.employee_count BETWEEN ${minV} AND ${maxV}) OR (c.employee_count IS NULL AND c.employee_range IS NULL) )`;
+      ? ` AND ( (c.employee_count IS NOT NULL AND c.employee_count > 0 AND c.employee_count BETWEEN ${minV} AND ${maxV}) OR (c.employee_range::text IN (${enumList})) )`
+      : ` AND ( c.employee_count IS NOT NULL AND c.employee_count > 0 AND c.employee_count BETWEEN ${minV} AND ${maxV} )`;
   }
 
   const baseSelect = `
@@ -661,31 +661,49 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
   if (needMore() && regionPatterns.length && topicPatterns.length) {
     let rp2 = [orgId], idx2 = 2;
     let sql2 = baseSelect;
-    for (const p of topicPatterns) {
-      sql2 += ` AND (COALESCE(c.industry, '') ILIKE $${idx2} OR COALESCE(c.description, '') ILIKE $${idx2} OR COALESCE(c.keywords, '') ILIKE $${idx2} OR COALESCE(c.name, '') ILIKE $${idx2})`;
-      rp2.push(p);
-      idx2++;
-    }
+    // Topic patterns joined with OR (same as primary) — previously incorrectly used AND
+    const topicParts2 = topicPatterns.map((_, i) => `(COALESCE(c.industry, '') ILIKE $${idx2 + i} OR COALESCE(c.description, '') ILIKE $${idx2 + i} OR COALESCE(c.keywords, '') ILIKE $${idx2 + i} OR COALESCE(c.name, '') ILIKE $${idx2 + i})`);
+    sql2 += ` AND (${topicParts2.join(' OR ')})`;
+    rp2.push(...topicPatterns);
+    idx2 += topicPatterns.length;
     sql2 += employeeWhere + ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $${idx2}`;
     rp2.push(limit);
     const res2 = await query(sql2, rp2);
     sqlQueries.push({ sql: sql2, params: [...rp2], label: 'Postgres discovery (no region)', rowCount: res2.rows?.length || 0 });
-    if (res2.rows?.length > rows.length) rows = res2.rows;
+    // Merge unique new companies (append, not replace)
+    if (res2.rows?.length > 0) {
+      const seen2Ids = new Set(rows.map(r => String(r.id)));
+      const seen2Doms = new Set(rows.map(r => (r.domain || r.name || '').toLowerCase().trim()).filter(Boolean));
+      const newRows2 = res2.rows.filter(r => {
+        const key = (r.domain || r.name || '').toLowerCase().trim();
+        return key && !seen2Doms.has(key) && !seen2Ids.has(String(r.id));
+      });
+      rows = [...rows, ...newRows2];
+    }
   }
   // Fallback 3: topic only (no region, no employee)
   if (needMore() && topicPatterns.length) {
     let rp3 = [orgId], idx3 = 2;
     let sql3 = baseSelect;
-    for (const p of topicPatterns) {
-      sql3 += ` AND (COALESCE(c.industry, '') ILIKE $${idx3} OR COALESCE(c.description, '') ILIKE $${idx3} OR COALESCE(c.keywords, '') ILIKE $${idx3} OR COALESCE(c.name, '') ILIKE $${idx3})`;
-      rp3.push(p);
-      idx3++;
-    }
+    // Topic patterns joined with OR (same as primary) — previously incorrectly used AND
+    const topicParts3 = topicPatterns.map((_, i) => `(COALESCE(c.industry, '') ILIKE $${idx3 + i} OR COALESCE(c.description, '') ILIKE $${idx3 + i} OR COALESCE(c.keywords, '') ILIKE $${idx3 + i} OR COALESCE(c.name, '') ILIKE $${idx3 + i})`);
+    sql3 += ` AND (${topicParts3.join(' OR ')})`;
+    rp3.push(...topicPatterns);
+    idx3 += topicPatterns.length;
     sql3 += ` ORDER BY c.icp_fit_score DESC NULLS LAST, c.name LIMIT $${idx3}`;
     rp3.push(limit);
     const res3 = await query(sql3, rp3);
     sqlQueries.push({ sql: sql3, params: [...rp3], label: 'Postgres discovery (topic only)', rowCount: res3.rows?.length || 0 });
-    if (res3.rows?.length > rows.length) rows = res3.rows;
+    // Merge unique new companies (append, not replace)
+    if (res3.rows?.length > 0) {
+      const seen3Ids = new Set(rows.map(r => String(r.id)));
+      const seen3Doms = new Set(rows.map(r => (r.domain || r.name || '').toLowerCase().trim()).filter(Boolean));
+      const newRows3 = res3.rows.filter(r => {
+        const key = (r.domain || r.name || '').toLowerCase().trim();
+        return key && !seen3Doms.has(key) && !seen3Ids.has(String(r.id));
+      });
+      rows = [...rows, ...newRows3];
+    }
   }
   // Helper: deduplicate and append leads-derived companies to rows
   // A valid company name: non-empty, ≤100 chars, no pipe character.
@@ -712,7 +730,7 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
         headquarters_city: null,
         headquarters_state: null,
         headquarters_country: null,
-        icp_fit_score: score,
+        icp_fit_score: null,
       }));
     for (const c of newFromLeads) {
       existingIds.add(String(c.id));
@@ -775,8 +793,9 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
     }
   }
 
-  // Fallback 4c: all leads from org (broadest — imported leads are presumably relevant)
-  if (needMore()) {
+  // Fallback 4c: all leads from org — only when no ICP criteria were specified (browse-all mode)
+  // When industry/keywords or roles are present, 4c would add completely off-ICP companies.
+  if (needMore() && !topicPatterns.length && !rolesList.length) {
     const remaining = limit - rows.length;
     const sqlLeadAll = `
       SELECT DISTINCT ON (LOWER(TRIM(l.company)))
@@ -822,7 +841,7 @@ export async function searchCompaniesForDiscovery(orgId, criteria) {
       employees: emp,
       location: loc || 'Unknown',
       website: toWebsite(r.domain || r.website),
-      icpScore: r.icp_fit_score ?? 90,
+      icpScore: r.icp_fit_score ?? null,
     };
   });
 
