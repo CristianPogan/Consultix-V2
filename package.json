@@ -26,6 +26,7 @@
     "seed-organisations": "node scripts/seed-organisations.js",
     "set-admin": "node scripts/set-admin-role.js",
     "test:connect-accounts": "node --test tests/connect-accounts.test.js",
+    "test:system-prompts": "node --test tests/system-prompts.test.js",
     "test:lead-pipeline": "node scripts/run-lead-pipeline-test.js"
   },
   "dependencies": {

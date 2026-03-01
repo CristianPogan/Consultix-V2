@@ -134,16 +134,7 @@ const PROVIDERS = [
   { name: "Claude API", type: "AI Engine", status: "Healthy", priority: 1, calls: "45,200", errorRate: "0.02%", avgLatency: "2.8s" },
 ];
 
-const AI_PROMPTS = [
-  { id: "p1", name: "AI Council — Strategic Advisor", model: "claude-sonnet-4-5-20250929", tokensToday: "124K", costToday: "$2.40", lastEdit: "Feb 10" },
-  { id: "p2", name: "AI Assistant — Org Knowledge", model: "claude-sonnet-4-5-20250929", tokensToday: "89K", costToday: "$1.72", lastEdit: "Feb 12" },
-  { id: "p3", name: "Audit Analysis Engine", model: "claude-sonnet-4-5-20250929", tokensToday: "210K", costToday: "$4.06", lastEdit: "Feb 8" },
-  { id: "p4", name: "Messaging Workshop", model: "claude-haiku-4-5-20251001", tokensToday: "56K", costToday: "$0.28", lastEdit: "Feb 11" },
-  { id: "p5", name: "Script Generator", model: "claude-haiku-4-5-20251001", tokensToday: "34K", costToday: "$0.17", lastEdit: "Feb 9" },
-  { id: "p6", name: "Lead Personalisation", model: "claude-haiku-4-5-20251001", tokensToday: "312K", costToday: "$1.56", lastEdit: "Feb 13" },
-  { id: "p7", name: "Process Map Generator", model: "claude-sonnet-4-5-20250929", tokensToday: "67K", costToday: "$1.30", lastEdit: "Feb 7" },
-  { id: "p8", name: "Niche Researcher", model: "claude-sonnet-4-5-20250929", tokensToday: "45K", costToday: "$0.87", lastEdit: "Feb 6" },
-];
+// AI_PROMPTS is now loaded live from /api/admin/prompts — see livePrompts state below
 
 const FEATURE_FLAGS = [
   { key: "lead_discovery", label: "Lead Discovery", desc: "AI-powered lead finding and enrichment", plans: ["Starter", "Growth", "Scale"], core: true },
@@ -212,6 +203,22 @@ export default function AdminDashboard() {
   const [livePlans, setLivePlans] = useState(null);
   const [liveInvoices, setLiveInvoices] = useState(null);
   const [liveDiscountCodes, setLiveDiscountCodes] = useState(null);
+  const [livePrompts, setLivePrompts] = useState(null);
+  const [editingPrompt, setEditingPrompt] = useState(null);   // { type, name, systemPrompt, model } | null
+  const [editDraft, setEditDraft] = useState('');
+  const [editModel, setEditModel] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [testingPrompt, setTestingPrompt] = useState(null);   // { type, name } | null
+  const [testMessage, setTestMessage] = useState('');
+  const [testResult, setTestResult] = useState(null);
+  const [testRunning, setTestRunning] = useState(false);
+  const [promptActionMsg, setPromptActionMsg] = useState('');
+
+  useEffect(() => {
+    if (page === 'ai') {
+      api.admin.prompts.list().then(d => setLivePrompts(d.prompts || null)).catch(() => {});
+    }
+  }, [page]);
 
   useEffect(() => {
     api.admin.agencies.list().then(d => setLiveAgencies(Array.isArray(d) ? d : d.agencies || null)).catch(() => {});
@@ -944,49 +951,179 @@ export default function AdminDashboard() {
   };
 
   // ---- AI & PROMPTS ----
-  const renderAI = () => (
-    <div>
-      <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
-        <StatCard label="Total Tokens Today" value="937K" icon="🧠" />
-        <StatCard label="AI Cost Today" value="$12.36" icon="💵" sub="$8.91 Sonnet · $2.01 Haiku · $1.44 Opus" />
-        <StatCard label="AI Cost MTD" value="$186.40" icon="📊" sub="Budget: $300/mo" />
-        <StatCard label="Avg Response Time" value="2.4s" icon="⏱️" />
-      </div>
+  // ---- AI prompt handlers ----
+  const openEdit = (p) => {
+    setEditingPrompt(p);
+    setEditDraft(p.systemPrompt || p.default || '');
+    setEditModel(p.model || 'claude-sonnet-4-6');
+    setTestResult(null);
+    setPromptActionMsg('');
+  };
+  const closeEdit = () => { setEditingPrompt(null); setEditDraft(''); setEditModel(''); };
+  const saveEdit = async () => {
+    if (!editingPrompt) return;
+    setEditSaving(true);
+    try {
+      await api.admin.prompts.save(editingPrompt.type, { systemPrompt: editDraft, model: editModel });
+      const d = await api.admin.prompts.list();
+      setLivePrompts(d.prompts || null);
+      setPromptActionMsg(`Saved "${editingPrompt.name}"`);
+      closeEdit();
+    } catch (e) {
+      setPromptActionMsg('Save failed: ' + (e?.message || 'unknown error'));
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
-      <div style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ fontSize: 10, fontFamily: F, fontWeight: 600, color: C.textDim, letterSpacing: "0.06em" }}>SYSTEM PROMPTS & MODEL SELECTION</div>
-          <button style={{ padding: "5px 12px", background: C.accent, color: C.bg, border: "none", borderRadius: 6, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>+ Add Prompt</button>
-        </div>
-        {AI_PROMPTS.map(p => (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
-              <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Last edited: {p.lastEdit}</div>
+  const openTest = (p) => {
+    setTestingPrompt(p);
+    setTestMessage('Hello, describe what you do in one sentence.');
+    setTestResult(null);
+    setPromptActionMsg('');
+  };
+  const closeTest = () => { setTestingPrompt(null); setTestMessage(''); setTestResult(null); };
+  const runTest = async () => {
+    if (!testingPrompt) return;
+    setTestRunning(true);
+    setTestResult(null);
+    try {
+      const r = await api.admin.prompts.test(testingPrompt.type, testMessage);
+      setTestResult(r.reply || r.response || r.note || JSON.stringify(r));
+    } catch (e) {
+      setTestResult('Error: ' + (e?.message || 'unknown'));
+    } finally {
+      setTestRunning(false);
+    }
+  };
+
+  const resetPrompt = async (p) => {
+    if (!window.confirm(`Reset "${p.name}" to the built-in default?`)) return;
+    try {
+      await api.admin.prompts.delete(p.type);
+      const d = await api.admin.prompts.list();
+      setLivePrompts(d.prompts || null);
+      setPromptActionMsg(`Reset "${p.name}" to default`);
+    } catch (e) {
+      setPromptActionMsg('Reset failed: ' + (e?.message || 'unknown error'));
+    }
+  };
+
+  const changeModel = async (p, newModel) => {
+    try {
+      await api.admin.prompts.save(p.type, { systemPrompt: p.systemPrompt || p.default || '', model: newModel });
+      const d = await api.admin.prompts.list();
+      setLivePrompts(d.prompts || null);
+    } catch (_) {}
+  };
+
+  const renderAI = () => {
+    const prompts = livePrompts || [];
+    return (
+      <div>
+        {/* Edit modal */}
+        {editingPrompt && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 28, width: 680, maxHeight: "80vh", display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>Edit: {editingPrompt.name}</div>
+              <textarea
+                value={editDraft}
+                onChange={e => setEditDraft(e.target.value)}
+                rows={16}
+                style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontFamily: "monospace", fontSize: 12, padding: 12, resize: "vertical", outline: "none", boxSizing: "border-box" }}
+              />
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 11, color: C.textDim }}>Model:</span>
+                <select value={editModel} onChange={e => setEditModel(e.target.value)} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, color: C.accent, fontFamily: F, fontSize: 11, padding: "4px 8px", outline: "none" }}>
+                  <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+                  <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+                  <option value="claude-opus-4-6">Opus 4.6</option>
+                </select>
+                <div style={{ flex: 1 }} />
+                <button onClick={closeEdit} style={{ padding: "7px 16px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, fontFamily: F, fontSize: 11, cursor: "pointer" }}>Cancel</button>
+                <button onClick={saveEdit} disabled={editSaving} style={{ padding: "7px 18px", background: C.accent, color: C.bg, border: "none", borderRadius: 6, fontFamily: F, fontSize: 11, fontWeight: 700, cursor: editSaving ? "not-allowed" : "pointer", opacity: editSaving ? 0.6 : 1 }}>{editSaving ? "Saving…" : "Save"}</button>
+              </div>
             </div>
-            <div style={{ padding: "4px 10px", borderRadius: 4, background: C.bg, border: `1px solid ${C.border}` }}>
-              <select defaultValue={p.model} style={{ background: "transparent", border: "none", color: C.accent, fontFamily: F, fontSize: 9, fontWeight: 600, outline: "none", cursor: "pointer" }}>
-                <option value="claude-sonnet-4-5-20250929">Sonnet 4.5</option>
-                <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
-                <option value="claude-opus-4-6">Opus 4.6</option>
-              </select>
-            </div>
-            <div style={{ textAlign: "right", minWidth: 70 }}>
-              <div style={{ fontSize: 11, fontFamily: F, fontWeight: 600 }}>{p.tokensToday}</div>
-              <div style={{ fontSize: 9, color: C.textDim }}>tokens today</div>
-            </div>
-            <div style={{ textAlign: "right", minWidth: 60 }}>
-              <div style={{ fontSize: 11, fontFamily: F, fontWeight: 600, color: C.warn }}>{p.costToday}</div>
-              <div style={{ fontSize: 9, color: C.textDim }}>cost today</div>
-            </div>
-            <button style={{ padding: "6px 10px", background: "transparent", border: `1px solid ${C.accent}33`, borderRadius: 6, color: C.accent, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>Test</button>
-            <button style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textMuted, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>Edit</button>
-            <button style={{ padding: "6px 8px", background: "transparent", border: `1px solid ${C.danger}33`, borderRadius: 6, color: C.danger, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>✕</button>
           </div>
-        ))}
+        )}
+
+        {/* Test modal */}
+        {testingPrompt && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 28, width: 560, display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>Test: {testingPrompt.name}</div>
+              <textarea
+                value={testMessage}
+                onChange={e => setTestMessage(e.target.value)}
+                rows={4}
+                placeholder="Enter a test message…"
+                style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontFamily: F, fontSize: 12, padding: 10, resize: "vertical", outline: "none", boxSizing: "border-box" }}
+              />
+              {testResult && (
+                <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, fontSize: 12, color: C.text, whiteSpace: "pre-wrap", maxHeight: 240, overflowY: "auto" }}>{testResult}</div>
+              )}
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button onClick={closeTest} style={{ padding: "7px 16px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, fontFamily: F, fontSize: 11, cursor: "pointer" }}>Close</button>
+                <button onClick={runTest} disabled={testRunning} style={{ padding: "7px 18px", background: C.accent, color: C.bg, border: "none", borderRadius: 6, fontFamily: F, fontSize: 11, fontWeight: 700, cursor: testRunning ? "not-allowed" : "pointer", opacity: testRunning ? 0.6 : 1 }}>{testRunning ? "Running…" : "Run Test"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+          <StatCard label="Prompts Configured" value={prompts.length || "—"} icon="🧠" />
+          <StatCard label="Customized" value={prompts.filter(p => p.isCustomized).length || 0} icon="✏️" sub="with DB overrides" />
+          <StatCard label="Using Default" value={prompts.filter(p => !p.isCustomized).length || 0} icon="📄" sub="built-in prompts" />
+          <StatCard label="Models in Use" value={[...new Set(prompts.map(p => p.model))].length || "—"} icon="🤖" />
+        </div>
+
+        {promptActionMsg && (
+          <div style={{ padding: "10px 16px", background: C.accent + "18", border: `1px solid ${C.accent}44`, borderRadius: 8, fontSize: 12, color: C.accent, marginBottom: 14 }}>
+            {promptActionMsg}
+          </div>
+        )}
+
+        <div style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontFamily: F, fontWeight: 600, color: C.textDim, letterSpacing: "0.06em" }}>SYSTEM PROMPTS & MODEL SELECTION</div>
+          </div>
+          {prompts.length === 0 && (
+            <div style={{ fontSize: 12, color: C.textDim, padding: "20px 0" }}>Loading prompts…</div>
+          )}
+          {prompts.map(p => (
+            <div key={p.type} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</span>
+                  {p.isCustomized && (
+                    <span style={{ fontSize: 8, fontFamily: F, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: C.accent + "22", color: C.accent, letterSpacing: "0.04em" }}>CUSTOM</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>
+                  {p.isCustomized && p.lastEdited ? `Last edited: ${new Date(p.lastEdited).toLocaleDateString()}` : 'Using built-in default'}
+                  {p.description ? ` · ${p.description}` : ''}
+                </div>
+              </div>
+              <div style={{ padding: "4px 10px", borderRadius: 4, background: C.bg, border: `1px solid ${C.border}` }}>
+                <select
+                  value={p.model || 'claude-sonnet-4-6'}
+                  onChange={e => changeModel(p, e.target.value)}
+                  style={{ background: "transparent", border: "none", color: C.accent, fontFamily: F, fontSize: 9, fontWeight: 600, outline: "none", cursor: "pointer" }}
+                >
+                  <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+                  <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+                  <option value="claude-opus-4-6">Opus 4.6</option>
+                </select>
+              </div>
+              <button onClick={() => openTest(p)} style={{ padding: "6px 10px", background: "transparent", border: `1px solid ${C.accent}33`, borderRadius: 6, color: C.accent, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>Test</button>
+              <button onClick={() => openEdit(p)} style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>Edit</button>
+              <button onClick={() => resetPrompt(p)} style={{ padding: "6px 8px", background: "transparent", border: `1px solid ${C.danger}33`, borderRadius: 6, color: C.danger, fontFamily: F, fontSize: 9, fontWeight: 600, cursor: "pointer" }}>✕</button>
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ---- SYSTEM HEALTH ----
   const renderSystem = () => (
