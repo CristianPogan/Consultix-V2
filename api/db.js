@@ -1682,4 +1682,24 @@ export async function ensureInvoiceStatusEnum() {
   _invoiceStatusEnumReady = true;
 }
 
+// Fix audit_transcripts: project_id FK points to projects(id) which is always empty.
+// Re-point it to organisations(id) (where audit projects actually live) and make it nullable.
+let _auditTranscriptsReady = false;
+export async function ensureAuditTranscriptsReady() {
+  if (_auditTranscriptsReady) return;
+  // Make project_id nullable (live DB has NOT NULL which prevents saving without a project)
+  await query(`ALTER TABLE audit_transcripts ALTER COLUMN project_id DROP NOT NULL`).catch(() => {});
+  // Drop the stale FK that references projects(id) (empty table) — every insert fails with 23503
+  await query(`ALTER TABLE audit_transcripts DROP CONSTRAINT IF EXISTS audit_transcripts_project_id_fkey`).catch(() => {});
+  // Add FK pointing to organisations(id) where audit projects actually live
+  await query(`
+    ALTER TABLE audit_transcripts
+    ADD CONSTRAINT audit_transcripts_project_id_fkey
+    FOREIGN KEY (project_id) REFERENCES organisations(id) ON DELETE SET NULL
+  `).catch(() => {});
+  // Ensure updated_at column exists for PUT handler
+  await query(`ALTER TABLE audit_transcripts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()`).catch(() => {});
+  _auditTranscriptsReady = true;
+}
+
 export default pool;

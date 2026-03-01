@@ -4116,7 +4116,7 @@ function UniboxView({ projectId }) {
       unread: !e.is_read,
       time: e.timestamp || e.created_at || null,
       source: 'instantly',
-      preview: e.body ? e.body.slice(0, 100) : '',
+      preview: e.body ? (typeof e.body === 'string' ? e.body : JSON.stringify(e.body)).slice(0, 100) : '',
     }));
 
     Promise.allSettled([
