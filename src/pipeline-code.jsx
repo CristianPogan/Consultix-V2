@@ -7383,10 +7383,11 @@ function ColdEmailCampaignsView() {
   const [view, setView] = useState("list");
   const [addLeadsCampaign, setAddLeadsCampaign] = useState(null);
   const [campaignForm, setCampaignForm] = useState({
-    name: "", senderAccounts: [], subjects: [{ id: 1, value: "", mode: "manual" }], bodies: [{ id: 1, value: "", mode: "manual" }],
+    name: "", selectedLeadList: "", senderAccounts: [], subjects: [{ id: 1, value: "", mode: "manual" }], bodies: [{ id: 1, value: "", mode: "manual" }],
     followups: [{ id: 1, delay: 1, subjectLine: false, bodies: [{ id: 1, value: "", mode: "manual" }] }, { id: 2, delay: 2, subjectLine: false, bodies: [{ id: 1, value: "", mode: "manual" }] }],
     dailyLimit: 50, startDate: "", endDate: "", openTracking: true, timezone: "Europe/London", sendStart: "09:00", sendEnd: "17:00", sendDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
   });
+  const [builderStep, setBuilderStep] = useState(0);
   const [MOCK_CAMPAIGNS, setEmailCampaigns] = useState([]);
   const [senderAccounts, setSenderAccounts] = useState([]);
 
@@ -7437,6 +7438,9 @@ function ColdEmailCampaignsView() {
   const sectionTitle = { fontFamily: FONT_BODY, fontSize: 16, fontWeight: 600, marginBottom: 16 };
   const toggleSender = (email) => setCampaignForm(p => ({ ...p, senderAccounts: p.senderAccounts.includes(email) ? p.senderAccounts.filter(e => e !== email) : [...p.senderAccounts, email] }));
   const toggleDay = (day) => setCampaignForm(p => ({ ...p, sendDays: p.sendDays.includes(day) ? p.sendDays.filter(d => d !== day) : [...p.sendDays, day] }));
+  const MOCK_LEAD_LISTS = [{ id: "ll1", name: "Tech Founders UK", count: 2340 }, { id: "ll2", name: "SaaS Decision Makers", count: 1890 }, { id: "ll3", name: "Series A CEOs", count: 760 }];
+  const startNewCampaign = () => { setCampaignForm({ name: "", selectedLeadList: "", senderAccounts: [], subjects: [{ id: 1, value: "", mode: "manual" }], bodies: [{ id: 1, value: "", mode: "manual" }], followups: [{ id: 1, delay: 1, subjectLine: false, bodies: [{ id: 1, value: "", mode: "manual" }] }, { id: 2, delay: 2, subjectLine: false, bodies: [{ id: 1, value: "", mode: "manual" }] }], dailyLimit: 50, startDate: "", endDate: "", openTracking: true, timezone: "Europe/London", sendStart: "09:00", sendEnd: "17:00", sendDays: ["Mon", "Tue", "Wed", "Thu", "Fri"] }); setBuilderStep(0); setView("create"); };
+  const builderStepTabs = ["Setup", "Emails", "Settings", "Review"];
 
   const addLeadsBtn = (c) => (
     <button onClick={() => setAddLeadsCampaign(c)} style={{ padding: "7px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap" }}
@@ -7454,7 +7458,7 @@ function ColdEmailCampaignsView() {
             <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>Cold Email <span style={{ color: COLORS.accent }}>Campaigns</span></h2>
             <p style={{ color: COLORS.textMuted, margin: "6px 0 0" }}>Manage your Instantly.ai campaigns</p>
           </div>
-          <button onClick={() => setView("create")} style={{ padding: "12px 24px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ CREATE CAMPAIGN</button>
+          <button onClick={startNewCampaign} style={{ padding: "12px 24px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ CREATE CAMPAIGN</button>
         </div>
         <div style={{ display: "flex", gap: 16, marginBottom: 28 }}>
           <StatCard label="Active Campaigns" value={MOCK_CAMPAIGNS.filter(c => c.status === "active").length} accent={COLORS.accent} />
@@ -7501,7 +7505,10 @@ function ColdEmailCampaignsView() {
           <span style={{ color: COLORS.textDim, marginLeft: 8 }}>●</span><span style={{ color: COLORS.textDim }}>Optional</span>
         </div>
       </div>
-      {/* Campaign Basics */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
+        {builderStepTabs.map((tab, i) => (<button key={tab} onClick={() => setBuilderStep(i)} style={{ flex: 1, padding: "10px 0", background: i === builderStep ? COLORS.accentBg : "transparent", border: `1px solid ${i === builderStep ? COLORS.accent+"55" : COLORS.border}`, borderRadius: 8, fontFamily: FONT, fontSize: 11, fontWeight: 600, color: i === builderStep ? COLORS.accent : COLORS.textDim, cursor: "pointer" }}>{i + 1}. {tab}</button>))}
+      </div>
+      {builderStep === 0 && <>{/* Campaign Basics */}
       <div style={sectionStyle}>
         <div style={sectionTitle}>Campaign Basics</div>
         <div style={{ display: "flex", gap: 20 }}>
@@ -7522,8 +7529,16 @@ function ColdEmailCampaignsView() {
             </div>
           </div>
         </div>
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>LEAD LIST</label>
+          <select value={campaignForm.selectedLeadList} onChange={e => setCampaignForm({ ...campaignForm, selectedLeadList: e.target.value })} style={selectStyle}>
+            <option value="" style={{ background: COLORS.surface, color: COLORS.textDim }}>Select a lead list...</option>
+            {MOCK_LEAD_LISTS.map(l => (<option key={l.id} value={l.id} style={{ background: COLORS.surface, color: COLORS.text }}>{l.name} ({l.count} leads)</option>))}
+          </select>
+        </div>
       </div>
-      {/* Initial Email */}
+      </>}
+      {builderStep === 1 && <>{/* Initial Email */}
       <div style={sectionStyle}>
         <div style={sectionTitle}>Initial Email</div>
         <div style={{ marginBottom: 20 }}>
@@ -7590,7 +7605,8 @@ function ColdEmailCampaignsView() {
         ))}
         <button onClick={() => setCampaignForm(p => ({ ...p, followups: [...p.followups, { id: Date.now(), delay: p.followups.length + 1, subjectLine: false, bodies: [{ id: 1, value: "", mode: "manual" }] }] }))} style={{ width: "100%", padding: "12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Add Follow-up Email</button>
       </div>
-      {/* Settings */}
+      </>}
+      {builderStep === 2 && <>{/* Settings */}
       <div style={sectionStyle}>
         <div style={sectionTitle}>Campaign Settings</div>
         <div style={{ display: "flex", gap: 20, marginBottom: 16 }}>
@@ -7618,19 +7634,43 @@ function ColdEmailCampaignsView() {
           </div>
         </div>
       </div>
+      </>}
+      {builderStep === 3 && <div style={sectionStyle}>
+        <div style={sectionTitle}>Review Campaign</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Campaign Name</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{campaignForm.name || "—"}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Lead List</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{MOCK_LEAD_LISTS.find(l => l.id === campaignForm.selectedLeadList)?.name || "—"}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Sender Accounts</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{campaignForm.senderAccounts.length} selected</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Subject Lines</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{campaignForm.subjects.filter(s => s.value).length} variant(s)</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Follow-ups</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{campaignForm.followups.length}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Daily Limit</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{campaignForm.dailyLimit}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Schedule</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{campaignForm.sendDays.join(", ")} · {campaignForm.sendStart}–{campaignForm.sendEnd}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0" }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Timezone</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{campaignForm.timezone}</span></div>
+        </div>
+      </div>}
       {/* Footer */}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, paddingBottom: 32 }}>
-        <button onClick={() => setView("list")} style={{ padding: "12px 24px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
-        <button onClick={() => setView("list")} style={{ padding: "12px 28px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Create Campaign</button>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, paddingBottom: 32 }}>
+        <button onClick={() => { if (builderStep === 0) setView("list"); else setBuilderStep(builderStep - 1); }} style={{ padding: "12px 24px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{builderStep === 0 ? "Cancel" : "← Back"}</button>
+        {builderStep < 3 ? (
+          <button onClick={() => setBuilderStep(builderStep + 1)} style={{ padding: "12px 28px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Next →</button>
+        ) : (
+          <button onClick={() => setView("list")} style={{ padding: "12px 28px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Launch Campaign 🚀</button>
+        )}
       </div>
     </div>
   );
 }
 
 function LinkedInCampaignsView() {
+  const [view, setView] = useState("list");
   const [addLeadsCampaign, setAddLeadsCampaign] = useState(null);
   const [MOCK_CAMPAIGNS, setLiCampaigns] = useState([]);
   const [heyreachStats, setHeyreachStats] = useState(null);
+  const [builderStep, setBuilderStep] = useState(0);
+  const [campaignName, setCampaignName] = useState("");
+  const [connectionDegree, setConnectionDegree] = useState("2nd_3rd");
+  const [selectedLeadList, setSelectedLeadList] = useState("");
+  const [sequenceSteps, setSequenceSteps] = useState([]);
 
   useEffect(() => {
     api.heyreach.campaigns.list().then(data => {
@@ -7664,12 +7704,31 @@ function LinkedInCampaignsView() {
     >+ Add Leads</button>
   );
 
-  return (
+  const LI_MOCK_LISTS = [{ id: "li1", name: "VP Engineering - UK", count: 1420 }, { id: "li2", name: "CTO SaaS Series B", count: 980 }, { id: "li3", name: "Founders Fintech EU", count: 2100 }];
+  const liBuilderTabs = ["Setup", "Sequence", "Schedule", "Review"];
+  const [liSendDays, setLiSendDays] = useState(["Mon","Tue","Wed","Thu","Fri"]);
+  const [liTimezone, setLiTimezone] = useState("Europe/London");
+  const [liSendStart, setLiSendStart] = useState("09:00");
+  const [liSendEnd, setLiSendEnd] = useState("17:00");
+  const startNewCampaign = () => { setCampaignName(""); setConnectionDegree("2nd_3rd"); setSelectedLeadList(""); setSequenceSteps([]); setLiSendDays(["Mon","Tue","Wed","Thu","Fri"]); setLiTimezone("Europe/London"); setLiSendStart("09:00"); setLiSendEnd("17:00"); setBuilderStep(0); setView("builder"); };
+  const addSeqStep = (type) => setSequenceSteps(p => [...p, { id: Date.now(), type, message: "", delay: 1 }]);
+  const removeSeqStep = (id) => setSequenceSteps(p => p.filter(s => s.id !== id));
+  const updateSeqStep = (id, field, val) => setSequenceSteps(p => p.map(s => s.id === id ? { ...s, [field]: val } : s));
+  const toggleLiDay = (day) => setLiSendDays(p => p.includes(day) ? p.filter(d => d !== day) : [...p, day]);
+  const inputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
+  const labelStyle = { display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 6 };
+  const selectStyle = { ...inputStyle, appearance: "none", cursor: "pointer", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237a7a8e' stroke-width='1.5' fill='none'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center" };
+  const sectionStyle = { padding: "20px 24px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 16 };
+
+  if (view === "list") return (
     <div style={{ flex: 1, overflow: "auto", padding: 32 }}>
       {addLeadsCampaign && <AddLeadsModal campaign={addLeadsCampaign} onClose={() => setAddLeadsCampaign(null)} accentColor={COLORS.blue} />}
-      <div style={{ marginBottom: 28 }}>
-        <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>LinkedIn <span style={{ color: COLORS.blue }}>Campaigns</span></h2>
-        <p style={{ color: COLORS.textMuted, margin: "6px 0 0" }}>Manage your HeyReach & AimFox campaigns</p>
+      <div style={{ marginBottom: 28, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>LinkedIn <span style={{ color: COLORS.blue }}>Campaigns</span></h2>
+          <p style={{ color: COLORS.textMuted, margin: "6px 0 0" }}>Manage your HeyReach & AimFox campaigns</p>
+        </div>
+        <button onClick={startNewCampaign} style={{ padding: "12px 24px", background: COLORS.blue, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ CREATE CAMPAIGN</button>
       </div>
       <div style={{ display: "flex", gap: 16, marginBottom: 28 }}>
         <StatCard label="Active Campaigns" value={MOCK_CAMPAIGNS.filter(c => c.status === "active").length} accent={COLORS.blue} />
@@ -7698,6 +7757,93 @@ function LinkedInCampaignsView() {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ flex: 1, overflow: "auto", padding: 32 }}>
+      <div style={{ marginBottom: 28, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={() => setView("list")} style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, cursor: "pointer" }}>← Back</button>
+          <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>Create LinkedIn <span style={{ color: COLORS.blue }}>Campaign</span></h2>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
+        {liBuilderTabs.map((tab, i) => (<button key={tab} onClick={() => setBuilderStep(i)} style={{ flex: 1, padding: "10px 0", background: i === builderStep ? COLORS.blueBg : "transparent", border: `1px solid ${i === builderStep ? COLORS.blue+"55" : COLORS.border}`, borderRadius: 8, fontFamily: FONT, fontSize: 11, fontWeight: 600, color: i === builderStep ? COLORS.blue : COLORS.textDim, cursor: "pointer" }}>{i + 1}. {tab}</button>))}
+      </div>
+      {builderStep === 0 && <div style={sectionStyle}>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Campaign Setup</div>
+        <div style={{ marginBottom: 14 }}><label style={labelStyle}>CAMPAIGN NAME</label><input value={campaignName} onChange={e => setCampaignName(e.target.value)} placeholder="My LinkedIn Campaign" style={inputStyle} /></div>
+        <div style={{ marginBottom: 14 }}><label style={labelStyle}>CONNECTION DEGREE</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[{ val: "1st", label: "1st Degree" }, { val: "2nd_3rd", label: "2nd + 3rd Degree" }].map(opt => (<button key={opt.val} onClick={() => setConnectionDegree(opt.val)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, border: `1px solid ${connectionDegree === opt.val ? COLORS.blue+"55" : COLORS.border}`, background: connectionDegree === opt.val ? COLORS.blueBg : "transparent", color: connectionDegree === opt.val ? COLORS.blue : COLORS.textDim, cursor: "pointer" }}>{opt.label}</button>))}
+          </div>
+        </div>
+        <div><label style={labelStyle}>LEAD LIST</label>
+          <select value={selectedLeadList} onChange={e => setSelectedLeadList(e.target.value)} style={selectStyle}>
+            <option value="" style={{ background: COLORS.surface, color: COLORS.textDim }}>Select a lead list...</option>
+            {LI_MOCK_LISTS.map(l => (<option key={l.id} value={l.id} style={{ background: COLORS.surface, color: COLORS.text }}>{l.name} ({l.count} leads)</option>))}
+          </select>
+        </div>
+      </div>}
+      {builderStep === 1 && <div style={sectionStyle}>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Sequence Builder</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+          {[{ type: "connection_request", label: "🤝 Connection Request" }, { type: "message", label: "💬 Message" }, { type: "delay", label: "⏳ Delay" }, { type: "engage", label: "👍 Engage" }].map(st => (
+            <button key={st.type} onClick={() => addSeqStep(st.type)} style={{ flex: 1, padding: "8px 0", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, border: `1px solid ${COLORS.border}`, background: COLORS.bg, color: COLORS.textMuted, cursor: "pointer" }}>{st.label}</button>
+          ))}
+        </div>
+        {sequenceSteps.length === 0 && <div style={{ textAlign: "center", padding: "24px 0", color: COLORS.textDim, fontFamily: FONT_BODY, fontSize: 13 }}>Add steps above to build your sequence</div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {sequenceSteps.map((step, idx) => (
+            <div key={step.id} style={{ padding: "12px 16px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <span style={{ fontFamily: FONT, fontSize: 11, color: COLORS.blue, fontWeight: 700, marginTop: 2 }}>{idx + 1}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, marginBottom: step.type === "message" || step.type === "delay" ? 8 : 0, textTransform: "capitalize" }}>{step.type.replace("_", " ")}</div>
+                {step.type === "message" && <textarea value={step.message} onChange={e => updateSeqStep(step.id, "message", e.target.value)} placeholder="Write your message... Use {firstName}, {company}" rows={2} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }} />}
+                {step.type === "delay" && <div style={{ display: "flex", alignItems: "center", gap: 8 }}><input value={step.delay} onChange={e => updateSeqStep(step.id, "delay", parseInt(e.target.value) || 0)} type="number" min="1" style={{ ...inputStyle, width: 70, textAlign: "center" }} /><span style={{ fontSize: 12, color: COLORS.textDim }}>days</span></div>}
+              </div>
+              <button onClick={() => removeSeqStep(step.id)} style={{ background: "transparent", border: "none", color: COLORS.danger, cursor: "pointer", fontSize: 14, padding: "2px 6px" }}>✕</button>
+            </div>
+          ))}
+        </div>
+      </div>}
+      {builderStep === 2 && <div style={sectionStyle}>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Schedule</div>
+        <div style={{ marginBottom: 14 }}><label style={labelStyle}>DAYS TO SEND</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(day => { const active = liSendDays.includes(day); return (<button key={day} onClick={() => toggleLiDay(day)} style={{ flex: 1, padding: "8px 0", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, border: `1px solid ${active ? COLORS.blue+"55" : COLORS.border}`, background: active ? COLORS.blueBg : "transparent", color: active ? COLORS.blue : COLORS.textDim, cursor: "pointer" }}>{day}</button>); })}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 20, marginBottom: 14 }}>
+          <div style={{ flex: 1 }}><label style={labelStyle}>START TIME</label><input value={liSendStart} onChange={e => setLiSendStart(e.target.value)} type="time" style={inputStyle} /></div>
+          <div style={{ flex: 1 }}><label style={labelStyle}>END TIME</label><input value={liSendEnd} onChange={e => setLiSendEnd(e.target.value)} type="time" style={inputStyle} /></div>
+        </div>
+        <div><label style={labelStyle}>TIMEZONE</label>
+          <select value={liTimezone} onChange={e => setLiTimezone(e.target.value)} style={selectStyle}>
+            {["Europe/London","America/New_York","America/Chicago","America/Denver","America/Los_Angeles","Asia/Dubai","Asia/Singapore","Australia/Sydney"].map(tz => (<option key={tz} value={tz} style={{ background: COLORS.surface, color: COLORS.text }}>{tz}</option>))}
+          </select>
+        </div>
+      </div>}
+      {builderStep === 3 && <div style={sectionStyle}>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Review Campaign</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Campaign Name</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{campaignName || "—"}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Connection Degree</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{connectionDegree === "1st" ? "1st Degree" : "2nd + 3rd Degree"}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Lead List</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{LI_MOCK_LISTS.find(l => l.id === selectedLeadList)?.name || "—"}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Sequence Steps</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{sequenceSteps.length} step(s)</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Schedule</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{liSendDays.join(", ")} · {liSendStart}–{liSendEnd}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0" }}><span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>Timezone</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{liTimezone}</span></div>
+        </div>
+      </div>}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, paddingBottom: 32 }}>
+        <button onClick={() => { if (builderStep === 0) setView("list"); else setBuilderStep(builderStep - 1); }} style={{ padding: "12px 24px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{builderStep === 0 ? "Cancel" : "← Back"}</button>
+        {builderStep < 3 ? (
+          <button onClick={() => setBuilderStep(builderStep + 1)} style={{ padding: "12px 28px", background: COLORS.blue, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Next →</button>
+        ) : (
+          <button onClick={() => setView("list")} style={{ padding: "12px 28px", background: COLORS.blue, color: COLORS.bg, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Launch Campaign 🚀</button>
+        )}
       </div>
     </div>
   );
