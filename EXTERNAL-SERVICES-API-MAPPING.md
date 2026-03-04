@@ -124,7 +124,31 @@ curl -X POST "https://app.icypeas.com/api/bulk-single-searchs/read" \
 
 ---
 
-### 2.2 NeverBounce (email verification)
+### 2.2 MillionVerifier (email verification — first in cascade)
+
+**Service:** MillionVerifier API  
+**Docs:** https://developer.millionverifier.com/  
+**Purpose:** Real-time email verification — validates email deliverability in <100ms. First service in the verification cascade.
+
+**cURL:**
+```bash
+curl "https://api.millionverifier.com/api/v3/?api=YOUR_MILLIONVERIFIER_API_KEY&email=test@example.com"
+```
+
+**Response fields:**
+- `result`: `"ok"` (deliverable) or `"invalid"`, `"disposable"`, `"unknown"`, etc.
+- `quality`: `"good"`, `"risky"`, `"bad"`
+- `credits`: remaining API credits
+
+**Web App Function:** `verifyEmailWaterfall` (first in cascade)  
+**Where to implement:** Called first in the verification waterfall. If connected, MillionVerifier runs before FindyMail, NeverBounce, BetterContact, and ZeroBounce. Map `result === "ok"` or `quality === "good"` to `verified: true`.
+
+**Cascade position:** 1st (highest priority)  
+**Cost:** ~$0.0005/verification
+
+---
+
+### 2.3 NeverBounce (email verification)
 
 **Service:** NeverBounce API  
 **Source JSON:** `Workflow-V4-Outreach-Engine-Fallbacks-Webhooks_pn7hk5QbwmTQFvTi.json`  
@@ -140,7 +164,7 @@ curl "https://api.neverbounce.com/v4.2/single/check?key=YOUR_NEVERBOUNCE_API_KEY
 
 ---
 
-### 2.3 ScrapingBee (website scraping for company data)
+### 2.4 ScrapingBee (website scraping for company data)
 
 **Service:** ScrapingBee API  
 **Source JSON:** `Workflow-Personalisation-Webhook_7sN5f9tPr0sagG8c.json`, `Workflow-V4-Outreach-Engine-Fallbacks-Webhooks_pn7hk5QbwmTQFvTi.json`  
@@ -156,7 +180,7 @@ curl "https://app.scrapingbee.com/api/v1?api_key=YOUR_SCRAPINGBEE_API_KEY&url=ht
 
 ---
 
-### 2.4 Unipile (LinkedIn company profile)
+### 2.5 Unipile (LinkedIn company profile)
 
 **Service:** Unipile API  
 **Source JSON:** `Workflow-Personalisation-Webhook_7sN5f9tPr0sagG8c.json`  
@@ -176,7 +200,7 @@ curl "https://api12.unipile.com/api/v1/linkedin/company/COMPANY_SLUG?account_id=
 
 ---
 
-### 2.5 OpenAI (personalisation)
+### 2.6 OpenAI (personalisation)
 
 **Service:** OpenAI Chat Completions API  
 **Source JSON:** `Add-Emails-and-Personalisation-to-Lead-Group_YTNuE1PMzoJ5HOic.json`, `Workflow-Personalisation-Webhook_7sN5f9tPr0sagG8c.json`, `Update-Personalisation-Direct-From-Frontend_f8hw0ntH6QbfmJtU.json`  
@@ -261,18 +285,22 @@ curl -X POST "https://api.instantly.ai/api/v2/leads" \
 
 ## 4. SUMMARY TABLE
 
-| Service          | Type           | Use Case                         | Web App Function(s)                          |
-|-----------------|----------------|----------------------------------|---------------------------------------------|
-| Apify B2B Leads | Company/Person | Apollo-based person discovery    | `runDiscovery`                              |
-| Apify GMaps     | Company        | Local business discovery         | `runDiscovery` (local mode)                  |
-| IcyPeas Find People | Person     | Person search by criteria        | `runDiscovery`                              |
-| IcyPeas Email Search | Person     | Find email for person            | `runEnrichment`, `runImportEnrichment`       |
-| NeverBounce     | Person         | Email verification               | `runEnrichment`, `runImportEnrichment`       |
-| ScrapingBee     | Company        | Website scraping                 | `approveAndPersonalizeAll`                   |
-| Unipile         | Company        | LinkedIn company data            | `runEnrichment`                              |
-| OpenAI          | Person         | AI personalisation               | `approveAndPersonalizeAll`, `createPrompt`   |
-| HeyReach        | Outreach       | LinkedIn campaigns               | `runQueueOutreach`                           |
-| Instantly.ai    | Outreach       | Email campaigns                  | `runQueueOutreach`                           |
+| Service          | Type           | Use Case                         | Web App Function(s)                          | Cascade Position |
+|-----------------|----------------|----------------------------------|---------------------------------------------|-----------------|
+| Apify B2B Leads | Company/Person | Apollo-based person discovery    | `runDiscovery`                              | — |
+| Apify GMaps     | Company        | Local business discovery         | `runDiscovery` (local mode)                  | — |
+| IcyPeas Find People | Person     | Person search by criteria        | `runDiscovery`                              | — |
+| IcyPeas Email Search | Person     | Find email for person            | `runEnrichment`, `runImportEnrichment`       | — |
+| MillionVerifier | Verification   | Email verification (real-time)   | `verifyEmailWaterfall`                       | **1st** |
+| FindyMail       | Verification   | Email verification               | `verifyEmailWaterfall`                       | 2nd |
+| NeverBounce     | Verification   | Email verification               | `verifyEmailWaterfall`                       | 3rd |
+| BetterContact   | Verification   | Email verification               | `verifyEmailWaterfall`                       | 4th |
+| ZeroBounce      | Verification   | Email verification               | `verifyEmailWaterfall`                       | 5th |
+| ScrapingBee     | Company        | Website scraping                 | `approveAndPersonalizeAll`                   | — |
+| Unipile         | Company        | LinkedIn company data            | `runEnrichment`                              | — |
+| OpenAI          | Person         | AI personalisation               | `approveAndPersonalizeAll`, `createPrompt`   | — |
+| HeyReach        | Outreach       | LinkedIn campaigns               | `runQueueOutreach`                           | — |
+| Instantly.ai    | Outreach       | Email campaigns                  | `runQueueOutreach`                           | — |
 
 ---
 
@@ -298,11 +326,12 @@ These call other n8n workflows; use as reference if mirroring logic in the app:
 APIFY_API_KEY=
 ICYPEAS_API_KEY=
 
-# Enrichment
+# Enrichment / Verification
+MILLIONVERIFIER_API_KEY=
 NEVERBOUNCE_API_KEY=
 SCRAPINGBEE_API_KEY=
 UNIPILE_ACCESS_TOKEN=
-UNIPILE_DSN=api12.unipile.com:14291
+UNIPILE_DSN=[REDACTED]
 
 # AI Personalisation
 OPENAI_API_KEY=

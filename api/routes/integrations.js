@@ -271,6 +271,29 @@ router.post('/bettercontact/connect', async (req, res) => {
   }
 });
 
+// POST /api/integrations/millionverifier/connect - Validate MillionVerifier API key
+router.post('/millionverifier/connect', async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { credentials } = req.body || {};
+    const apiKey = credentials?.api_key || credentials?.apiKey;
+    if (!orgId) return res.status(401).json({ error: 'Organization required' });
+    if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ error: 'API key required' });
+    const testRes = await fetch(`https://api.millionverifier.com/api/v3/?api=${encodeURIComponent(apiKey.trim())}&email=test@gmail.com`);
+    if (!testRes.ok) {
+      if (testRes.status === 401 || testRes.status === 403) return res.status(401).json({ error: 'Invalid API key' });
+      return res.status(400).json({ error: (await testRes.text()) || 'Failed to validate API key' });
+    }
+    const data = await testRes.json().catch(() => ({}));
+    if (data.error) return res.status(401).json({ error: data.error });
+    await saveIntegrationCredentials(orgId, 'millionverifier', { api_key: apiKey.trim() });
+    res.json({ integration_key: 'millionverifier', connected: true });
+  } catch (err) {
+    console.error('MillionVerifier connect error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/integrations/zerobounce/connect - Validate ZeroBounce API key
 router.post('/zerobounce/connect', async (req, res) => {
   try {
@@ -384,7 +407,7 @@ router.post('/unipile/connect', async (req, res) => {
     const { credentials } = req.body || {};
     if (!orgId) return res.status(401).json({ error: 'Organization required' });
     const token = credentials?.access_token;
-    const dsn = credentials?.dsn || 'api12.unipile.com:14291';
+    const dsn = credentials?.dsn || '[REDACTED]';
     const accountId = credentials?.account_id || '';
     if (!token || typeof token !== 'string') return res.status(400).json({ error: 'Access Token required' });
     const testRes = await fetch(`https://${dsn.trim()}/api/v1/users/me`, {

@@ -11,6 +11,7 @@ import {
   verifyEmailBetterContact,
   findEmailBetterContact,
   verifyEmailZeroBounce,
+  verifyEmailMillionVerifier,
   findLeadsFindy,
   findEmployeesFindy,
   scrapeWebsite,
@@ -508,7 +509,7 @@ router.post('/discover/icypeas', async (req, res) => {
 
 // Helpers for enrichment waterfall (uses lead_enrichment_order from Settings)
 const FIND_EMAIL_KEYS = ['findymail', 'icypeas', 'bettercontact', 'ai_ark'];
-const VERIFY_EMAIL_KEYS = ['findymail', 'neverbounce', 'bettercontact', 'zerobounce', 'cleanlist'];
+const VERIFY_EMAIL_KEYS = ['millionverifier', 'findymail', 'neverbounce', 'bettercontact', 'zerobounce', 'cleanlist'];
 
 async function findEmailWaterfall(orgId, { firstName, lastName, company, domain }) {
   const orderRow = await getIntegrationServiceOrder(orgId);
@@ -543,7 +544,7 @@ async function findEmailWaterfall(orgId, { firstName, lastName, company, domain 
 
 async function verifyEmailWaterfall(orgId, email) {
   const orderRow = await getIntegrationServiceOrder(orgId);
-  const order = orderRow?.lead_enrichment_order || ['findymail', 'neverbounce', 'bettercontact', 'zerobounce'];
+  const order = orderRow?.lead_enrichment_order || ['millionverifier', 'findymail', 'neverbounce', 'bettercontact', 'zerobounce'];
   let lastErr = null;
 
   for (const key of order) {
@@ -553,7 +554,10 @@ async function verifyEmailWaterfall(orgId, email) {
     if (!apiKey) continue;
 
     try {
-      if (key === 'findymail') {
+      if (key === 'millionverifier') {
+        const data = await verifyEmailMillionVerifier(apiKey, email);
+        return { result: data.verified ? 'valid' : 'invalid', verified: data.verified, source: key };
+      } else if (key === 'findymail') {
         const data = await verifyEmailFindyMail(apiKey, email);
         return { result: data.verified ? 'valid' : 'invalid', verified: data.verified, source: key };
       } else if (key === 'neverbounce') {

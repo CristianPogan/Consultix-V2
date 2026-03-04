@@ -725,6 +725,24 @@ export async function findEmailBetterContact(apiKey, { firstName, lastName, comp
 }
 
 /**
+ * MillionVerifier Email Verification
+ * Uses GET https://api.millionverifier.com/api/v3/?api={key}&email={email}
+ * @param {string} apiKey - MillionVerifier API key
+ * @param {string} email - Email to verify
+ * @returns {Promise<Object>} - { result, verified, quality, resultcode, ... }
+ */
+export async function verifyEmailMillionVerifier(apiKey, email) {
+  if (!apiKey) throw new Error('MillionVerifier API key required');
+  const response = await fetch(
+    `https://api.millionverifier.com/api/v3/?api=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(email)}`
+  );
+  if (!response.ok) throw new Error(`MillionVerifier verify failed: ${response.statusText}`);
+  const data = await response.json();
+  const valid = data.result === 'ok' || data.quality === 'good';
+  return { result: valid ? 'valid' : 'invalid', verified: valid, ...data };
+}
+
+/**
  * ZeroBounce Email Verification
  * @param {string} apiKey - ZeroBounce API key
  * @param {string} email - Email to verify
@@ -768,7 +786,7 @@ export async function scrapeWebsite(url) {
  */
 export async function getLinkedInCompanyProfile(companySlug) {
   const apiKey = process.env.UNIPILE_ACCESS_TOKEN;
-  const dsn = process.env.UNIPILE_DSN || 'api12.unipile.com:14291';
+  const dsn = process.env.UNIPILE_DSN || '[REDACTED]';
   
   if (!apiKey) throw new Error('UNIPILE_ACCESS_TOKEN not configured');
 

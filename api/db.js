@@ -16,10 +16,10 @@ const config = process.env.DATABASE_URL
       connectionTimeoutMillis: 10000, // return an error after 10 seconds if connection cannot be established
     }
   : {
-      host: process.env.DB_HOST || 'cbhnv71uilek74.cluster-czz5s0kz4scl.eu-west-1.rds.amazonaws.com',
+      host: process.env.DB_HOST || '[REDACTED]',
       port: parseInt(process.env.DB_PORT || '5432', 10),
       database: process.env.DB_NAME || 'da9fpsg176u1ef',
-      user: process.env.DB_USER || 'u2bsp865bnr7av',
+      user: process.env.DB_USER || '[REDACTED]',
       password: process.env.DB_PASSWORD,
       ssl: sslOpt,
       // Add connection pool settings
@@ -436,6 +436,7 @@ export async function saveIntegrationServiceOrder(orgId, leadSearchOrder, leadEn
 
 // Verified pricing (Feb 2025) — IcyPeas, AI Ark, NeverBounce, FindyMail from official docs; others from public pricing
 const INTEGRATION_COSTS_SEED = [
+  { key: 'millionverifier', label: '~$0.0005/verify', tier: 1 },
   { key: 'icypeas', label: '~$0.02/lead', tier: 1 },        // 1 credit/result, Basic $19/1K
   { key: 'ai_ark', label: '~$0.02/lead', tier: 1 },         // 0.5 credits/email, usage-based
   { key: 'findy', label: '~$0.03/lead', tier: 2 },          // Lead discovery
