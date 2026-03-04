@@ -27,6 +27,15 @@ Single full-stack application (not a monorepo): React/Vite frontend + Express 4 
 - **`.env` file** — must include `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `JWT_SECRET`, and `JWT_API_KEY`. See `.env.example`.
 - **All external integrations are optional** — the app runs fully without any third-party API keys (Cloudinary, OpenAI, Anthropic, etc.). Features depending on them gracefully degrade.
 
+### Heroku deployment
+- **Secrets:** `HEROKU_API_KEY` and `HEROKU_APP_NAME` are injected as env vars. The Heroku CLI auto-authenticates via `HEROKU_API_KEY`.
+- **Add remote:** `heroku git:remote -a "$HEROKU_APP_NAME"` then fix git auth: `git remote set-url heroku "https://heroku:${HEROKU_API_KEY}@git.heroku.com/${HEROKU_APP_NAME}.git"`
+- **Deploy:** `git push heroku <branch>:main --force` (force-push is standard for Heroku; it only uses git as a deploy trigger)
+- **Logs:** `heroku logs -a "$HEROKU_APP_NAME" -n 100` (avoid `--tail` — it prompts for interactive browser login in this environment)
+- **Build process:** Heroku runs `npm install` → `heroku-postbuild` (which runs `npm run build` / Vite) → prunes devDependencies → starts `node server.js` (per `Procfile`)
+- **DATABASE_URL** is auto-set by the Heroku Postgres addon; the app connects via `DATABASE_URL` when present, otherwise falls back to individual `DB_*` vars.
+- **Stack:** Heroku-24, EU region, with `heroku-postgresql:essential-0` addon.
+
 ### Standard commands
 See `README.md` for the full list. Key ones:
 - `npm run dev` — Vite dev server with hot reload
