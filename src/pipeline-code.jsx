@@ -1117,9 +1117,9 @@ export default function App() {
             CONTENT
           </div>
           {[
+            { key: "content_studio", label: "Content Studio", icon: "📝", desc: "Create & schedule across platforms" },
             { key: "content_linkedin", label: "LinkedIn", icon: "✍️", desc: "Posts, carousels & scheduling" },
             { key: "content_community", label: "Community", icon: "💬", desc: "Engagement & responses" },
-            { key: "content_video", label: "Video (Short Form)", icon: "🎬", desc: "Scripts, ideas & repurposing" },
           ].map(page => (
             <button key={page.key} onClick={() => setActivePage(page.key)} style={{ width: "100%", padding: "10px 12px", marginBottom: 2, background: activePage === page.key ? COLORS.accentBg : "transparent", border: activePage === page.key ? `1px solid ${COLORS.accent}22` : "1px solid transparent", borderRadius: 8, color: activePage === page.key ? COLORS.accent : COLORS.textMuted, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 10, transition: "all 0.15s" }}>
               <span style={{ fontSize: 16 }}>{page.icon}</span>
@@ -1298,6 +1298,7 @@ export default function App() {
         {activePage === "campaigns_email" && <ColdEmailCampaignsView />}
         {activePage === "campaigns_linkedin" && <LinkedInCampaignsView />}
 
+        {activePage === "content_studio" && <ContentStudioView />}
         {activePage === "content_linkedin" && <LinkedInContentView />}
         {activePage === "content_community" && <CommunityView />}
         {activePage === "content_video" && <VideoScriptView />}
@@ -9276,6 +9277,194 @@ function SalesCallAnalyserView() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ContentStudioView() {
+  const [activePlatform, setActivePlatform] = useState("overview");
+  const [overviewMode, setOverviewMode] = useState("kanban");
+  const [platformSection, setPlatformSection] = useState("scheduled");
+  const [inspirationTab, setInspirationTab] = useState("ideas");
+  const [topic, setTopic] = useState("");
+  const [format, setFormat] = useState("text");
+  const [generatedPosts, setGeneratedPosts] = useState([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [schedulePost, setSchedulePost] = useState(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("09:00");
+  const [expandedCard, setExpandedCard] = useState(null);
+  const [hookMode, setHookMode] = useState("auto");
+  const [selectedHookStyle, setSelectedHookStyle] = useState(null);
+  const [selectedSavedHook, setSelectedSavedHook] = useState(null);
+
+  const HOOK_STYLES = ["Pattern Interrupt", "Question", "Bold Claim", "Story", "Controversy", "Tutorial", "Before/After", "POV"];
+  const SAVED_HOOKS = [
+    { id: "h1", template: "Stop scrolling if you [pain point]...", style: "Pattern Interrupt", source: "Custom", example: "Stop scrolling if you're still doing outreach manually..." },
+    { id: "h2", template: "I [impressive result] in [timeframe]. Here's how.", style: "Bold Claim", source: "Alex Hormozi", example: "I replaced a $200K employee with AI in 6 weeks. Here's how." },
+    { id: "h3", template: "What if I told you [counterintuitive truth]?", style: "Question", source: "Custom", example: "What if I told you your cold emails are failing because they're too short?" },
+    { id: "h4", template: "6 months ago I [starting point]. Today I [result].", style: "Before/After", source: "Cody Schneider", example: "6 months ago I had 0 clients. Today I run a $300K consultancy." },
+    { id: "h5", template: "Nobody talks about this, but [insight]...", style: "Controversy", source: "Custom", example: "Nobody talks about this, but AI consultants are charging too little." },
+    { id: "h6", template: "Here's the exact [system] I use to [outcome]", style: "Tutorial", source: "The Sales Technologies", example: "Here's the exact 5-step system I use to book 20 meetings per week." },
+  ];
+
+  const isVideoPlatform = ["tiktok", "youtube", "instagram"].includes(activePlatform);
+  const PLATFORMS = [
+    { key: "linkedin", label: "LinkedIn", icon: "💼", color: "#0077B5", connected: true },
+    { key: "x", label: "X / Twitter", icon: "𝕏", color: "#1DA1F2", connected: true },
+    { key: "instagram", label: "Instagram", icon: "📸", color: "#E1306C", connected: false },
+    { key: "tiktok", label: "TikTok", icon: "🎵", color: "#010101", connected: false },
+    { key: "youtube", label: "YouTube", icon: "▶️", color: "#FF0000", connected: false },
+    { key: "facebook", label: "Facebook", icon: "📘", color: "#1877F2", connected: false },
+  ];
+  const STATUSES = ["Idea", "Drafting", "Review", "Scheduled", "Published"];
+  const STATUS_COLORS_CS = { Idea: COLORS.blue, Drafting: "#8B5CF6", Review: COLORS.warn, Scheduled: COLORS.accent, Published: COLORS.green };
+  const [contentItems] = useState([
+    { id: 1, title: "Why AI won't replace consultants", platform: "linkedin", status: "Published", format: "text", date: "Feb 10", engagement: { impressions: 12400, likes: 234, comments: 47 }, snippet: "Most people think AI automation is about replacing humans. They're wrong..." },
+    { id: 2, title: "5 AI Tools That Changed My Business", platform: "linkedin", status: "Published", format: "carousel", date: "Feb 8", engagement: { impressions: 15200, likes: 312, comments: 58 }, snippet: "A carousel breaking down the 5 tools I use daily..." },
+    { id: 3, title: "Cold emails are failing because...", platform: "linkedin", status: "Scheduled", format: "text", date: "Feb 14", engagement: null, snippet: "Your cold emails are failing because of one thing..." },
+    { id: 4, title: "3 tools that replaced my lead gen team", platform: "linkedin", status: "Scheduled", format: "carousel", date: "Feb 15", engagement: null, snippet: "3 tools that replaced my entire lead gen team →" },
+    { id: 5, title: "The ROI of AI consulting", platform: "linkedin", status: "Review", format: "text", date: "Feb 16", engagement: null, snippet: "Draft ready for final review before scheduling..." },
+    { id: 6, title: "Stop using AI like it's Google", platform: "tiktok", status: "Drafting", format: "video", date: "", engagement: null, snippet: "Script: Here's what the top 1% do instead..." },
+    { id: 7, title: "I replaced a $200K employee with AI", platform: "youtube", status: "Drafting", format: "video", date: "", engagement: null, snippet: "Six months ago I built an AI agent..." },
+    { id: 8, title: "The one-person agency model", platform: "x", status: "Scheduled", format: "thread", date: "Feb 13", engagement: null, snippet: "Thread: Why one-person businesses will outperform agencies" },
+    { id: 9, title: "Client result: 40% revenue increase", platform: "instagram", status: "Idea", format: "reel", date: "", engagement: null, snippet: "Before/after showing client transformation" },
+    { id: 10, title: "3 cold email mistakes", platform: "tiktok", status: "Idea", format: "video", date: "", engagement: null, snippet: "Quick-hit video on the 3 mistakes killing reply rates" },
+  ]);
+
+  const IDEAS = {
+    ideas: [
+      { id: "i1", title: "Why AI won't replace consultants (but will replace their methods)", tag: "Trending", tagColor: COLORS.warn },
+      { id: "i2", title: "The real cost of bad lead data — and how to fix it", tag: "Competitor signal", tagColor: COLORS.blue },
+      { id: "i3", title: "How I went from 0 to 100 client testimonials in 12 months", tag: "Follow-up", tagColor: COLORS.accent },
+    ],
+    calls: [
+      { id: "c1", title: "\"We're spending $500/month on Apollo and getting nothing\"", quote: "Prospect paying for lead gen tools for 6 months with zero ROI.", source: "Lisa Park — Feb 8" },
+      { id: "c2", title: "\"Our reps spend 3 hours a day just researching leads\"", quote: "Team manually researches every prospect.", source: "Marcus Johnson — Feb 5" },
+    ],
+    trending: {
+      linkedin: [{ topic: "AI agents replacing SaaS tools", growth: "↑ 340%", level: "High", format: "Text post" }, { topic: "One-person businesses scaling past $1M", growth: "↑ 220%", level: "Very High", format: "Carousel" }],
+      x: [{ topic: "AI replacing junior devs debate", growth: "↑ 500%", level: "Very High", format: "Thread" }],
+      tiktok: [{ topic: "Day in the life of AI consultant", growth: "↑ 420%", level: "Very High", format: "Story" }],
+      instagram: [{ topic: "Behind the scenes workflow", growth: "↑ 280%", level: "High", format: "Reel" }],
+      youtube: [{ topic: "Full automation walkthrough", growth: "↑ 350%", level: "Very High", format: "Tutorial" }],
+      facebook: [{ topic: "Small business AI adoption", growth: "↑ 180%", level: "Medium", format: "Text post" }],
+    },
+    competitors: [
+      { id: "comp1", name: "Chris Walker", handle: "@chris_walker", followers: "142K", platform: "linkedin", post: "The demand gen playbook is broken...", engagement: "2.4K likes" },
+      { id: "comp2", name: "Justin Welsh", handle: "@justinwelsh", followers: "580K", platform: "linkedin", post: "I've made $5M as a solopreneur...", engagement: "5.1K likes" },
+    ],
+  };
+
+  const MOCK_GENERATED = [
+    { id: "g1", content: "Most people think AI automation is about replacing humans.\n\nThey're wrong.\n\nThe best companies I work with use AI to handle the repetitive work — data entry, lead research, email personalisation — so their team can focus on what actually drives revenue:\n\n→ Building relationships\n→ Creative problem solving\n→ Strategic decisions\n\nOne client freed up 15 hours per week per person. They didn't fire anyone. They redeployed that time into closing bigger deals.\n\nResult? 40% revenue increase in 6 months.\n\nAI doesn't replace your team. It multiplies them.\n\nWhat's one task you wish you could automate today?" },
+    { id: "g2", content: "Hot take: You don't need a bigger team.\n\nYou need better systems.\n\nI run a consulting business with zero employees that regularly outperforms agencies with 15+ people.\n\n• AI handles my lead research\n• AI personalises every email\n• AI drafts my proposals\n\nThe future isn't about headcount. It's about leverage.\n\nAgree or disagree?" },
+  ];
+  const MOCK_VIDEO_SCRIPTS = [
+    { id: "vs1", hook: "Stop using AI like it's Google. Here's what the top 1% do instead.", body: "Most people type a question into ChatGPT and accept the first answer. But the people getting 10x results? They're doing something completely different.\n\nThey start with context. Then they iterate. First draft is never the final draft.\n\nFinally — they use AI as a thinking partner, not an answer machine.", cta: "Follow for more AI strategies that actually work.", caption: "Most people use AI wrong. Here's the difference. 🧠 #AIAutomation #AITips", duration: "45s" },
+  ];
+
+  const getPlatform = (key) => PLATFORMS.find(p => p.key === key);
+  const platColor = getPlatform(activePlatform)?.color || COLORS.accent;
+  const csInputStyle = { width: "100%", padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" };
+  const csLabelStyle = { display: "block", fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 6 };
+  const TIMELINE_DAYS = Array.from({ length: 21 }, (_, i) => { const d = new Date(2026, 1, i + 1); return { date: d, label: `Feb ${i + 1}`, day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()] }; });
+  const formatOptions = activePlatform === "linkedin" ? [{ key: "text", label: "✍️ Text" }, { key: "carousel", label: "📑 Carousel" }] : activePlatform === "x" ? [{ key: "tweet", label: "💬 Tweet" }, { key: "thread", label: "🧵 Thread" }] : activePlatform === "instagram" ? [{ key: "reel", label: "🎬 Reel" }, { key: "carousel", label: "📑 Carousel" }] : activePlatform === "tiktok" ? [{ key: "script", label: "🎬 Script" }] : activePlatform === "youtube" ? [{ key: "script", label: "🎬 Short" }] : [{ key: "text", label: "✍️ Text" }];
+  const currentTrending = IDEAS.trending[activePlatform] || IDEAS.trending.linkedin;
+  const currentCompetitors = IDEAS.competitors.filter(c => activePlatform === "overview" || c.platform === activePlatform || IDEAS.competitors.filter(cc => cc.platform === activePlatform).length === 0);
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <div style={{ padding: "18px 28px 0", flexShrink: 0 }}>
+        <div style={{ marginBottom: 16 }}>
+          <h2 style={{ fontFamily: FONT, fontSize: 20, fontWeight: 600, margin: 0 }}>Content <span style={{ color: COLORS.accent }}>Studio</span></h2>
+          <p style={{ color: COLORS.textMuted, margin: "4px 0 0", fontSize: 12 }}>Create, schedule, and manage content across all platforms</p>
+        </div>
+        <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${COLORS.border}`, overflow: "auto" }}>
+          <button onClick={() => setActivePlatform("overview")} style={{ padding: "10px 18px", background: "transparent", border: "none", borderBottom: activePlatform === "overview" ? `2px solid ${COLORS.accent}` : "2px solid transparent", color: activePlatform === "overview" ? COLORS.accent : COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>📊 Overview</button>
+          {PLATFORMS.map(p => (
+            <button key={p.key} onClick={() => { setActivePlatform(p.key); setGeneratedPosts([]); setInspirationTab("ideas"); setPlatformSection("scheduled"); }} style={{ padding: "10px 14px", background: "transparent", border: "none", borderBottom: activePlatform === p.key ? `2px solid ${p.color}` : "2px solid transparent", color: activePlatform === p.key ? p.color : COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6, opacity: p.connected ? 1 : 0.5 }}>
+              <span style={{ fontSize: 14 }}>{p.icon}</span>{p.label}
+              {!p.connected && <span style={{ fontSize: 7, padding: "1px 4px", borderRadius: 3, background: COLORS.border, color: COLORS.textDim }}>setup</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activePlatform === "overview" && (
+        <div style={{ flex: 1, overflow: "auto", padding: "20px 28px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 16 }}>
+            {STATUSES.map(s => (<div key={s} style={{ padding: "10px 14px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}><div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS_COLORS_CS[s] }} /><span style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600 }}>{s.toUpperCase()}</span></div><div style={{ fontFamily: FONT, fontSize: 20, fontWeight: 700, color: STATUS_COLORS_CS[s] }}>{contentItems.filter(c => c.status === s).length}</div></div>))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 4, background: COLORS.bg, borderRadius: 8, padding: 3, border: `1px solid ${COLORS.border}` }}>
+              <button onClick={() => setOverviewMode("kanban")} style={{ padding: "5px 12px", borderRadius: 6, border: "none", fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer", background: overviewMode === "kanban" ? COLORS.accent : "transparent", color: overviewMode === "kanban" ? COLORS.bg : COLORS.textMuted }}>Kanban</button>
+              <button onClick={() => setOverviewMode("timeline")} style={{ padding: "5px 12px", borderRadius: 6, border: "none", fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer", background: overviewMode === "timeline" ? COLORS.accent : "transparent", color: overviewMode === "timeline" ? COLORS.bg : COLORS.textMuted }}>Timeline</button>
+            </div>
+          </div>
+          {overviewMode === "kanban" && (
+            <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 16 }}>
+              {STATUSES.map(status => { const items = contentItems.filter(c => c.status === status); const col = STATUS_COLORS_CS[status]; return (
+                <div key={status} style={{ width: 230, flexShrink: 0 }}>
+                  <div style={{ padding: "6px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: col }} /><span style={{ fontFamily: FONT, fontSize: 11, fontWeight: 600 }}>{status}</span></div><span style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, background: COLORS.surface, padding: "2px 7px", borderRadius: 8 }}>{items.length}</span></div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {items.map(item => { const plat = getPlatform(item.platform); return (
+                      <div key={item.id} onClick={() => setExpandedCard(expandedCard === item.id ? null : item.id)} style={{ padding: "10px 12px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, cursor: "pointer", borderLeft: `3px solid ${plat?.color || COLORS.accent}` }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}><span style={{ fontSize: 10 }}>{plat?.icon}</span><span style={{ fontSize: 9, fontFamily: FONT, fontWeight: 600, color: plat?.color }}>{plat?.label}</span><span style={{ fontSize: 8, padding: "1px 4px", borderRadius: 3, background: COLORS.bg, color: COLORS.textDim, fontFamily: FONT }}>{item.format}</span></div>
+                        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 3, lineHeight: 1.4 }}>{item.title}</div>
+                        {item.date && <div style={{ fontSize: 9, color: COLORS.textDim }}>{item.date}</div>}
+                        {expandedCard === item.id && (<div style={{ marginTop: 6, padding: "6px 8px", background: COLORS.bg, borderRadius: 6, fontSize: 11, color: COLORS.textMuted, lineHeight: 1.5 }}>{item.snippet}{item.engagement && (<div style={{ display: "flex", gap: 8, marginTop: 4 }}><span style={{ fontSize: 9, color: COLORS.blue }}>{item.engagement.impressions?.toLocaleString()} views</span><span style={{ fontSize: 9, color: COLORS.accent }}>{item.engagement.likes} likes</span></div>)}</div>)}
+                      </div>); })}
+                  </div>
+                </div>); })}
+            </div>
+          )}
+          {overviewMode === "timeline" && (
+            <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden" }}>
+              {TIMELINE_DAYS.map((day, di) => { const dayItems = contentItems.filter(c => c.date === day.label); const isWeekend = day.day === "Sat" || day.day === "Sun"; return (
+                <div key={di} style={{ display: "flex", borderBottom: `1px solid ${COLORS.border}`, minHeight: dayItems.length > 0 ? 48 : 32, background: isWeekend ? COLORS.bg + "88" : "transparent" }}>
+                  <div style={{ width: 72, padding: "6px 10px", borderRight: `1px solid ${COLORS.border}`, flexShrink: 0 }}><div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: dayItems.length > 0 ? COLORS.text : COLORS.textDim }}>{day.label.split(" ")[1]}</div><div style={{ fontFamily: FONT, fontSize: 9, color: COLORS.textDim }}>{day.day}</div></div>
+                  <div style={{ flex: 1, padding: dayItems.length > 0 ? "4px 10px" : 0, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    {dayItems.map(item => { const plat = getPlatform(item.platform); return (<div key={item.id} style={{ padding: "3px 8px", borderRadius: 6, background: (plat?.color || COLORS.accent) + "12", border: `1px solid ${(plat?.color || COLORS.accent)}33`, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}><span style={{ fontSize: 9 }}>{plat?.icon}</span><span style={{ fontSize: 10, fontWeight: 600, color: plat?.color }}>{item.title.length > 30 ? item.title.slice(0, 30) + "..." : item.title}</span></div>); })}
+                  </div>
+                </div>); })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {PLATFORMS.map(p => p.key).includes(activePlatform) && (
+        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+          <div style={{ flex: 1, overflow: "auto", padding: "20px 24px", borderRight: `1px solid ${COLORS.border}` }}>
+            <div style={{ padding: "20px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}><span style={{ fontSize: 16 }}>{getPlatform(activePlatform)?.icon}</span><span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: platColor }}>Create {getPlatform(activePlatform)?.label} Content</span></div>
+              <div style={{ marginBottom: 14 }}><label style={csLabelStyle}>TOPIC / IDEA</label><textarea value={topic} onChange={e => setTopic(e.target.value)} placeholder="Pick an idea from the right panel, or write your own..." rows={3} style={{ ...csInputStyle, resize: "vertical", lineHeight: 1.6 }} /></div>
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
+                <div style={{ flex: 1 }}><label style={csLabelStyle}>FORMAT</label><div style={{ display: "flex", gap: 6 }}>{formatOptions.map(f => (<button key={f.key} onClick={() => setFormat(f.key)} style={{ flex: 1, padding: "8px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, background: format === f.key ? platColor + "15" : "transparent", border: `1px solid ${format === f.key ? platColor + "44" : COLORS.border}`, color: format === f.key ? platColor : COLORS.textMuted, cursor: "pointer" }}>{f.label}</button>))}</div></div>
+                {!isVideoPlatform && (<button onClick={async () => { setIsGenerating(true); await new Promise(r => setTimeout(r, 2000)); setGeneratedPosts(MOCK_GENERATED); setIsGenerating(false); }} disabled={isGenerating || !topic.trim()} style={{ padding: "12px 24px", background: topic.trim() ? platColor : COLORS.border, color: topic.trim() ? "#fff" : COLORS.textDim, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: topic.trim() && !isGenerating ? "pointer" : "default", whiteSpace: "nowrap" }}>{isGenerating ? "Generating..." : "✍️ Generate"}</button>)}
+              </div>
+              {isVideoPlatform && (<div style={{ marginTop: 14 }}><button onClick={async () => { setIsGenerating(true); await new Promise(r => setTimeout(r, 2500)); setGeneratedPosts(MOCK_VIDEO_SCRIPTS); setIsGenerating(false); }} disabled={isGenerating || !topic.trim()} style={{ padding: "12px 24px", background: topic.trim() ? platColor : COLORS.border, color: topic.trim() ? "#fff" : COLORS.textDim, border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, width: "100%", cursor: topic.trim() && !isGenerating ? "pointer" : "default" }}>{isGenerating ? "Generating Script..." : "🎬 Generate Script"}</button></div>)}
+            </div>
+            {isGenerating && (<div style={{ padding: "40px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, textAlign: "center", marginBottom: 20 }}><div style={{ fontSize: 32, marginBottom: 8 }}>{isVideoPlatform ? "🎬" : "✍️"}</div><div style={{ fontFamily: FONT, fontSize: 12, color: platColor }}>Writing your {getPlatform(activePlatform)?.label} content...</div></div>)}
+            {generatedPosts.length > 0 && !isGenerating && !isVideoPlatform && (<div style={{ marginBottom: 20 }}>{generatedPosts.map((post, i) => (<div key={post.id} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}><div style={{ padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${COLORS.border}` }}><span style={{ fontFamily: FONT, fontSize: 11, color: platColor, fontWeight: 600 }}>OPTION {i + 1}</span><div style={{ display: "flex", gap: 6 }}><button onClick={() => navigator.clipboard?.writeText(post.content || "")} style={{ padding: "4px 10px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Copy</button><button onClick={() => setSchedulePost(post)} style={{ padding: "4px 10px", background: platColor, color: "#fff", border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Schedule →</button></div></div><div style={{ padding: "14px 18px", fontSize: 12, color: COLORS.text, lineHeight: 1.7, whiteSpace: "pre-line" }}>{post.content}</div></div>))}</div>)}
+            {generatedPosts.length > 0 && !isGenerating && isVideoPlatform && (<div style={{ marginBottom: 20 }}>{generatedPosts.map((script, i) => (<div key={script.id} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 12 }}><div style={{ padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${COLORS.border}` }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontFamily: FONT, fontSize: 11, color: platColor, fontWeight: 600 }}>SCRIPT {i + 1}</span>{script.duration && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: COLORS.bg, color: COLORS.textDim, fontFamily: FONT }}>~{script.duration}</span>}</div><div style={{ display: "flex", gap: 6 }}><button onClick={() => navigator.clipboard?.writeText(`${script.hook}\n\n${script.body}\n\n${script.cta}`)} style={{ padding: "4px 10px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Copy Script</button></div></div><div style={{ padding: "16px 18px" }}><div style={{ marginBottom: 14 }}><div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><span style={{ fontSize: 11 }}>🪝</span><span style={{ fontFamily: FONT, fontSize: 9, fontWeight: 600, color: platColor, letterSpacing: "0.06em" }}>HOOK</span></div><div style={{ padding: "10px 14px", background: platColor + "08", border: `1px solid ${platColor}22`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: COLORS.text, lineHeight: 1.5 }}>{script.hook}</div></div><div style={{ marginBottom: 14 }}><div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><span style={{ fontSize: 11 }}>📝</span><span style={{ fontFamily: FONT, fontSize: 9, fontWeight: 600, color: COLORS.textDim, letterSpacing: "0.06em" }}>SCRIPT</span></div><div style={{ fontSize: 12, color: COLORS.text, lineHeight: 1.7, whiteSpace: "pre-line" }}>{script.body}</div></div><div><div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><span style={{ fontSize: 11 }}>👋</span><span style={{ fontFamily: FONT, fontSize: 9, fontWeight: 600, color: COLORS.textDim, letterSpacing: "0.06em" }}>CTA</span></div><div style={{ fontSize: 12, color: COLORS.accent, fontWeight: 600, fontStyle: "italic" }}>{script.cta}</div></div></div></div>))}</div>)}
+            <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${COLORS.border}`, marginBottom: 14 }}>{[{ key: "scheduled", label: "📅 Scheduled" }, { key: "published", label: "📊 Published" }].map(tab => (<button key={tab.key} onClick={() => setPlatformSection(tab.key)} style={{ padding: "8px 16px", background: "transparent", border: "none", borderBottom: platformSection === tab.key ? `2px solid ${platColor}` : "2px solid transparent", color: platformSection === tab.key ? platColor : COLORS.textMuted, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{tab.label} <span style={{ fontSize: 10, color: COLORS.textDim }}>({contentItems.filter(c => c.platform === activePlatform && c.status === (tab.key === "scheduled" ? "Scheduled" : "Published")).length})</span></button>))}</div>
+            {platformSection === "scheduled" && (<div>{contentItems.filter(c => c.platform === activePlatform && c.status === "Scheduled").map(item => (<div key={item.id} style={{ padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><div style={{ fontSize: 12, fontWeight: 600 }}>{item.title}</div><div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 2 }}>{item.date} · {item.format}</div></div><span style={{ padding: "3px 10px", borderRadius: 20, fontFamily: FONT, fontSize: 10, fontWeight: 500, background: COLORS.accent + "10", color: COLORS.accent }}>scheduled</span></div>))}{contentItems.filter(c => c.platform === activePlatform && c.status === "Scheduled").length === 0 && (<div style={{ padding: "30px", textAlign: "center", color: COLORS.textDim, fontSize: 12 }}>No scheduled posts. Generate content above and schedule it.</div>)}</div>)}
+            {platformSection === "published" && (<div>{contentItems.filter(c => c.platform === activePlatform && c.engagement).map(item => (<div key={item.id} style={{ padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, marginBottom: 6 }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 12, fontWeight: 600 }}>{item.title}</div><div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 2 }}>{item.date} · {item.format}</div></div><div style={{ display: "flex", gap: 12 }}>{[{ label: "Views", value: item.engagement?.impressions?.toLocaleString(), color: COLORS.text }, { label: "Likes", value: item.engagement?.likes, color: platColor }, { label: "Comments", value: item.engagement?.comments, color: COLORS.warn }].map(stat => (<div key={stat.label} style={{ textAlign: "center" }}><div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: stat.color }}>{stat.value}</div><div style={{ fontSize: 8, color: COLORS.textDim, fontFamily: FONT }}>{stat.label.toUpperCase()}</div></div>))}</div></div></div>))}{contentItems.filter(c => c.platform === activePlatform && c.engagement).length === 0 && (<div style={{ padding: "30px", textAlign: "center", color: COLORS.textDim, fontSize: 12 }}>No published posts yet for {getPlatform(activePlatform)?.label}.</div>)}</div>)}
+          </div>
+          <div style={{ width: 320, flexShrink: 0, overflow: "auto", background: COLORS.surface }}>
+            <div style={{ padding: "14px 16px", borderBottom: `1px solid ${COLORS.border}` }}><div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{[{ key: "ideas", label: "💡 Ideas" }, { key: "calls", label: "🎙️ Calls" }, { key: "trending", label: "🔥 Trending" }, { key: "competitors", label: "🏢 Rivals" }].map(tab => (<button key={tab.key} onClick={() => setInspirationTab(tab.key)} style={{ padding: "5px 8px", borderRadius: 5, fontSize: 10, fontFamily: FONT, fontWeight: 600, cursor: "pointer", background: inspirationTab === tab.key ? platColor + "12" : "transparent", border: `1px solid ${inspirationTab === tab.key ? platColor + "44" : "transparent"}`, color: inspirationTab === tab.key ? platColor : COLORS.textDim }}>{tab.label}</button>))}</div></div>
+            <div style={{ padding: "12px 16px" }}>
+              {inspirationTab === "ideas" && IDEAS.ideas.map(idea => (<div key={idea.id} onClick={() => setTopic(idea.title)} style={{ padding: "10px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, cursor: "pointer", marginBottom: 6 }} onMouseEnter={e => e.currentTarget.style.borderColor = platColor + "55"} onMouseLeave={e => e.currentTarget.style.borderColor = COLORS.border}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, lineHeight: 1.4 }}>{idea.title}</div><span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 8, background: idea.tagColor + "15", color: idea.tagColor, fontFamily: FONT, fontWeight: 600 }}>{idea.tag}</span></div>))}
+              {inspirationTab === "calls" && IDEAS.calls.map(idea => (<div key={idea.id} onClick={() => setTopic(idea.title.replace(/"/g, ""))} style={{ padding: "10px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, cursor: "pointer", marginBottom: 6 }}><div style={{ fontSize: 12, fontWeight: 600, color: COLORS.warn, marginBottom: 3 }}>{idea.title}</div><div style={{ fontSize: 10, color: COLORS.textMuted, lineHeight: 1.4, marginBottom: 4 }}>{idea.quote}</div><span style={{ fontSize: 8, color: COLORS.textDim, fontFamily: FONT }}>{idea.source}</span></div>))}
+              {inspirationTab === "trending" && currentTrending.map((trend, i) => (<div key={i} onClick={() => setTopic(trend.topic)} style={{ padding: "10px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, cursor: "pointer", marginBottom: 6 }}><div style={{ fontSize: 12, fontWeight: 600, marginBottom: 3 }}>{trend.topic}</div><div style={{ display: "flex", gap: 6, alignItems: "center" }}><span style={{ fontSize: 9, fontFamily: FONT, fontWeight: 600, color: COLORS.green }}>{trend.growth}</span><span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 4, fontFamily: FONT, fontWeight: 600, background: trend.level === "Very High" ? COLORS.accent + "15" : COLORS.green + "15", color: trend.level === "Very High" ? COLORS.accent : COLORS.green }}>{trend.level}</span></div></div>))}
+              {inspirationTab === "competitors" && currentCompetitors.map(comp => { const compPlat = getPlatform(comp.platform); return (<div key={comp.id} onClick={() => setTopic(`Response to: ${comp.post}`)} style={{ padding: "10px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, cursor: "pointer", marginBottom: 6 }}><div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}><div style={{ width: 22, height: 22, borderRadius: "50%", background: (compPlat?.color || COLORS.accent) + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: compPlat?.color }}>{comp.name.charAt(0)}</div><div><div style={{ fontSize: 11, fontWeight: 600 }}>{comp.name}</div><div style={{ fontSize: 8, color: COLORS.textDim }}>{comp.followers}</div></div></div><div style={{ fontSize: 11, color: COLORS.text, marginBottom: 3, lineHeight: 1.4 }}>{comp.post}</div><span style={{ fontSize: 8, color: compPlat?.color }}>{comp.engagement}</span></div>); })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {schedulePost && (<div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSchedulePost(null)}><div onClick={e => e.stopPropagation()} style={{ width: 440, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}><div style={{ padding: "18px 24px", borderBottom: `1px solid ${COLORS.border}` }}><div style={{ fontWeight: 600, fontSize: 15 }}>Schedule Post</div><div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 2 }}>Publishing to {getPlatform(activePlatform)?.label}</div></div><div style={{ padding: "20px 24px" }}><div style={{ display: "flex", gap: 14 }}><div style={{ flex: 1 }}><label style={csLabelStyle}>DATE</label><input value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} type="date" style={csInputStyle} /></div><div style={{ flex: 1 }}><label style={csLabelStyle}>TIME</label><input value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} type="time" style={csInputStyle} /></div></div></div><div style={{ padding: "12px 24px", borderTop: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}><button onClick={() => setSchedulePost(null)} style={{ padding: "8px 18px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button><button onClick={() => setSchedulePost(null)} style={{ padding: "8px 20px", background: platColor, color: "#fff", border: "none", borderRadius: 8, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Schedule →</button></div></div></div>)}
     </div>
   );
 }
