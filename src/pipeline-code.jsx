@@ -4470,6 +4470,7 @@ function AuditView({ project, projects, selectedProject, setSelectedProject }) {
           { key: "interviews", label: "🎤 Interviews" },
           { key: "transcripts", label: "📄 Transcripts", count: transcripts.length },
           { key: "processmaps", label: "🗺️ Process Maps" },
+          { key: "prototypelab", label: "🧪 Prototype Lab" },
           { key: "analysis", label: "✨ Analysis" },
         ].map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
@@ -4490,6 +4491,7 @@ function AuditView({ project, projects, selectedProject, setSelectedProject }) {
         {activeTab === "interviews" && <AuditInterviewsTab />}
         {activeTab === "transcripts" && <AuditTranscriptsTab transcripts={transcripts} setTranscripts={setTranscripts} />}
         {activeTab === "processmaps" && <AuditProcessMapsTab />}
+        {activeTab === "prototypelab" && <PrototypeLabTab project={project} />}
         {activeTab === "analysis" && <AuditAnalysisTab project={project} />}
       </div>
     </div>
@@ -5862,6 +5864,256 @@ function AuditProcessMapsTab() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function PrototypeLabTab({ project }) {
+  const [selectedOpp, setSelectedOpp] = useState(null);
+  const [generating, setGenerating] = useState(null);
+  const [generated, setGenerated] = useState({});
+  const [expandedOutput, setExpandedOutput] = useState(null);
+  const [copied, setCopied] = useState(null);
+  const [lovableSending, setLovableSending] = useState(null);
+  const [lovableSent, setLovableSent] = useState({});
+  const outputRef = useRef(null);
+
+  const OPPORTUNITIES = [
+    {
+      id: "opp1", title: "Automated Lease Tracking System", category: "Quick Win", phase: "Phase 1",
+      impact: "$100K+ revenue protection", complexity: "Medium",
+      valueSummary: "Replace manual spreadsheet tracking across 150 properties with an automated system that tracks renewal dates, sends alerts, and prevents missed renewals that currently cause $100K+ annual revenue leakage.",
+      painPoints: ["Estate manager maintains all 150 properties in spreadsheets — described as 'getting unmanageable'", "Missed renewal windows multiple times, directly impacting revenue", "No backup system — single point of failure if estate manager is unavailable", "Current process breaks down beyond ~180 properties, blocking growth to 300"],
+      users: ["Estate Managers", "Property Directors", "Finance Team"],
+      keyFeatures: ["Dashboard showing all lease statuses with renewal countdown timers", "Automated email/SMS alerts 90/60/30 days before renewal deadlines", "Bulk import from existing spreadsheets with data validation", "Audit trail for all lease modifications and status changes", "Revenue-at-risk calculator showing exposure from upcoming renewals", "Integration with accounting system for financial reconciliation"],
+      sourceData: "CFO Interview (Sarah Mitchell), Estate Manager Interview (Mike Thompson), AI Readiness Survey"
+    },
+    {
+      id: "opp2", title: "Executive Director Dashboard", category: "Quick Win", phase: "Phase 2",
+      impact: "20hr/month time saved", complexity: "Medium",
+      valueSummary: "Consolidate data from 6+ disconnected systems into a single real-time dashboard, eliminating the 3-day monthly board report assembly process and giving directors instant portfolio visibility.",
+      painPoints: ["CFO spends 3 full days per month assembling board reports from 6+ systems", "Data silos prevent real-time decision making across the portfolio", "No single source of truth — executives get conflicting numbers from different departments", "75% of staff dissatisfied with current technology stack"],
+      users: ["CEO / Board", "CFO", "Department Heads"],
+      keyFeatures: ["Real-time portfolio overview with KPIs: occupancy, revenue, compliance status", "Automated board report generation with one-click export to PDF/PPTX", "Department-level drill-down views (Finance, Operations, Legal)", "Anomaly detection — auto-flag metrics that deviate from expected ranges", "Comparative period analysis (MoM, QoQ, YoY) with trend visualization", "Role-based access control with different views per stakeholder level"],
+      sourceData: "CEO Interview (James Richardson), CFO Interview (Sarah Mitchell), Technology Stack Survey"
+    },
+    {
+      id: "opp3", title: "Knowledge Management System", category: "Big Swing", phase: "Phase 2",
+      impact: "De-risk key-person dependency", complexity: "High",
+      valueSummary: "Capture and systematize institutional knowledge currently locked in individual employees' heads, particularly the estate manager who is a single point of failure for 150-property portfolio operations.",
+      painPoints: ["Estate manager is single point of failure — no documentation or knowledge transfer system", "Critical operational knowledge locked in individuals' heads", "No onboarding system for new staff — takes months to become effective", "Growth to 300 properties impossible without systematized knowledge"],
+      users: ["All Staff", "New Hires", "Estate Managers", "Operations Team"],
+      keyFeatures: ["Searchable knowledge base with property-specific procedures and contacts", "AI-powered document ingestion — upload existing docs, auto-categorize and index", "Decision trees for common operational scenarios (maintenance, complaints, renewals)", "Guided onboarding workflows for new team members by role", "Version-controlled SOPs with change tracking and approval flows", "Smart search with natural language queries across all documentation"],
+      sourceData: "Estate Manager Interview (Mike Thompson), CEO Interview (James Richardson)"
+    },
+    {
+      id: "opp4", title: "AI Contract Analysis Engine", category: "Big Swing", phase: "Phase 3",
+      impact: "Unlock operational efficiency", complexity: "High",
+      valueSummary: "Deploy AI to automatically analyze lease contracts, extract key terms, flag risks, and identify optimization opportunities across the entire 150-property portfolio — scaling to 300 without additional headcount.",
+      painPoints: ["Manual contract review is time-intensive and error-prone", "Inconsistent lease terms across portfolio create hidden financial exposure", "No systematic way to identify favorable renegotiation opportunities", "Legal team overwhelmed with routine contract queries"],
+      users: ["Legal Team", "Estate Managers", "CFO", "Property Directors"],
+      keyFeatures: ["Drag-and-drop contract upload with AI extraction of key terms and dates", "Risk scoring for each contract based on unfavorable clauses and exposure", "Side-by-side contract comparison tool for benchmarking terms", "Auto-generated summary sheets for each property with key obligations", "Renegotiation opportunity alerts based on market data and lease terms", "Natural language query interface — 'Show me all leases expiring in Q3 with break clauses'"],
+      sourceData: "All Interviews, AI Readiness Survey, Technology Stack Survey"
+    },
+  ];
+
+  const generateOutput = async (oppId, outputType) => {
+    setGenerating(outputType);
+    setExpandedOutput(outputType);
+    await new Promise(r => setTimeout(r, 2000 + Math.random() * 1500));
+    const opp = OPPORTUNITIES.find(o => o.id === oppId);
+    let content = "";
+    if (outputType === "prd") {
+      content = `# Product Requirements Document\n## ${opp.title}\n### Prepared for: ${project?.client || "Client"} | Generated from Audit Data\n\n---\n\n## 1. Problem Statement\n${opp.valueSummary}\n\n## 2. Background & Evidence\n**Source:** ${opp.sourceData}\n\n**Validated Pain Points:**\n${opp.painPoints.map(p => `- ${p}`).join("\n")}\n\n## 3. Target Users\n${opp.users.map(u => `- **${u}**`).join("\n")}\n\n## 4. Functional Requirements\n\n### Core Features\n${opp.keyFeatures.map((f, i) => `**FR-${String(i + 1).padStart(2, "0")}:** ${f}`).join("\n\n")}\n\n### Non-Functional Requirements\n- **NFR-01:** Page load time < 2 seconds for dashboard views\n- **NFR-02:** 99.9% uptime SLA for production environment\n- **NFR-03:** SOC 2 Type II compliant data handling\n- **NFR-04:** Role-based access control with SSO integration\n- **NFR-05:** Mobile-responsive design for field staff access\n\n## 5. Success Metrics\n| Metric | Current State | Target | Measurement |\n|--------|--------------|--------|-------------|\n| ${opp.category === "Quick Win" ? "Time to complete task" : "Knowledge accessibility"} | Manual / ad-hoc | Automated | System analytics |\n| Error rate | Unknown (no tracking) | < 2% | Automated monitoring |\n| User adoption | N/A | > 80% in 90 days | Login frequency |\n| ROI | Baseline | ${opp.impact} | Quarterly review |\n\n## 6. Timeline & Phasing\n**${opp.phase}** of implementation roadmap\n- Complexity: ${opp.complexity}\n- Estimated duration: ${opp.complexity === "Medium" ? "6-8 weeks" : "10-14 weeks"}`;
+    } else if (outputType === "lovable") {
+      content = `Build a modern web application for "${opp.title}" — a ${opp.category.toLowerCase()} product for a property management company managing 150+ properties.\n\n## Context\n${opp.valueSummary}\n\n## Tech Stack\n- React with TypeScript\n- Tailwind CSS for styling\n- Shadcn/UI component library\n- Supabase for backend\n- Recharts for data visualization\n\n## Design Direction\n- Clean, professional SaaS aesthetic — think Linear meets Notion\n- Dark mode by default with light mode toggle\n- Left sidebar navigation\n- Data-dense but not cluttered\n\n## Pages to Build\n\n### 1. Dashboard\n${opp.keyFeatures.slice(0, 3).map(f => `- ${f}`).join("\n")}\n- Show summary stats in cards at top\n\n### 2. Main Feature View\n${opp.keyFeatures.slice(3).map(f => `- ${f}`).join("\n")}\n\n### 3. Settings\n- User profile and role management\n- Notification preferences\n\n## Important UX Details\n- Add realistic mock/seed data\n- Use skeleton loading states\n- Add toast notifications\n- Make tables sortable and filterable\n\nThis is a demo/prototype — prioritize visual polish and realistic data.`;
+    } else if (outputType === "bolt") {
+      content = `Create a ${opp.title} web app for property management.\n\n## Stack: React + Vite + Tailwind + Shadcn/UI\n\n## What it does\n${opp.valueSummary}\n\n## Core screens:\n\n**Screen 1 — Dashboard**\n${opp.keyFeatures.slice(0, 3).map(f => `- ${f}`).join("\n")}\n- Show summary stats in cards at top\n- Use realistic mock data\n\n**Screen 2 — Main Feature View**\n${opp.keyFeatures.slice(3).map(f => `- ${f}`).join("\n")}\n\n**Screen 3 — Settings**\n- User profile and role management\n- Notification preferences\n\n## Design\n- Dark mode, professional SaaS look\n- Sidebar navigation\n- Responsive layout\n- Card-based layouts with subtle borders\n\nBuild it as a complete, polished prototype.`;
+    }
+    setGenerated(prev => ({ ...prev, [oppId]: { ...(prev[oppId] || {}), [outputType]: content } }));
+    setGenerating(null);
+  };
+
+  const handleCopy = (text, key) => {
+    navigator.clipboard?.writeText?.(text);
+    setCopied(key);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const sendToLovable = async (oppId) => {
+    setLovableSending(oppId);
+    await new Promise(r => setTimeout(r, 3000));
+    setLovableSent(prev => ({ ...prev, [oppId]: true }));
+    setLovableSending(null);
+  };
+
+  const opp = selectedOpp ? OPPORTUNITIES.find(o => o.id === selectedOpp) : null;
+
+  return (
+    <div>
+      {!selectedOpp ? (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+            <div>
+              <div style={{ fontFamily: FONT, fontSize: 18, fontWeight: 600, display: "flex", alignItems: "center", gap: 10 }}>
+                <span>🧪</span> Prototype Lab
+              </div>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginTop: 4, maxWidth: 500, lineHeight: 1.5 }}>
+                Turn audit findings into working prototypes. Generate PRDs and builder-ready prompts for Lovable, Bolt, or v0 — go from insight to clickable demo in minutes.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ padding: "6px 12px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 10, fontFamily: FONT, color: COLORS.textDim, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.accent }} />
+                {OPPORTUNITIES.length} opportunities from audit
+              </div>
+            </div>
+          </div>
+          <div style={{ padding: "14px 18px", marginBottom: 20, borderRadius: 10, background: `linear-gradient(135deg, ${COLORS.accentBg}, rgba(77, 158, 240, 0.06))`, border: `1px solid ${COLORS.accent}22`, display: "flex", alignItems: "center", gap: 14 }}>
+            <span style={{ fontSize: 22 }}>💡</span>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.text, marginBottom: 2 }}>How it works</div>
+              <div style={{ fontSize: 11, color: COLORS.textMuted, lineHeight: 1.5 }}>
+                Each opportunity below was identified during the audit analysis. Select one to generate a full PRD or a builder-optimized prompt you can paste directly into Lovable, Bolt, or v0 to scaffold a working prototype.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            {OPPORTUNITIES.map(o => (
+              <div key={o.id} onClick={() => setSelectedOpp(o.id)} style={{ padding: "20px 22px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12, cursor: "pointer", transition: "all 0.2s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = COLORS.accent + "55"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.transform = "translateY(0)"; }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                  <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, fontFamily: FONT, fontWeight: 600, background: o.category === "Quick Win" ? "rgba(34, 197, 94, 0.1)" : COLORS.blueBg, color: o.category === "Quick Win" ? "#22c55e" : COLORS.blue, border: `1px solid ${o.category === "Quick Win" ? "rgba(34, 197, 94, 0.2)" : "rgba(77, 158, 240, 0.2)"}` }}>{o.category}</span>
+                  <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, fontFamily: FONT, fontWeight: 500, background: COLORS.bg, border: `1px solid ${COLORS.border}`, color: COLORS.textDim }}>{o.phase}</span>
+                  <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, fontFamily: FONT, fontWeight: 500, background: o.complexity === "High" ? COLORS.warnBg : COLORS.bg, border: `1px solid ${o.complexity === "High" ? "rgba(240, 168, 77, 0.2)" : COLORS.border}`, color: o.complexity === "High" ? COLORS.warn : COLORS.textDim }}>{o.complexity} Complexity</span>
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6, color: COLORS.text }}>{o.title}</div>
+                <div style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.5, marginBottom: 14, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{o.valueSummary}</div>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 6, background: COLORS.accentBg, border: `1px solid ${COLORS.accent}22` }}>
+                  <span style={{ fontSize: 11 }}>⚡</span>
+                  <span style={{ fontFamily: FONT, fontSize: 11, fontWeight: 600, color: COLORS.accent }}>{o.impact}</span>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+                  {["PRD", "Lovable", "Bolt"].map(t => (
+                    <span key={t} style={{ padding: "2px 8px", borderRadius: 4, fontSize: 8, fontFamily: FONT, background: generated[o.id]?.[t.toLowerCase()] ? COLORS.accentBg : COLORS.bg, color: generated[o.id]?.[t.toLowerCase()] ? COLORS.accent : COLORS.textDim, border: `1px solid ${generated[o.id]?.[t.toLowerCase()] ? COLORS.accent + "33" : COLORS.border}` }}>
+                      {generated[o.id]?.[t.toLowerCase()] ? "✓ " : ""}{t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+            <button onClick={() => { setSelectedOpp(null); setExpandedOutput(null); }} style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>← Back</button>
+            <div style={{ fontFamily: FONT, fontSize: 16, fontWeight: 600 }}>{opp.title}</div>
+            <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontFamily: FONT, fontWeight: 600, background: opp.category === "Quick Win" ? "rgba(34, 197, 94, 0.1)" : COLORS.blueBg, color: opp.category === "Quick Win" ? "#22c55e" : COLORS.blue, border: `1px solid ${opp.category === "Quick Win" ? "rgba(34, 197, 94, 0.2)" : "rgba(77, 158, 240, 0.2)"}` }}>{opp.category}</span>
+          </div>
+          <div style={{ display: "flex", gap: 20 }}>
+            <div style={{ width: 340, flexShrink: 0 }}>
+              <div style={{ padding: "16px 18px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 14 }}>
+                <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 8 }}>OPPORTUNITY SUMMARY</div>
+                <div style={{ fontSize: 12, color: COLORS.text, lineHeight: 1.6 }}>{opp.valueSummary}</div>
+              </div>
+              <div style={{ padding: "16px 18px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 14 }}>
+                <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 8 }}>VALIDATED PAIN POINTS</div>
+                {opp.painPoints.map((p, i) => (<div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}><span style={{ color: COLORS.danger, fontSize: 10, marginTop: 2, flexShrink: 0 }}>●</span><div style={{ fontSize: 11, color: COLORS.textMuted, lineHeight: 1.5 }}>{p}</div></div>))}
+              </div>
+              <div style={{ padding: "16px 18px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 14 }}>
+                <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 8 }}>KEY FEATURES</div>
+                {opp.keyFeatures.map((f, i) => (<div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}><span style={{ color: COLORS.accent, fontSize: 10, marginTop: 2, flexShrink: 0 }}>→</span><div style={{ fontSize: 11, color: COLORS.textMuted, lineHeight: 1.4 }}>{f}</div></div>))}
+              </div>
+              <div style={{ padding: "12px 16px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+                <div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT }}><span style={{ fontWeight: 600 }}>SOURCE:</span> {opp.sourceData}</div>
+              </div>
+            </div>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+                {[
+                  { key: "prd", label: "📄 Generate PRD", desc: "Full product requirements document", color: COLORS.accent },
+                  { key: "lovable", label: "💜 Lovable Prompt", desc: "Optimized for Lovable.dev", color: "#a855f7" },
+                  { key: "bolt", label: "⚡ Bolt Prompt", desc: "Optimized for Bolt.new", color: COLORS.warn },
+                ].map(btn => {
+                  const isGenerated = !!generated[opp.id]?.[btn.key];
+                  const isGenerating = generating === btn.key;
+                  return (
+                    <button key={btn.key} onClick={() => { if (isGenerated) { setExpandedOutput(expandedOutput === btn.key ? null : btn.key); } else { generateOutput(opp.id, btn.key); } }} disabled={isGenerating}
+                      style={{ flex: 1, padding: "14px 16px", background: isGenerating ? btn.color + "15" : isGenerated ? btn.color + "12" : COLORS.surface, border: `1px solid ${isGenerated || isGenerating ? btn.color + "44" : COLORS.border}`, borderRadius: 10, cursor: isGenerating ? "wait" : "pointer", textAlign: "left", transition: "all 0.2s" }}
+                      onMouseEnter={e => { if (!isGenerating) e.currentTarget.style.borderColor = btn.color + "66"; }}
+                      onMouseLeave={e => { if (!isGenerating) e.currentTarget.style.borderColor = isGenerated ? btn.color + "44" : COLORS.border; }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600, fontSize: 13, color: isGenerated ? btn.color : COLORS.text }}>{btn.label}</span>
+                        {isGenerated && <span style={{ fontSize: 10, color: btn.color, fontFamily: FONT }}>✓</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: COLORS.textDim }}>{isGenerating ? "Generating..." : isGenerated ? (expandedOutput === btn.key ? "Click to collapse" : "Click to view") : btn.desc}</div>
+                      {isGenerating && (<div style={{ marginTop: 8, height: 3, borderRadius: 2, background: COLORS.border, overflow: "hidden" }}><div style={{ height: "100%", background: btn.color, borderRadius: 2, animation: "prototype-progress 2s ease-in-out infinite", width: "60%" }} /></div>)}
+                    </button>
+                  );
+                })}
+              </div>
+              {generated[opp.id]?.lovable && (
+                <div style={{ padding: "12px 16px", marginBottom: 16, background: "linear-gradient(135deg, rgba(168, 85, 247, 0.08), rgba(168, 85, 247, 0.04))", border: "1px solid rgba(168, 85, 247, 0.2)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 18 }}>🚀</span>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.text }}>Send directly to Lovable</div>
+                      <div style={{ fontSize: 10, color: COLORS.textDim }}>{lovableSent[opp.id] ? "Project created! Opening in new tab..." : "Create a new Lovable project from this prompt via API"}</div>
+                    </div>
+                  </div>
+                  <button onClick={() => sendToLovable(opp.id)} disabled={lovableSending === opp.id || lovableSent[opp.id]}
+                    style={{ padding: "8px 18px", background: lovableSent[opp.id] ? "#22c55e" : lovableSending === opp.id ? "#a855f755" : "#a855f7", color: "#fff", border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: lovableSending === opp.id || lovableSent[opp.id] ? "default" : "pointer" }}>
+                    {lovableSent[opp.id] ? "✓ Sent" : lovableSending === opp.id ? "Creating project..." : "Launch in Lovable →"}
+                  </button>
+                </div>
+              )}
+              {expandedOutput && generated[opp.id]?.[expandedOutput] && (
+                <div style={{ flex: 1, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  <div style={{ padding: "10px 16px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontFamily: FONT, fontSize: 11, fontWeight: 600, color: COLORS.text }}>
+                        {expandedOutput === "prd" ? "📄 Product Requirements Document" : expandedOutput === "lovable" ? "💜 Lovable Prompt" : "⚡ Bolt Prompt"}
+                      </span>
+                      <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: COLORS.accentBg, color: COLORS.accent, fontFamily: FONT }}>{generated[opp.id][expandedOutput].split("\n").length} lines</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => handleCopy(generated[opp.id][expandedOutput], `${opp.id}-${expandedOutput}`)}
+                        style={{ padding: "5px 12px", background: copied === `${opp.id}-${expandedOutput}` ? COLORS.accentBg : "transparent", border: `1px solid ${copied === `${opp.id}-${expandedOutput}` ? COLORS.accent + "44" : COLORS.border}`, borderRadius: 5, color: copied === `${opp.id}-${expandedOutput}` ? COLORS.accent : COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>
+                        {copied === `${opp.id}-${expandedOutput}` ? "✓ Copied!" : "Copy"}
+                      </button>
+                    </div>
+                  </div>
+                  <div ref={outputRef} style={{ flex: 1, overflow: "auto", padding: "16px 20px", fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5, lineHeight: 1.7, color: COLORS.text, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    {generated[opp.id][expandedOutput].split("\n").map((line, i) => {
+                      if (line.startsWith("# ")) return <div key={i} style={{ fontSize: 18, fontWeight: 700, color: COLORS.accent, marginTop: 16, marginBottom: 8, fontFamily: FONT_BODY }}>{line.replace("# ", "")}</div>;
+                      if (line.startsWith("## ")) return <div key={i} style={{ fontSize: 14, fontWeight: 700, color: COLORS.text, marginTop: 14, marginBottom: 6, fontFamily: FONT_BODY }}>{line.replace("## ", "")}</div>;
+                      if (line.startsWith("### ")) return <div key={i} style={{ fontSize: 12, fontWeight: 600, color: COLORS.blue, marginTop: 10, marginBottom: 4, fontFamily: FONT_BODY }}>{line.replace("### ", "")}</div>;
+                      if (line.startsWith("---")) return <div key={i} style={{ borderBottom: `1px solid ${COLORS.border}`, margin: "12px 0" }} />;
+                      if (line.startsWith("- ") || line.startsWith("* ")) return <div key={i} style={{ paddingLeft: 12, display: "flex", gap: 6 }}><span style={{ color: COLORS.accent, flexShrink: 0 }}>→</span><span>{line.replace(/^[-*] /, "")}</span></div>;
+                      if (line.startsWith("|")) return <div key={i} style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT }}>{line}</div>;
+                      if (line.startsWith("**") && line.endsWith("**")) return <div key={i} style={{ fontWeight: 600, color: COLORS.text }}>{line.replace(/\*\*/g, "")}</div>;
+                      if (line.trim() === "") return <div key={i} style={{ height: 8 }} />;
+                      return <div key={i}>{line}</div>;
+                    })}
+                  </div>
+                </div>
+              )}
+              {!expandedOutput && (
+                <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, minHeight: 300 }}>
+                  <div style={{ textAlign: "center", maxWidth: 320 }}>
+                    <div style={{ fontSize: 42, marginBottom: 12, opacity: 0.15 }}>🧪</div>
+                    <div style={{ fontFamily: FONT, fontSize: 14, color: COLORS.textDim, marginBottom: 8 }}>Generate a deliverable</div>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, lineHeight: 1.5 }}>Choose a PRD for full product documentation, or a builder prompt optimized for Lovable or Bolt to scaffold a working prototype instantly.</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <style>{`@keyframes prototype-progress { 0% { transform: translateX(-100%); } 50% { transform: translateX(60%); } 100% { transform: translateX(-100%); } }`}</style>
+        </>
       )}
     </div>
   );
