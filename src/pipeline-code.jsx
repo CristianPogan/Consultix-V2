@@ -414,6 +414,7 @@ export default function App() {
   const [addProjectCreating, setAddProjectCreating] = useState(false);
   const [discoverCanRun, setDiscoverCanRun] = useState(true); // true until we know otherwise
   const logRef = useRef(null);
+  const [enabledSolutions, setEnabledSolutions] = useState(["sol_assistant", "website_builder"]);
 
   useEffect(() => {
     if (activePage === "leads") {
@@ -1306,6 +1307,7 @@ export default function App() {
         {activePage === "sales_scripts" && <SalesScriptGeneratorView />}
         {activePage === "sales_analyser" && <SalesCallAnalyserView />}
         {activePage === "sol_assistant" && <SolutionAIAssistantView />}
+        {activePage === "website_builder" && <WebsiteBuilderView />}
         {activePage === "settings" && <SettingsView />}
         {activePage === "account" && <AccountView />}
       </div>
@@ -9274,6 +9276,163 @@ function SalesCallAnalyserView() {
             <div style={{ width: "100%", height: 3, borderRadius: 2, background: COLORS.border, marginTop: 8 }}>
               <div style={{ width: `${obj.winRate}%`, height: "100%", borderRadius: 2, background: obj.winRate >= 60 ? COLORS.accent : obj.winRate >= 40 ? COLORS.warn : COLORS.danger }} />
             </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SitePreview() {
+  return (
+    <div style={{ background: "#fff", borderRadius: 8, overflow: "hidden", fontFamily: FONT_BODY, color: "#111" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#f3f3f3", borderBottom: "1px solid #ddd", fontSize: 12 }}>
+        <span style={{ display: "flex", gap: 4 }}>{["#ff5f57","#ffbd2e","#28c840"].map(c => <span key={c} style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />)}</span>
+        <div style={{ flex: 1, background: "#fff", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "#666", border: "1px solid #ddd" }}>https://vibe-consulting.ai</div>
+      </div>
+      <div style={{ padding: 32, textAlign: "center", background: "linear-gradient(135deg, #0a0a1a 0%, #1a1a3a 100%)", color: "#fff" }}>
+        <div style={{ fontSize: 11, letterSpacing: 3, color: "#c4f04d", marginBottom: 12, textTransform: "uppercase" }}>Vibe Consulting</div>
+        <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>AI-Powered Growth</div>
+        <div style={{ fontSize: 14, color: "#aaa", marginBottom: 20, maxWidth: 400, margin: "0 auto 20px" }}>We help B2B companies build predictable revenue pipelines with intelligent automation.</div>
+        <div style={{ display: "inline-block", padding: "10px 28px", background: "#c4f04d", color: "#000", borderRadius: 6, fontWeight: 600, fontSize: 13 }}>Book a Strategy Call</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, padding: 24, background: "#fafafa" }}>
+        {["Lead Generation", "Email Outreach", "Pipeline Analytics"].map(s => (
+          <div key={s} style={{ background: "#fff", borderRadius: 8, padding: 16, border: "1px solid #eee", textAlign: "center" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{s}</div>
+            <div style={{ fontSize: 11, color: "#888" }}>Automated & intelligent</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WebsiteBuilderView() {
+  const [view, setView] = useState("sites");
+  const [prompt, setPrompt] = useState("");
+  const [refinement, setRefinement] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [siteGenerated, setSiteGenerated] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isPublished, setIsPublished] = useState(false);
+  const [editingSite, setEditingSite] = useState(null);
+  const [refinements, setRefinements] = useState([]);
+
+  const templates = [
+    { id: "landing", label: "Landing Page", icon: "🎯" },
+    { id: "business", label: "Business Site", icon: "🏢" },
+    { id: "portfolio", label: "Portfolio", icon: "🎨" },
+    { id: "coming_soon", label: "Coming Soon", icon: "⏳" },
+    { id: "funnel", label: "Sales Funnel", icon: "🔻" },
+  ];
+
+  const mockSites = [
+    { id: 1, name: "Vibe Consulting", domain: "vibe-consulting.ai", status: "live", updated: "2 hours ago" },
+    { id: 2, name: "InsureTech AI Audit", domain: "insuretech-audit.com", status: "draft", updated: "1 day ago" },
+  ];
+
+  const handleGenerate = async () => {
+    setIsGenerating(true);
+    await new Promise(r => setTimeout(r, 2200));
+    setIsGenerating(false);
+    setSiteGenerated(true);
+  };
+
+  const handleRefine = () => {
+    if (!refinement.trim()) return;
+    setRefinements(prev => [...prev, { role: "user", text: refinement }, { role: "ai", text: "Done — updated the hero copy and adjusted the CTA colour." }]);
+    setRefinement("");
+  };
+
+  const handlePublish = async () => {
+    setIsPublishing(true);
+    await new Promise(r => setTimeout(r, 1500));
+    setIsPublishing(false);
+    setIsPublished(true);
+  };
+
+  const sectionTitle = { fontFamily: FONT, fontSize: 11, color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 12 };
+  const card = { background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 16 };
+  const btn = (primary) => ({ padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, background: primary ? COLORS.accent : COLORS.surfaceHover, color: primary ? "#000" : COLORS.text, opacity: (primary && !prompt.trim() && !editingSite) ? 0.4 : 1 });
+
+  if (view === "builder" || editingSite) {
+    return (
+      <div style={{ padding: 28, fontFamily: FONT_BODY, color: COLORS.text, maxWidth: 1100, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+          <button onClick={() => { setView("sites"); setEditingSite(null); setSiteGenerated(false); setIsPublished(false); setRefinements([]); setPrompt(""); }} style={{ background: "none", border: "none", color: COLORS.textMuted, cursor: "pointer", fontSize: 13 }}>← Back</button>
+          <span style={{ ...sectionTitle, margin: 0 }}>{editingSite ? `Editing — ${editingSite.name}` : "New Site"}</span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: siteGenerated ? "1fr 1fr" : "1fr", gap: 20 }}>
+          <div>
+            {!siteGenerated && (
+              <>
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={sectionTitle}>Describe your site</div>
+                  <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="e.g. A sleek landing page for my AI consulting agency with a hero, services grid, and booking CTA..." rows={4} style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 12, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={sectionTitle}>Quick-start templates</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {templates.map(t => (
+                      <button key={t.id} onClick={() => setPrompt(`Create a ${t.label.toLowerCase()} website`)} style={{ ...btn(false), display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>{t.icon} {t.label}</button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={handleGenerate} disabled={!prompt.trim() || isGenerating} style={btn(true)}>{isGenerating ? "Generating…" : "Generate Site"}</button>
+              </>
+            )}
+
+            {siteGenerated && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ ...card, flex: 1, display: "flex", flexDirection: "column" }}>
+                  <div style={sectionTitle}>Refinement chat</div>
+                  <div style={{ flex: 1, maxHeight: 220, overflowY: "auto", marginBottom: 10 }}>
+                    {refinements.map((r, i) => (
+                      <div key={i} style={{ marginBottom: 8, textAlign: r.role === "user" ? "right" : "left" }}>
+                        <span style={{ display: "inline-block", padding: "6px 12px", borderRadius: 8, fontSize: 12, background: r.role === "user" ? COLORS.accentBg : COLORS.surfaceHover, color: COLORS.text }}>{r.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input value={refinement} onChange={e => setRefinement(e.target.value)} onKeyDown={e => e.key === "Enter" && handleRefine()} placeholder="Ask for changes…" style={{ flex: 1, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 12px", color: COLORS.text, fontFamily: FONT_BODY, fontSize: 12 }} />
+                    <button onClick={handleRefine} style={btn(true)}>Send</button>
+                  </div>
+                </div>
+                <button onClick={handlePublish} disabled={isPublishing} style={btn(true)}>{isPublished ? "✓ Published" : isPublishing ? "Publishing…" : "Publish Site"}</button>
+              </div>
+            )}
+          </div>
+
+          {siteGenerated && (
+            <div style={card}>
+              <div style={sectionTitle}>Preview</div>
+              <SitePreview />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: 28, fontFamily: FONT_BODY, color: COLORS.text, maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>Website Builder</div>
+          <div style={{ fontSize: 12, color: COLORS.textMuted }}>Create and manage AI-generated sites</div>
+        </div>
+        <button onClick={() => setView("builder")} style={btn(true)}>+ New Site</button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {mockSites.map(s => (
+          <div key={s.id} onClick={() => setEditingSite(s)} style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", transition: "border-color .15s", borderColor: COLORS.border }} onMouseEnter={e => e.currentTarget.style.borderColor = COLORS.borderActive} onMouseLeave={e => e.currentTarget.style.borderColor = COLORS.border}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{s.name}</div>
+              <div style={{ fontSize: 12, color: COLORS.textMuted }}>{s.domain} · Updated {s.updated}</div>
+            </div>
+            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 600, background: s.status === "live" ? COLORS.greenBg : COLORS.warnBg, color: s.status === "live" ? COLORS.green : COLORS.warn }}>{s.status}</span>
           </div>
         ))}
       </div>
