@@ -3524,6 +3524,16 @@ function AppointmentsView() {
   const [integrationStatus, setIntegrationStatus] = useState({});
   const [calendarData, setCalendarData] = useState({ events: [], bySource: {}, date: "", hours: CALENDAR_HOURS });
   const [calendarLoading, setCalendarLoading] = useState(false);
+  const [bookingView, setBookingView] = useState("events");
+  const [eventForm, setEventForm] = useState({ name: "", duration: 30, location: "zoom", slug: "", description: "" });
+
+  const MOCK_EVENT_TYPES = [
+    { id: 1, name: "Discovery Call", duration: 30, location: "zoom", slug: "discovery", active: true, bookings: 24, color: COLORS.blue },
+    { id: 2, name: "AI Audit Consultation", duration: 45, location: "google_meet", slug: "ai-audit", active: true, bookings: 12, color: "#7B61FF" },
+    { id: 3, name: "Quick Chat", duration: 15, location: "phone", slug: "quick-chat", active: true, bookings: 38, color: COLORS.accent },
+    { id: 4, name: "Strategy Session", duration: 60, location: "zoom", slug: "strategy", active: false, bookings: 8, color: COLORS.green },
+  ];
+
   const today = new Date();
   const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const TODAY = today.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
@@ -3589,7 +3599,7 @@ function AppointmentsView() {
       </div>
 
       <div style={{ display: "flex", gap: 0, marginBottom: 24, borderBottom: `1px solid ${COLORS.border}` }}>
-        {[{ key: "calls", label: "📋 Call List" }, { key: "calendar", label: "📅 Calendar" }].map(tab => (
+        {[{ key: "calls", label: "📋 Call List" }, { key: "calendar", label: "📅 Calendar" }, { key: "booking", label: "📎 Booking" }].map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ padding: "10px 20px", background: "transparent", border: "none", borderBottom: activeTab === tab.key ? `2px solid ${COLORS.accent}` : "2px solid transparent", color: activeTab === tab.key ? COLORS.accent : COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{tab.label}</button>
         ))}
       </div>
@@ -3679,6 +3689,93 @@ function AppointmentsView() {
                 </div>
               );
             })
+          )}
+        </div>
+      )}
+
+      {activeTab === "booking" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            {["events", "availability", "create"].map(v => (
+              <button key={v} onClick={() => setBookingView(v)} style={{ padding: "7px 16px", borderRadius: 6, fontSize: 11, fontFamily: FONT, fontWeight: 600, cursor: "pointer", background: bookingView === v ? COLORS.accent + "18" : COLORS.surface, border: `1px solid ${bookingView === v ? COLORS.accent + "55" : COLORS.border}`, color: bookingView === v ? COLORS.accent : COLORS.textMuted }}>
+                {v === "events" ? "Events" : v === "availability" ? "Availability" : "Create Event"}
+              </button>
+            ))}
+          </div>
+
+          {bookingView === "events" && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+              {MOCK_EVENT_TYPES.map(evt => (
+                <div key={evt.id} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, borderLeft: `4px solid ${evt.color}`, padding: "16px 18px", opacity: evt.active ? 1 : 0.55 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: COLORS.text }}>{evt.name}</span>
+                    <span style={{ fontSize: 9, fontFamily: FONT, fontWeight: 600, padding: "3px 8px", borderRadius: 4, background: evt.active ? COLORS.green + "18" : COLORS.border, color: evt.active ? COLORS.green : COLORS.textDim }}>{evt.active ? "Active" : "Inactive"}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, fontFamily: FONT, padding: "2px 8px", borderRadius: 4, background: evt.color + "15", color: evt.color, fontWeight: 600 }}>{evt.duration} min</span>
+                    <span style={{ fontSize: 10, fontFamily: FONT, padding: "2px 8px", borderRadius: 4, background: COLORS.border, color: COLORS.textMuted }}>{evt.location.replace("_", " ")}</span>
+                    <span style={{ fontSize: 10, fontFamily: FONT, padding: "2px 8px", borderRadius: 4, background: COLORS.blue + "15", color: COLORS.blue }}>{evt.bookings} bookings</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT }}>pipeline.site/book/{evt.slug}</div>
+                </div>
+              ))}
+              <div onClick={() => setBookingView("create")} style={{ background: COLORS.surface, border: `2px dashed ${COLORS.border}`, borderRadius: 10, padding: "28px 18px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, fontWeight: 600 }}>+ Create Event Type</div>
+            </div>
+          )}
+
+          {bookingView === "create" && (
+            <div style={{ maxWidth: 480, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 24 }}>
+              <button onClick={() => setBookingView("events")} style={{ background: "none", border: "none", color: COLORS.textMuted, fontFamily: FONT, fontSize: 11, cursor: "pointer", marginBottom: 16, padding: 0 }}>← Back</button>
+              {[{ label: "Event Name", key: "name", type: "text" }, { label: "URL Slug", key: "slug", type: "text" }].map(f => (
+                <div key={f.key} style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>{f.label}</label>
+                  <input value={eventForm[f.key]} onChange={e => setEventForm({ ...eventForm, [f.key]: e.target.value })} style={{ width: "100%", padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                </div>
+              ))}
+              <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Duration</label>
+                  <select value={eventForm.duration} onChange={e => setEventForm({ ...eventForm, duration: +e.target.value })} style={{ width: "100%", padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13 }}>
+                    {[15, 30, 45, 60].map(d => <option key={d} value={d}>{d} min</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Location</label>
+                  <select value={eventForm.location} onChange={e => setEventForm({ ...eventForm, location: e.target.value })} style={{ width: "100%", padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13 }}>
+                    {[["zoom","Zoom"],["google_meet","Google Meet"],["phone","Phone"],["in_person","In Person"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 10, fontFamily: FONT, fontWeight: 600, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Description</label>
+                <textarea value={eventForm.description} onChange={e => setEventForm({ ...eventForm, description: e.target.value })} rows={3} style={{ width: "100%", padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical", outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <button onClick={() => setBookingView("events")} style={{ padding: "10px 24px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Save Event Type</button>
+            </div>
+          )}
+
+          {bookingView === "availability" && (
+            <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
+              {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((day, i) => {
+                const enabled = i < 5;
+                return (
+                  <div key={day} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 18px", borderBottom: i < 6 ? `1px solid ${COLORS.border}` : "none" }}>
+                    <span style={{ width: 90, fontSize: 12, fontFamily: FONT, fontWeight: 600, color: enabled ? COLORS.text : COLORS.textDim }}>{day}</span>
+                    <div style={{ width: 32, height: 18, borderRadius: 9, background: enabled ? COLORS.accent : COLORS.border, position: "relative", cursor: "pointer" }}><div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: enabled ? 16 : 2, transition: "left .2s" }} /></div>
+                    {enabled ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <input defaultValue="09:00" style={{ width: 70, padding: "5px 8px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 4, color: COLORS.text, fontFamily: FONT, fontSize: 11, textAlign: "center" }} />
+                        <span style={{ color: COLORS.textDim, fontSize: 10 }}>to</span>
+                        <input defaultValue="17:00" style={{ width: 70, padding: "5px 8px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 4, color: COLORS.text, fontFamily: FONT, fontSize: 11, textAlign: "center" }} />
+                        <div style={{ flex: 1, maxWidth: 120, height: 6, borderRadius: 3, background: COLORS.border, marginLeft: 8 }}><div style={{ width: "33%", height: "100%", borderRadius: 3, background: COLORS.accent + "66" }} /></div>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 11, color: COLORS.textDim, fontFamily: FONT_BODY }}>Unavailable</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
