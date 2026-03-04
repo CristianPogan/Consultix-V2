@@ -7884,6 +7884,7 @@ function SettingsView() {
           { key: "buyer_persona", label: "👤 Buyer Persona" },
           { key: "integrations", label: "🔌 Integrations" },
           { key: "lead_search_order", label: "📋 Lead Search Order" },
+          { key: "sending_accounts", label: "🔑 Sending Accounts" },
         ].map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
             padding: "10px 20px", background: "transparent", border: "none",
@@ -8224,6 +8225,8 @@ function SettingsView() {
           })()}
         </div>
       )}
+
+      {activeTab === "sending_accounts" && <SendingAccountsView />}
 
       {/* Brand Voice Tab */}
       {activeTab === "brand_voice" && !submitted && (
@@ -10606,6 +10609,142 @@ function SolutionAIAssistantView() {
         <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !isTyping) sendMessage(); }} placeholder="Ask me anything about your business..." style={{ flex: 1, padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none" }} disabled={isTyping} />
         <button onClick={sendMessage} disabled={isTyping || !input.trim()} style={{ padding: "12px 24px", background: input.trim() && !isTyping ? COLORS.accent : COLORS.border, color: input.trim() && !isTyping ? COLORS.bg : COLORS.textDim, border: "none", borderRadius: 10, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: input.trim() && !isTyping ? "pointer" : "default" }}>Send</button>
       </div>
+    </div>
+  );
+}
+
+function SendingAccountsView() {
+  const [activeSubTab, setActiveSubTab] = useState("email");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addMode, setAddMode] = useState(null);
+  const emailAccounts = [
+    { email: "alex@vc-outreach.com", domain: "vc-outreach.com", health: 94, warmup: "complete", dailyLimit: 45, sent: 32, status: "active" },
+    { email: "sam@vc-outreach.com", domain: "vc-outreach.com", health: 88, warmup: "complete", dailyLimit: 40, sent: 28, status: "active" },
+    { email: "alex@vibegrowth.com", domain: "vibegrowth.com", health: 72, warmup: "in_progress", dailyLimit: 30, sent: 15, status: "warming" },
+    { email: "hello@vibegrowth.com", domain: "vibegrowth.com", health: 65, warmup: "in_progress", dailyLimit: 25, sent: 10, status: "warming" },
+    { email: "outreach@vibe-consulting.co", domain: "vibe-consulting.co", health: 97, warmup: "complete", dailyLimit: 50, sent: 44, status: "active" },
+    { email: "founders@vibeai.com", domain: "vibeai.com", health: 41, warmup: "failed", dailyLimit: 0, sent: 0, status: "paused" },
+  ];
+  const linkedinProfiles = [
+    { name: "Alex Morgan", headline: "Growth @ Vibe", connected: true, dailyLimit: 80, sent: 45, responseRate: 12 },
+    { name: "Sam Chen", headline: "BD @ Vibe", connected: true, dailyLimit: 60, sent: 38, responseRate: 9 },
+  ];
+  const totalDaily = emailAccounts.reduce((s, a) => s + a.dailyLimit, 0);
+  const avgHealth = Math.round(emailAccounts.reduce((s, a) => s + a.health, 0) / emailAccounts.length);
+  const warmReady = emailAccounts.filter(a => a.warmup === "complete").length;
+  const domains = [...new Set(emailAccounts.map(a => a.domain))];
+  const healthColor = h => h >= 80 ? "#67c23a" : h >= 60 ? "#e6a23c" : "#ff6b6b";
+  const warmBadge = w => ({ complete: { bg: "rgba(100,200,100,0.12)", color: "#67c23a", label: "Warm & Ready" }, in_progress: { bg: "rgba(100,180,255,0.12)", color: "#64b5f6", label: "Warming Up" }, failed: { bg: "rgba(255,100,100,0.12)", color: "#ff6b6b", label: "Failed" } })[w] || { bg: COLORS.surface, color: COLORS.textDim, label: w };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        {["email", "linkedin"].map(t => (
+          <button key={t} onClick={() => setActiveSubTab(t)} style={{ padding: "8px 18px", borderRadius: 8, border: `1px solid ${activeSubTab === t ? COLORS.accent : COLORS.border}`, background: activeSubTab === t ? COLORS.accentBg : "transparent", color: activeSubTab === t ? COLORS.accent : COLORS.textMuted, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+            {t === "email" ? "📧 Email" : "💼 LinkedIn"}
+          </button>
+        ))}
+        <button onClick={() => setShowAddModal(true)} style={{ marginLeft: "auto", padding: "8px 18px", borderRadius: 8, background: COLORS.accent, color: COLORS.bg, border: "none", fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>+ Add Account</button>
+      </div>
+
+      {activeSubTab === "email" && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 20 }}>
+            {[["Total Accounts", emailAccounts.length], ["Daily Capacity", totalDaily], ["Avg Health", avgHealth + "%"], ["Warm & Ready", warmReady], ["Monthly Cost", "$" + (emailAccounts.length * 3.5).toFixed(0)]].map(([l, v]) => (
+              <div key={l} style={{ padding: "14px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, textAlign: "center" }}>
+                <div style={{ fontFamily: FONT, fontSize: 18, fontWeight: 700, color: COLORS.text }}>{v}</div>
+                <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, marginTop: 4 }}>{l}</div>
+              </div>
+            ))}
+          </div>
+          {domains.map(domain => (
+            <div key={domain} style={{ marginBottom: 16 }}>
+              <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.textDim, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 8 }}>{domain.toUpperCase()}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {emailAccounts.filter(a => a.domain === domain).map(a => {
+                  const wb = warmBadge(a.warmup);
+                  return (
+                    <div key={a.email} style={{ padding: "12px 16px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", gap: 14 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: COLORS.text }}>{a.email}</div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
+                          <span style={{ padding: "3px 8px", borderRadius: 6, background: wb.bg, color: wb.color, fontSize: 10, fontFamily: FONT, fontWeight: 600 }}>{wb.label}</span>
+                          <span style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT }}>Sent {a.sent}/{a.dailyLimit} today</span>
+                        </div>
+                      </div>
+                      <div style={{ width: 80, textAlign: "right" }}>
+                        <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 700, color: healthColor(a.health) }}>{a.health}%</div>
+                        <div style={{ height: 4, borderRadius: 2, background: COLORS.border, marginTop: 4 }}>
+                          <div style={{ width: a.health + "%", height: "100%", borderRadius: 2, background: healthColor(a.health) }} />
+                        </div>
+                      </div>
+                      <div style={{ width: 70, textAlign: "right" }}>
+                        <div style={{ height: 4, borderRadius: 2, background: COLORS.border }}>
+                          <div style={{ width: (a.dailyLimit ? (a.sent / a.dailyLimit) * 100 : 0) + "%", height: "100%", borderRadius: 2, background: COLORS.accent }} />
+                        </div>
+                        <div style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT, marginTop: 3 }}>{a.dailyLimit ? Math.round((a.sent / a.dailyLimit) * 100) : 0}% used</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeSubTab === "linkedin" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {linkedinProfiles.map(p => (
+            <div key={p.name} style={{ padding: "14px 18px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: COLORS.accentBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>💼</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: COLORS.text }}>{p.name}</div>
+                <div style={{ fontSize: 11, color: COLORS.textDim }}>{p.headline}</div>
+              </div>
+              <div style={{ textAlign: "center", padding: "0 12px" }}>
+                <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 700, color: COLORS.text }}>{p.sent}/{p.dailyLimit}</div>
+                <div style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT }}>daily</div>
+              </div>
+              <div style={{ textAlign: "center", padding: "0 12px" }}>
+                <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 700, color: COLORS.accent }}>{p.responseRate}%</div>
+                <div style={{ fontSize: 9, color: COLORS.textDim, fontFamily: FONT }}>response</div>
+              </div>
+              <span style={{ padding: "4px 10px", borderRadius: 6, background: p.connected ? "rgba(100,200,100,0.12)" : "rgba(255,100,100,0.12)", color: p.connected ? "#67c23a" : "#ff6b6b", fontFamily: FONT, fontSize: 10, fontWeight: 600 }}>{p.connected ? "Connected" : "Disconnected"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAddModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={() => { setShowAddModal(false); setAddMode(null); }}>
+          <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 28, width: 420, maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 700, color: COLORS.text, marginBottom: 16 }}>Add Sending Account</div>
+            {!addMode ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[["dfy", "🚀 Done-For-You", "We buy & warm domains for you"], ["prewarmed", "🔥 Pre-Warmed Inbox", "Ready-to-send accounts"], ["existing", "📎 Connect Existing", "Link your own mailbox"]].map(([k, t, d]) => (
+                  <button key={k} onClick={() => setAddMode(k)} style={{ padding: "14px 18px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 10, textAlign: "left", cursor: "pointer", color: COLORS.text }}>
+                    <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600 }}>{t}</div>
+                    <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>{d}</div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div>
+                <p style={{ color: COLORS.textMuted, fontSize: 12, marginBottom: 16 }}>
+                  {addMode === "dfy" && "We'll purchase and warm up new domains on your behalf. Typical setup takes 14 days."}
+                  {addMode === "prewarmed" && "Select from our inventory of pre-warmed inboxes, ready to send within 24 hours."}
+                  {addMode === "existing" && "Connect your Google Workspace, Outlook, or SMTP mailbox."}
+                </p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setAddMode(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.textMuted, fontFamily: FONT, fontSize: 12, cursor: "pointer" }}>Back</button>
+                  <button onClick={() => { setShowAddModal(false); setAddMode(null); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.accent, color: COLORS.bg, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Continue Setup</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
