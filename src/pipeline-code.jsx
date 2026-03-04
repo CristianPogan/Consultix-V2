@@ -1308,7 +1308,7 @@ export default function App() {
         {activePage === "sales_analyser" && <SalesCallAnalyserView />}
         {activePage === "sol_assistant" && <SolutionAIAssistantView />}
         {activePage === "website_builder" && <WebsiteBuilderView />}
-        {activePage === "settings" && <SettingsView />}
+        {activePage === "settings" && <SettingsView enabledSolutions={enabledSolutions} setEnabledSolutions={setEnabledSolutions} />}
         {activePage === "account" && <AccountView />}
       </div>
     </div>
@@ -7776,7 +7776,7 @@ const ENRICHMENT_INTEGRATIONS = INTEGRATIONS_META.filter(i => i.category === "en
 const LEAD_SEARCH_KEYS = ENRICHMENT_INTEGRATIONS.filter(i => (i.orderTypes || []).includes("lead_search")).map(i => i.key);
 const LEAD_ENRICHMENT_KEYS = ENRICHMENT_INTEGRATIONS.filter(i => (i.orderTypes || []).includes("lead_enrichment")).map(i => i.key);
 
-function SettingsView() {
+function SettingsView({ enabledSolutions = [], setEnabledSolutions = () => {} }) {
   const [activeTab, setActiveTab] = useState("brand_voice");
   const [submitted, setSubmitted] = useState(false);
   const [answers, setAnswers] = useState({});
@@ -7885,6 +7885,7 @@ function SettingsView() {
           { key: "integrations", label: "🔌 Integrations" },
           { key: "lead_search_order", label: "📋 Lead Search Order" },
           { key: "sending_accounts", label: "🔑 Sending Accounts" },
+          { key: "solutions", label: "🧩 Skills & Plugins" },
         ].map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
             padding: "10px 20px", background: "transparent", border: "none",
@@ -8227,6 +8228,109 @@ function SettingsView() {
       )}
 
       {activeTab === "sending_accounts" && <SendingAccountsView />}
+
+      {/* Skills & Plugins Tab */}
+      {activeTab === "solutions" && (() => {
+        const BUILTIN = [
+          { key: "sol_assistant", icon: "🤖", name: "AI Assistant", desc: "Personal AI with full org context" },
+          { key: "website_builder", icon: "🌐", name: "Website Builder", desc: "AI-powered website creation" },
+          { key: "seo_analyzer", icon: "📈", name: "SEO Analyzer", desc: "Content optimization", soon: true },
+          { key: "proposal_gen", icon: "📝", name: "Proposal Generator", desc: "Auto-generate client proposals", soon: true },
+        ];
+        const EMOJI_PRESETS = ["⚡", "🎯", "🔍", "📊", "🚀"];
+        const DATA_OPTIONS = ["leads", "deals", "content", "analytics"];
+        const [showForm, setShowForm] = React.useState(false);
+        const [skills, setSkills] = React.useState([]);
+        const [sf, setSf] = React.useState({ name: "", icon: "⚡", prompt: "", data: [], output: "chat" });
+        return (
+          <div>
+            <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.accent, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12 }}>BUILT-IN SOLUTIONS</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 28 }}>
+              {BUILTIN.map(s => {
+                const on = enabledSolutions.includes(s.key);
+                return (
+                  <div key={s.key} style={{ padding: "16px 18px", background: COLORS.surface, border: `1px solid ${on ? COLORS.accent + "44" : COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 20 }}>{s.icon}</span>
+                      <div>
+                        <div style={{ fontFamily: FONT, fontWeight: 600, fontSize: 13, color: COLORS.text }}>{s.name}</div>
+                        <div style={{ fontSize: 11, color: COLORS.textDim }}>{s.desc}</div>
+                      </div>
+                    </div>
+                    {s.soon ? (
+                      <span style={{ fontSize: 10, fontFamily: FONT, color: COLORS.warn, background: COLORS.warnBg, padding: "3px 8px", borderRadius: 6, fontWeight: 600 }}>SOON</span>
+                    ) : (
+                      <button onClick={() => setEnabledSolutions(prev => on ? prev.filter(k => k !== s.key) : [...prev, s.key])} style={{ width: 38, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: on ? COLORS.accent : COLORS.border, position: "relative", transition: "background .2s" }}>
+                        <span style={{ position: "absolute", top: 2, left: on ? 20 : 2, width: 16, height: 16, borderRadius: 8, background: on ? COLORS.bg : COLORS.textDim, transition: "left .2s" }} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.accent, letterSpacing: "0.08em", fontWeight: 600 }}>CUSTOM SKILLS</div>
+              <button onClick={() => setShowForm(!showForm)} style={{ padding: "6px 14px", background: showForm ? COLORS.border : COLORS.accent, color: showForm ? COLORS.textMuted : COLORS.bg, border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                {showForm ? "Cancel" : "+ Create Custom Skill"}
+              </button>
+            </div>
+            {showForm && (
+              <div style={{ padding: 18, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div>
+                  <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Name</label>
+                  <input value={sf.name} onChange={e => setSf({ ...sf, name: e.target.value })} placeholder="My Custom Skill" style={{ width: "100%", padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Icon</label>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {EMOJI_PRESETS.map(em => (
+                      <button key={em} onClick={() => setSf({ ...sf, icon: em })} style={{ width: 32, height: 32, borderRadius: 6, border: sf.icon === em ? `2px solid ${COLORS.accent}` : `1px solid ${COLORS.border}`, background: COLORS.bg, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{em}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>System Prompt</label>
+                  <textarea value={sf.prompt} onChange={e => setSf({ ...sf, prompt: e.target.value })} rows={3} placeholder="You are a helpful assistant that..." style={{ width: "100%", padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Data Access</label>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    {DATA_OPTIONS.map(d => (
+                      <label key={d} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: COLORS.text, fontFamily: FONT_BODY, cursor: "pointer" }}>
+                        <input type="checkbox" checked={sf.data.includes(d)} onChange={() => setSf({ ...sf, data: sf.data.includes(d) ? sf.data.filter(x => x !== d) : [...sf.data, d] })} /> {d}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Output Type</label>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {["chat", "document"].map(t => (
+                      <button key={t} onClick={() => setSf({ ...sf, output: t })} style={{ padding: "6px 16px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none", background: sf.output === t ? COLORS.accent : COLORS.border, color: sf.output === t ? COLORS.bg : COLORS.textMuted }}>{t}</button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={() => { if (!sf.name.trim()) return; setSkills(prev => [...prev, { ...sf, runs: 0 }]); setSf({ name: "", icon: "⚡", prompt: "", data: [], output: "chat" }); setShowForm(false); }} style={{ alignSelf: "flex-end", padding: "8px 20px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Save Skill</button>
+              </div>
+            )}
+            {skills.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {skills.map((sk, i) => (
+                  <div key={i} style={{ padding: "14px 18px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 20 }}>{sk.icon}</span>
+                      <div>
+                        <div style={{ fontFamily: FONT, fontWeight: 600, fontSize: 13, color: COLORS.text }}>{sk.name}</div>
+                        <div style={{ fontSize: 11, color: COLORS.textDim }}>{sk.runs} runs</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Brand Voice Tab */}
       {activeTab === "brand_voice" && !submitted && (
