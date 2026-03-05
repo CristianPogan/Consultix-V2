@@ -982,14 +982,14 @@ export default function App() {
   ];
 
   return (
-    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.text, fontFamily: FONT_BODY, fontSize: 14, display: "flex" }}>
+    <div style={{ background: COLORS.bg, height: "100%", color: COLORS.text, fontFamily: FONT_BODY, fontSize: 14, display: "flex" }}>
       <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
 
       {/* Left Sidebar */}
       <div style={{
         width: 220, flexShrink: 0, background: COLORS.surface,
         borderRight: `1px solid ${COLORS.border}`,
-        display: "flex", flexDirection: "column", height: "100vh",
+        display: "flex", flexDirection: "column", height: "100%",
       }}>
         {/* Logo */}
         <div style={{ padding: "20px 18px", borderBottom: `1px solid ${COLORS.border}` }}>
@@ -1197,7 +1197,7 @@ export default function App() {
       </div>
 
       {/* Main Content */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
 
         {activePage === "dashboard" && <DashboardView setActivePage={setActivePage} projectId={selectedAuditProject} />}
 
