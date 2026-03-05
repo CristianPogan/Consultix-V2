@@ -455,6 +455,35 @@ export const api = {
     markRead: (id) => req('PUT', `/notifications/${id}/read`),
     markAllRead: () => req('PUT', '/notifications/read-all'),
   },
+  websites: {
+    list: () => req('GET', '/websites'),
+    create: (data) => req('POST', '/websites', data),
+    update: (id, data) => req('PUT', `/websites/${id}`, data),
+    del: (id) => req('DELETE', `/websites/${id}`),
+    publish: (id) => req('POST', `/websites/${id}/publish`),
+  },
+  sendingAccounts: {
+    list: (type) => req('GET', `/sending-accounts${type ? '?type=' + type : ''}`),
+    create: (data) => req('POST', '/sending-accounts', data),
+    update: (id, data) => req('PUT', `/sending-accounts/${id}`, data),
+    del: (id) => req('DELETE', `/sending-accounts/${id}`),
+  },
+  prototypes: {
+    list: (projectId) => req('GET', `/prototypes${projectId ? '?project_id=' + projectId : ''}`),
+    generate: (data) => req('POST', '/prototypes/generate', data),
+  },
+  booking: {
+    eventTypes: {
+      list: () => req('GET', '/booking/event-types'),
+      create: (data) => req('POST', '/booking/event-types', data),
+      update: (id, data) => req('PUT', `/booking/event-types/${id}`, data),
+      del: (id) => req('DELETE', `/booking/event-types/${id}`),
+    },
+    availability: {
+      get: () => req('GET', '/booking/availability'),
+      update: (data) => req('PUT', '/booking/availability', data),
+    },
+  },
   admin: {
     agencies: {
       list: () => req('GET', '/admin/agencies'),

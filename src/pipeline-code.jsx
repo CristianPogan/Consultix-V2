@@ -3506,6 +3506,7 @@ function CRMPipelineView({ projectId }) {
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ fontSize: 10, color: COLORS.textDim, fontFamily: FONT, fontWeight: 600, letterSpacing: "0.06em" }}>ACTIVITY</div>
+                {/* TODO: wire to api.activity.list({ lead_id: deal.id }) */}
                 {[
                   { action: selectedDeal.lastActivity, time: "Latest" },
                   { action: "Email opened", time: "2d ago" },
@@ -3916,12 +3917,21 @@ function UniboxView({ projectId }) {
 
   const generateAIDrafts = async () => {
     setGeneratingDrafts(true);
-    await new Promise(r => setTimeout(r, 1500));
-    setAiDrafts([
-      { label: "Direct close", text: `Great to hear you're interested, ${selectedConvo?.name?.split(" ")[0]}! I've got a few slots this week — would Thursday at 2pm or Friday at 10am work for a quick 15-min call?\n\nI'll walk you through exactly how we helped ScaleFlow add 22 qualified meetings/month in 6 weeks.` },
-      { label: "Value-first", text: `Thanks ${selectedConvo?.name?.split(" ")[0]} — really glad this resonated.\n\nBefore we jump on a call, I put together a quick breakdown of what an AI-powered outbound system could look like specifically for ${selectedConvo?.company}. Want me to send it over?\n\nEither way, happy to chat — I've got time Thursday or Friday this week.` },
-      { label: "Social proof", text: `Appreciate the response, ${selectedConvo?.name?.split(" ")[0]}!\n\nWe just wrapped up a similar project with a company your size — they went from 3 to 18 qualified meetings per month within 8 weeks. Happy to share the case study.\n\nWhat does your calendar look like Thursday or Friday?` },
-    ]);
+    try {
+      const result = await api.aiSdr.generateSample({ 
+        conversation_context: selectedConvo?.preview || '',
+        contact_name: selectedConvo?.name || '',
+        company: selectedConvo?.company || '',
+        goal: aiGoal,
+      });
+      if (result?.samples && Array.isArray(result.samples)) {
+        setAiDrafts(result.samples.map((s, i) => ({ label: s.label || `Option ${i+1}`, text: s.text || s })));
+      } else {
+        setAiDrafts([{ label: "AI Draft", text: result?.text || result?.sample || "Could not generate draft. Check your Anthropic API key in Settings." }]);
+      }
+    } catch (err) {
+      setAiDrafts([{ label: "Error", text: `Failed to generate: ${err.message}. Ensure Anthropic API key is configured in Settings > Integrations.` }]);
+    }
     setGeneratingDrafts(false);
   };
 
@@ -7563,7 +7573,13 @@ function ColdEmailCampaignsView() {
   const sectionTitle = { fontFamily: FONT_BODY, fontSize: 16, fontWeight: 600, marginBottom: 16 };
   const toggleSender = (email) => setCampaignForm(p => ({ ...p, senderAccounts: p.senderAccounts.includes(email) ? p.senderAccounts.filter(e => e !== email) : [...p.senderAccounts, email] }));
   const toggleDay = (day) => setCampaignForm(p => ({ ...p, sendDays: p.sendDays.includes(day) ? p.sendDays.filter(d => d !== day) : [...p.sendDays, day] }));
-  const MOCK_LEAD_LISTS = [{ id: "ll1", name: "Tech Founders UK", count: 2340 }, { id: "ll2", name: "SaaS Decision Makers", count: 1890 }, { id: "ll3", name: "Series A CEOs", count: 760 }];
+  const [MOCK_LEAD_LISTS, setLeadListsData] = useState([]);
+  useEffect(() => {
+    api.leadLists.list().then(data => {
+      const lists = Array.isArray(data) ? data : [];
+      setLeadListsData(lists.map(l => ({ id: l.id, name: l.name || 'Untitled', count: l.contact_count || l.contacts?.length || 0 })));
+    }).catch(() => {});
+  }, []);
   const startNewCampaign = () => { setCampaignForm({ name: "", selectedLeadList: "", senderAccounts: [], subjects: [{ id: 1, value: "", mode: "manual" }], bodies: [{ id: 1, value: "", mode: "manual" }], followups: [{ id: 1, delay: 1, subjectLine: false, bodies: [{ id: 1, value: "", mode: "manual" }] }, { id: 2, delay: 2, subjectLine: false, bodies: [{ id: 1, value: "", mode: "manual" }] }], dailyLimit: 50, startDate: "", endDate: "", openTracking: true, timezone: "Europe/London", sendStart: "09:00", sendEnd: "17:00", sendDays: ["Mon", "Tue", "Wed", "Thu", "Fri"] }); setBuilderStep(0); setView("create"); };
   const builderStepTabs = ["Setup", "Emails", "Settings", "Review"];
 
@@ -7829,7 +7845,13 @@ function LinkedInCampaignsView() {
     >+ Add Leads</button>
   );
 
-  const LI_MOCK_LISTS = [{ id: "li1", name: "VP Engineering - UK", count: 1420 }, { id: "li2", name: "CTO SaaS Series B", count: 980 }, { id: "li3", name: "Founders Fintech EU", count: 2100 }];
+  const [LI_MOCK_LISTS, setLiLeadLists] = useState([]);
+  useEffect(() => {
+    api.leadLists.list().then(data => {
+      const lists = Array.isArray(data) ? data : [];
+      setLiLeadLists(lists.map(l => ({ id: l.id, name: l.name || 'Untitled', count: l.contact_count || l.contacts?.length || 0 })));
+    }).catch(() => {});
+  }, []);
   const liBuilderTabs = ["Setup", "Sequence", "Schedule", "Review"];
   const [liSendDays, setLiSendDays] = useState(["Mon","Tue","Wed","Thu","Fri"]);
   const [liTimezone, setLiTimezone] = useState("Europe/London");
@@ -10399,6 +10421,17 @@ function CommunityView() {
     }).catch(() => {});
     api.community.voiceSamples.list().then(data => setVoiceSamples(Array.isArray(data) ? data : data.voice_samples || [])).catch(() => {});
   }, []);
+  const [activityItems, setActivityItems] = useState([]);
+  useEffect(() => {
+    api.community.feed.list().then(data => {
+      const items = Array.isArray(data) ? data : data.items || [];
+      setActivityItems(items.slice(0, 10).map(item => ({
+        platform: item.platform || 'linkedin',
+        text: item.title || item.text || 'Activity',
+        time: item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Recently',
+      })));
+    }).catch(() => {});
+  }, []);
   const [newSampleText, setNewSampleText] = useState("");
   const [newSampleType, setNewSampleType] = useState("linkedin_post");
   const [showAgentWarning, setShowAgentWarning] = useState(false);
@@ -10708,7 +10741,7 @@ function CommunityView() {
 
       {/* Activity Tab */}
       {activeTab === "activity" && (() => {
-        const MOCK_ACTIVITY = [
+        const MOCK_ACTIVITY = activityItems.length > 0 ? activityItems : [
           { id: "a1", type: "agent", platform: "skool", community: "AI Automation Community", author: "Jake Morrison", postPreview: "Has anyone successfully set up an AI agent for lead generation?", reply: "Great question Jake! I've been running AI-powered lead gen for a while now. The key is layering tools...", timestamp: "2 hours ago", date: "Feb 11" },
           { id: "a2", type: "manual", platform: "linkedin", community: "SaaS Growth Leaders", author: "Sarah Chen", postPreview: "Hot take: Most companies are using AI wrong...", reply: "Couldn't agree more Sarah. The companies I work with that see the biggest results are the ones using AI for the high-leverage stuff...", timestamp: "4 hours ago", date: "Feb 11" },
           { id: "a3", type: "agent", platform: "skool", community: "AI Automation Community", author: "Marcus Williams", postPreview: "Just discovered vibe coding with Claude and it's completely changed how I build...", reply: "Love hearing this Marcus! You've nailed the key insight — the conversation-first approach is everything...", timestamp: "6 hours ago", date: "Feb 11" },
