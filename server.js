@@ -40,6 +40,10 @@ import adminRouter from './api/routes/admin.js';
 import heyreachRouter from './api/routes/heyreach.js';
 import instantlyRouter from './api/routes/instantly.js';
 import publicSurveyRouter from './api/routes/public-survey.js';
+import websitesRouter from './api/routes/websites.js';
+import sendingAccountsRouter from './api/routes/sending-accounts.js';
+import prototypesRouter from './api/routes/prototypes.js';
+import bookingRouter from './api/routes/booking.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -96,6 +100,10 @@ app.use('/api/notifications', authMiddleware, notificationsRouter);
 app.use('/api/admin', authMiddleware, adminRouter);
 app.use('/api/heyreach', authMiddleware, heyreachRouter);
 app.use('/api/instantly', authMiddleware, instantlyRouter);
+app.use('/api/websites', authMiddleware, websitesRouter);
+app.use('/api/sending-accounts', authMiddleware, sendingAccountsRouter);
+app.use('/api/prototypes', authMiddleware, prototypesRouter);
+app.use('/api/booking', authMiddleware, bookingRouter);
 
 // Serve static files from the Vite build output
 app.use(express.static(path.join(__dirname, 'dist')));

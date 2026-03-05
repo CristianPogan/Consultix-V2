@@ -580,10 +580,16 @@ async function ensureAnalysesTable() {
   await query('CREATE INDEX IF NOT EXISTS idx_audit_analyses_org ON audit_analyses(org_id)').catch(() => {});
   const cols = [
     { name: 'source_summary', type: "JSONB DEFAULT '{}'" },
+    { name: 'analysis_json', type: "JSONB DEFAULT '{}'" },
+    { name: 'updated_at', type: "TIMESTAMPTZ DEFAULT now()" },
   ];
   for (const c of cols) {
     await query(`ALTER TABLE audit_analyses ADD COLUMN IF NOT EXISTS ${c.name} ${c.type}`).catch(() => {});
   }
+
+  await query("ALTER TABLE audit_decks ADD COLUMN IF NOT EXISTS slide_data JSONB DEFAULT '{}'").catch(() => {});
+  await query("ALTER TABLE audit_decks ADD COLUMN IF NOT EXISTS project_id TEXT").catch(() => {});
+
   _analysisTableReady = true;
 }
 

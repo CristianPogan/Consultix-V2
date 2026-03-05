@@ -3,6 +3,18 @@ import { query, ensureOrgExists, getIntegrationCredentials } from '../db.js';
 
 const router = Router();
 
+let _contentPostsReady = false;
+async function ensureContentPostsCols() {
+  if (_contentPostsReady) return;
+  await query("ALTER TABLE content_posts ADD COLUMN IF NOT EXISTS platform TEXT DEFAULT 'linkedin'").catch(() => {});
+  await query("ALTER TABLE content_posts ADD COLUMN IF NOT EXISTS format TEXT DEFAULT 'text'").catch(() => {});
+  await query("ALTER TABLE content_posts ADD COLUMN IF NOT EXISTS hook TEXT").catch(() => {});
+  await query("ALTER TABLE content_posts ADD COLUMN IF NOT EXISTS video_script JSONB").catch(() => {});
+  await query("ALTER TABLE content_posts ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ").catch(() => {});
+  await query("ALTER TABLE content_posts ADD COLUMN IF NOT EXISTS engagement JSONB").catch(() => {});
+  _contentPostsReady = true;
+}
+
 async function getAnthropicKey(orgId) {
   const row = await getIntegrationCredentials(orgId, 'anthropic');
   return row?.credentials_json?.api_key || process.env.ANTHROPIC_API_KEY;
@@ -24,6 +36,7 @@ router.get('/', async (req, res) => {
   try {
     const orgId = req.orgId;
     if (!orgId) return res.status(503).json({ error: 'No organisation configured' });
+    await ensureContentPostsCols();
     const { status, platform } = req.query;
     let sql = 'SELECT * FROM content_posts WHERE org_id = $1';
     const params = [orgId];
