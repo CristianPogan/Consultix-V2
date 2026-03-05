@@ -1076,7 +1076,8 @@ export default function App() {
             { key: "implementation", label: "Implementation", icon: "📋", desc: "Project delivery" },
             { key: "workflows", label: "Workflows", icon: "⚙️", desc: "Automation library" },
             { key: "council", label: "AI Council", icon: "🧠", desc: "Strategic advisor" },
-            { key: "sol_assistant", label: "AI Assistant", icon: "🤖", desc: "Ask anything" },
+            ...(enabledSolutions.includes("sol_assistant") ? [{ key: "sol_assistant", label: "AI Assistant", icon: "🤖", desc: "Personal AI with org context" }] : []),
+            ...(enabledSolutions.includes("website_builder") ? [{ key: "website_builder", label: "Website Builder", icon: "🌐", desc: "AI-powered sites" }] : []),
           ].map(page => (
             <button key={page.key} onClick={() => setActivePage(page.key)} style={{ width: "100%", padding: "10px 12px", marginBottom: 2, background: activePage === page.key ? COLORS.accentBg : "transparent", border: activePage === page.key ? `1px solid ${COLORS.accent}22` : "1px solid transparent", borderRadius: 8, color: activePage === page.key ? COLORS.accent : COLORS.textMuted, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 10, transition: "all 0.15s" }}>
               <span style={{ fontSize: 16 }}>{page.icon}</span>
@@ -8050,6 +8051,9 @@ function SettingsView({ enabledSolutions = [], setEnabledSolutions = () => {} })
   const [configModal, setConfigModal] = useState(null);
   const [leadSearchOrder, setLeadSearchOrder] = useState({ leadSearch: LEAD_SEARCH_KEYS, leadEnrichment: LEAD_ENRICHMENT_KEYS });
   const [leadOrderSaving, setLeadOrderSaving] = useState(false);
+  const [showSkillForm, setShowSkillForm] = useState(false);
+  const [customSkills, setCustomSkills] = useState([]);
+  const [skillForm, setSkillForm] = useState({ name: "", icon: "⚡", prompt: "", data: [], output: "chat" });
   const [integrationCosts, setIntegrationCosts] = useState({});
   const [brandVoiceSchema, setBrandVoiceSchema] = useState([]); // from Postgres form_schemas
 
@@ -8501,9 +8505,6 @@ function SettingsView({ enabledSolutions = [], setEnabledSolutions = () => {} })
         ];
         const EMOJI_PRESETS = ["⚡", "🎯", "🔍", "📊", "🚀"];
         const DATA_OPTIONS = ["leads", "deals", "content", "analytics"];
-        const [showForm, setShowForm] = React.useState(false);
-        const [skills, setSkills] = React.useState([]);
-        const [sf, setSf] = React.useState({ name: "", icon: "⚡", prompt: "", data: [], output: "chat" });
         return (
           <div>
             <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.accent, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12 }}>BUILT-IN SOLUTIONS</div>
@@ -8532,34 +8533,34 @@ function SettingsView({ enabledSolutions = [], setEnabledSolutions = () => {} })
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ fontFamily: FONT, fontSize: 10, color: COLORS.accent, letterSpacing: "0.08em", fontWeight: 600 }}>CUSTOM SKILLS</div>
-              <button onClick={() => setShowForm(!showForm)} style={{ padding: "6px 14px", background: showForm ? COLORS.border : COLORS.accent, color: showForm ? COLORS.textMuted : COLORS.bg, border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                {showForm ? "Cancel" : "+ Create Custom Skill"}
+              <button onClick={() => setShowSkillForm(!showSkillForm)} style={{ padding: "6px 14px", background: showSkillForm ? COLORS.border : COLORS.accent, color: showSkillForm ? COLORS.textMuted : COLORS.bg, border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                {showSkillForm ? "Cancel" : "+ Create Custom Skill"}
               </button>
             </div>
-            {showForm && (
+            {showSkillForm && (
               <div style={{ padding: 18, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, marginBottom: 16, display: "flex", flexDirection: "column", gap: 12 }}>
                 <div>
                   <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Name</label>
-                  <input value={sf.name} onChange={e => setSf({ ...sf, name: e.target.value })} placeholder="My Custom Skill" style={{ width: "100%", padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  <input value={skillForm.name} onChange={e => setSkillForm({ ...skillForm, name: e.target.value })} placeholder="My Custom Skill" style={{ width: "100%", padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
                 </div>
                 <div>
                   <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Icon</label>
                   <div style={{ display: "flex", gap: 6 }}>
                     {EMOJI_PRESETS.map(em => (
-                      <button key={em} onClick={() => setSf({ ...sf, icon: em })} style={{ width: 32, height: 32, borderRadius: 6, border: sf.icon === em ? `2px solid ${COLORS.accent}` : `1px solid ${COLORS.border}`, background: COLORS.bg, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{em}</button>
+                      <button key={em} onClick={() => setSkillForm({ ...skillForm, icon: em })} style={{ width: 32, height: 32, borderRadius: 6, border: skillForm.icon === em ? `2px solid ${COLORS.accent}` : `1px solid ${COLORS.border}`, background: COLORS.bg, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{em}</button>
                     ))}
                   </div>
                 </div>
                 <div>
                   <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>System Prompt</label>
-                  <textarea value={sf.prompt} onChange={e => setSf({ ...sf, prompt: e.target.value })} rows={3} placeholder="You are a helpful assistant that..." style={{ width: "100%", padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+                  <textarea value={skillForm.prompt} onChange={e => setSkillForm({ ...skillForm, prompt: e.target.value })} rows={3} placeholder="You are a helpful assistant that..." style={{ width: "100%", padding: "8px 12px", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontFamily: FONT_BODY, fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
                 </div>
                 <div>
                   <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Data Access</label>
                   <div style={{ display: "flex", gap: 10 }}>
                     {DATA_OPTIONS.map(d => (
                       <label key={d} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: COLORS.text, fontFamily: FONT_BODY, cursor: "pointer" }}>
-                        <input type="checkbox" checked={sf.data.includes(d)} onChange={() => setSf({ ...sf, data: sf.data.includes(d) ? sf.data.filter(x => x !== d) : [...sf.data, d] })} /> {d}
+                        <input type="checkbox" checked={skillForm.data.includes(d)} onChange={() => setSkillForm({ ...skillForm, data: skillForm.data.includes(d) ? skillForm.data.filter(x => x !== d) : [...skillForm.data, d] })} /> {d}
                       </label>
                     ))}
                   </div>
@@ -8568,16 +8569,16 @@ function SettingsView({ enabledSolutions = [], setEnabledSolutions = () => {} })
                   <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 4 }}>Output Type</label>
                   <div style={{ display: "flex", gap: 6 }}>
                     {["chat", "document"].map(t => (
-                      <button key={t} onClick={() => setSf({ ...sf, output: t })} style={{ padding: "6px 16px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none", background: sf.output === t ? COLORS.accent : COLORS.border, color: sf.output === t ? COLORS.bg : COLORS.textMuted }}>{t}</button>
+                      <button key={t} onClick={() => setSkillForm({ ...skillForm, output: t })} style={{ padding: "6px 16px", borderRadius: 6, fontFamily: FONT, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none", background: skillForm.output === t ? COLORS.accent : COLORS.border, color: skillForm.output === t ? COLORS.bg : COLORS.textMuted }}>{t}</button>
                     ))}
                   </div>
                 </div>
-                <button onClick={() => { if (!sf.name.trim()) return; setSkills(prev => [...prev, { ...sf, runs: 0 }]); setSf({ name: "", icon: "⚡", prompt: "", data: [], output: "chat" }); setShowForm(false); }} style={{ alignSelf: "flex-end", padding: "8px 20px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Save Skill</button>
+                <button onClick={() => { if (!skillForm.name.trim()) return; setCustomSkills(prev => [...prev, { ...skillForm, runs: 0 }]); setSkillForm({ name: "", icon: "⚡", prompt: "", data: [], output: "chat" }); setShowSkillForm(false); }} style={{ alignSelf: "flex-end", padding: "8px 20px", background: COLORS.accent, color: COLORS.bg, border: "none", borderRadius: 6, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Save Skill</button>
               </div>
             )}
-            {skills.length > 0 && (
+            {customSkills.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {skills.map((sk, i) => (
+                {customSkills.map((sk, i) => (
                   <div key={i} style={{ padding: "14px 18px", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <span style={{ fontSize: 20 }}>{sk.icon}</span>
