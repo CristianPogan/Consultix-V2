@@ -88,6 +88,20 @@ export default function AppWrapper() {
             <span style={{ fontSize: 9, color: "#4a4a5e", fontFamily: "'JetBrains Mono', monospace" }}>
               {ROLES.find(r => r.key === role)?.desc}
             </span>
+            <button
+              onClick={() => { api.clearToken(); window.location.reload(); }}
+              style={{
+                marginLeft: 12, padding: "5px 14px", borderRadius: 6,
+                background: "transparent", border: "1px solid #f04d4d33",
+                color: "#f04d4d", fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 10, fontWeight: 600, cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(240,77,77,0.08)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+            >
+              Log Out
+            </button>
           </div>
         )}
         

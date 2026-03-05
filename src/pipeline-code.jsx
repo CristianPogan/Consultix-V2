@@ -1171,6 +1171,25 @@ export default function App() {
               <span style={{ fontSize: 16 }}>👤</span>
               <div style={{ fontWeight: 600, fontSize: 13 }}>Account</div>
             </button>
+            <button
+              onClick={() => { api.clearToken(); window.location.reload(); }}
+              style={{
+                width: "100%", padding: "10px 12px", marginTop: 4,
+                background: "transparent",
+                border: "1px solid transparent",
+                borderRadius: 8,
+                color: COLORS.danger,
+                fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500,
+                cursor: "pointer", textAlign: "left",
+                display: "flex", alignItems: "center", gap: 10,
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = COLORS.dangerBg; e.currentTarget.style.borderColor = COLORS.danger + "22"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}
+            >
+              <span style={{ fontSize: 16 }}>🚪</span>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>Log Out</div>
+            </button>
           </div>
           </div>
         </div>
@@ -11226,10 +11245,24 @@ function AccountView() {
 
   return (
     <div style={{ flex: 1, overflow: "auto", padding: 32 }}>
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h2 style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, margin: 0 }}>
           <span style={{ color: COLORS.accent }}>Account</span>
         </h2>
+        <button
+          onClick={() => { api.clearToken(); window.location.reload(); }}
+          style={{
+            padding: "8px 18px", background: "transparent",
+            border: `1px solid ${COLORS.danger}33`, borderRadius: 8,
+            color: COLORS.danger, fontFamily: FONT, fontSize: 12, fontWeight: 600,
+            cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
+            transition: "all 0.15s",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = COLORS.dangerBg; e.currentTarget.style.borderColor = COLORS.danger + "55"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = COLORS.danger + "33"; }}
+        >
+          <span>🚪</span> Log Out
+        </button>
       </div>
 
       <div style={{ display: "flex", gap: 0, marginBottom: 24, borderBottom: `1px solid ${COLORS.border}` }}>
