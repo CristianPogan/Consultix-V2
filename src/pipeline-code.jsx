@@ -4390,7 +4390,15 @@ function WorkflowsLibraryView() {
   useEffect(() => {
     api.workflows.list().then(data => {
       const wfs = Array.isArray(data) ? data : data.workflows || [];
-      setWorkflows(wfs.map(w => ({ ...w, tools: w.tools || [], desc: w.description || w.desc || '' })));
+      setWorkflows(wfs.map(w => ({
+        ...w,
+        name: w.name || w.title || 'Untitled Workflow',
+        desc: w.description || w.desc || '',
+        tools: Array.isArray(w.tools) ? w.tools : [],
+        steps: typeof w.steps === 'number' ? w.steps : (Array.isArray(w.steps) ? w.steps.length : 0),
+        rating: w.rating || 0,
+        downloads: w.downloads || 0,
+      })));
     }).catch(() => {});
   }, []);
 
@@ -4455,14 +4463,14 @@ function WorkflowsLibraryView() {
             </div>
             <div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
-                {wf.tools.map(tool => (
+                {(Array.isArray(wf.tools) ? wf.tools : []).filter(t => typeof t === "string").map(tool => (
                   <span key={tool} style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, background: COLORS.bg, border: `1px solid ${COLORS.border}`, color: COLORS.textDim, fontFamily: FONT }}>{tool}</span>
                 ))}
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", gap: 12, fontSize: 10, color: COLORS.textDim }}>
-                  <span>{wf.steps} steps</span>
-                  <span>{wf.downloads} downloads</span>
+                  <span>{typeof wf.steps === "number" ? wf.steps : (Array.isArray(wf.steps) ? wf.steps.length : 0)} steps</span>
+                  <span>{wf.downloads || 0} downloads</span>
                 </div>
                 <button style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.textMuted, fontFamily: FONT, fontSize: 10, fontWeight: 600, cursor: "pointer" }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accent; }}
